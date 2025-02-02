@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=42", "wheel"]
+requires = ["setuptools>=42"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -40,3 +40,10 @@ version = { attr = "i7aof.version.__version__" }
 
 [project.urls]
 "Bug Tracker" = "https://github.com/ismip/ismip7-antarctic-ocean-forcing/issues"
+
+[tool.isort]
+multi_line_output = "3"
+include_trailing_comma = true
+force_grid_wrap = "0"
+use_parentheses = true
+line_length = "79"

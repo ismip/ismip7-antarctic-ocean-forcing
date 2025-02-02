@@ -27,6 +27,7 @@ cd main
 conda create -n ismip7_dev --file dev-spec.txt
 conda activate ismip7_dev
 python -m pip install -e . --no-deps --no-build-isolation
+pre-commit install
 ```
 
 To use this environment, you simply run:

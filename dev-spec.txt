@@ -17,3 +17,8 @@ xarray
 # build
 pip
 setuptools >=42
+
+# linting
+pre-commit
+flake8
+flake8-isort
