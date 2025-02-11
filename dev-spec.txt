@@ -2,6 +2,7 @@
 # when adding dependencies here, please also add to pyproject.toml
 # if they are available on PyPI
 python >=3.10
+cmocean
 esmf
 gsw
 matplotlib
