@@ -15,4 +15,4 @@ def main():
                         action='version',
                         version=f'ismip6_ocean_forcing {__version__}',
                         help="Show version number and exit")
-    args = parser.parse_args()
+    args = parser.parse_args()  # noqa: F841
