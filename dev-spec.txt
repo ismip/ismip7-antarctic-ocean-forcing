@@ -1,0 +1,24 @@
+# base
+# when adding dependencies here, please also add to pyproject.toml
+# if they are available on PyPI
+python >=3.10
+esmf
+gsw
+matplotlib
+nco
+netcdf4
+numpy
+requests
+progressbar2
+pyremap >=1.4.1
+scipy
+xarray
+
+# build
+pip
+setuptools >=42
+
+# linting
+pre-commit
+flake8
+flake8-isort

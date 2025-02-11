@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=42"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ismip7-antarctic-ocean-forcing"
+dynamic = ["version"]
+description = "A package for producing Antarctic ocean forcing data for ISMIP7"
+authors = [
+    { name = "Xylar Asay-Davis", email = "xylarstorm@gmail.com" }
+]
+license = { file = "LICENSE" }
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+# dependencies that are available on PyPI, a subset of those on conda-forge
+dependencies = [
+    "gsw",
+    "matplotlib",
+    "netcdf4",
+    "numpy",
+    "requests",
+    "progressbar2",
+    "scipy",
+    "xarray"
+]
+
+[tool.setuptools.packages.find]
+include = ["i7aof"]
+
+[project.scripts]
+ismip7-antarctic-ocean-forcing = "i7aof.__main__:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "i7aof.version.__version__" }
+
+[project.urls]
+"Bug Tracker" = "https://github.com/ismip/ismip7-antarctic-ocean-forcing/issues"
+
+[tool.isort]
+multi_line_output = "3"
+include_trailing_comma = true
+force_grid_wrap = "0"
+use_parentheses = true
+line_length = "79"
