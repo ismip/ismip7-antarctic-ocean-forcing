@@ -91,4 +91,4 @@ jobs:
         run: |
           conda activate ismip7_dev
           ismip7-antarctic-ocean-forcing --help
-          python -c "import i7aof; print(i7aof.version.__version__)"
+          python -c "import i7aof.version; print(i7aof.version.__version__)"
