@@ -19,6 +19,7 @@ classifiers = [
 ]
 # dependencies that are available on PyPI, a subset of those on conda-forge
 dependencies = [
+    "cmocean",
     "gsw",
     "matplotlib",
     "netcdf4",
@@ -42,7 +43,9 @@ version = { attr = "i7aof.version.__version__" }
 "Bug Tracker" = "https://github.com/ismip/ismip7-antarctic-ocean-forcing/issues"
 
 [tool.ruff]
-exclude = [".git", "docs"]
+exclude = [".git",
+           "docs",
+           "*.ipynb"]
 line-length = 79
 
 [tool.ruff.lint]

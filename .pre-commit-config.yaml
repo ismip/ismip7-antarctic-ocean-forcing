@@ -1,4 +1,4 @@
-exclude: "docs|conda/meta.yaml"
+exclude: "docs|.*.ipynb"
 default_stages: [pre-commit]
 fail_fast: true
 
