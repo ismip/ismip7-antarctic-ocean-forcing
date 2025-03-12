@@ -1,4 +1,4 @@
-import cmocean  # noqa: F401
+import cmocean
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
@@ -57,17 +57,19 @@ class Region:
         fig, ax = plt.subplots(1, 3, figsize=(3 * 5, 6), sharex=True,
                                sharey=True)
 
-        ax[0].pcolormesh(self.ref.Sb, self.ref.Tb, self.prd.Vb.T,
+        im = ax[0].pcolormesh(self.ref.Sb, self.ref.Tb, self.prd.Vb.T,
                          norm=mpl.colors.LogNorm(vmin=1e9, vmax=1e13),
                          cmap='Greys')
-        plt.colorbar(im, ax=ax[0], orientation='horizontal')  # noqa: F821
-        ax[0].set_title(f'Reference ({self.ref.model} {self.ref.y0}-{self.ref.y1})')  # noqa: E501
+        plt.colorbar(im, ax=ax[0], orientation='horizontal')
+        ax[0].set_title(f'Reference {self.ref.model} '
+                        + f'({self.ref.y0}-{self.ref.y1})')
         ax[0].set_ylabel(self.region)
 
         im = ax[1].pcolormesh(self.prd.Sb, self.prd.Tb, self.prd.Vb.T,
                               norm=mpl.colors.LogNorm(vmin=1e9, vmax=1e13))
         plt.colorbar(im, ax=ax[1], orientation='horizontal')
-        ax[1].set_title(f'Present day {self.model} ({self.prd.y0}-{self.prd.y1})')  # noqa: E501
+        ax[1].set_title(f'Present day {self.model} '
+                        + f'({self.prd.y0}-{self.prd.y1})')
         # ax[1].plot(self.prd.S[:,jj,ii],self.prd.T[:,jj,ii],c='tab:red')
 
         im = ax[2].pcolormesh(self.fut.Sb, self.fut.Tb, self.fut.Vb.T,
@@ -84,16 +86,17 @@ class Region:
         im = ax[0].pcolormesh(self.ref.Sb, self.ref.Tb, self.ref.Vb.T,
                               norm=mpl.colors.LogNorm(vmin=1e9, vmax=1e13))
         plt.colorbar(im, ax=ax[0], orientation='horizontal')
-        ax[0].set_title(f'Reference ({self.ref.model} {self.ref.y0}-{self.ref.y1})')  # noqa: E501
+        ax[0].set_title(f'Reference {self.ref.model} '
+                        + f'({self.ref.y0}-{self.ref.y1})')
         ax[0].set_ylabel(self.region)
 
         im = ax[1].pcolormesh(self.prd.Sb, self.prd.Tb, self.prd.Vb.T,
                               norm=mpl.colors.LogNorm(vmin=1e9, vmax=1e13))
         plt.colorbar(im, ax=ax[1], orientation='horizontal')
-        ax[1].set_title(f'present day {self.model} ({self.prd.y0}-{self.prd.y1})')  # noqa: E501
+        ax[1].set_title(f'present day {self.model} '
+                        + f'({self.prd.y0}-{self.prd.y1})')
         # ax[0].plot(self.prd.S[:,jj,ii],self.prd.T[:,jj,ii],c='tab:red')
 
-        # im = ax[2].pcolormesh(self.prd.Sc,self.prd.Tc,self.fut.Vb.T,norm=mpl.colors.LogNorm(vmin=1e9,vmax=1e13),cmap='Greys')  # noqa: E501
         im = ax[2].pcolormesh(self.prd.Sb, self.prd.Tb, self.fut.deltaT.T,
                               cmap='cmo.balance', vmin=-3, vmax=3)
         plt.colorbar(im, ax=ax[2], orientation='horizontal')
@@ -182,16 +185,15 @@ class Region:
             prd, dum = np.histogram(AA * (self.prd.S - self.prd.S95) +
                                     self.ref.S95, bins=self.ref.Sb,
                                     weights=self.prd.V)
-            rmse[A] = (
-                np.sum(np.where(prd == 0, 0, (np.log10(prd / np.sum(prd)) - np.log10(ref / np.sum(ref))) ** 2)) ** .5 /  # noqa: E501
-                np.sum(np.where(prd == 0, 0, 1)))
-            # rmse[A] = np.sum(np.where(prd==0,0,(np.log10(prd/np.sum(prd))-np.log10(ref/np.sum(ref))))**2) / np.sum(np.where(prd==0,0,1))**.5  # noqa: E501
+            rmse[A] = (np.sum(np.where(prd == 0, 0, 
+                       (np.log10(prd / np.sum(prd)) 
+                        - np.log10(ref / np.sum(ref))) ** 2)) ** .5 
+                      / np.sum(np.where(prd == 0, 0, 1)))
 
             # print(AA,rmse[A])
         out = np.unravel_index(np.nanargmin(rmse, axis=None), rmse.shape)
         self.dSa = a[out[0]]
         self.prd.Sc = self.dSa * (self.prd.Sb - self.prd.S95) + self.ref.S95
-        # self.fut.Sc = self.dSa*(self.fut.Sb-self.prd.S95)+self.ref.S95 #Corrected S  # noqa: E501
 
         # T-bias (scale 95th percentile of T-Tmin)
         A, B = np.histogram(
@@ -225,13 +227,15 @@ class Region:
             self.prd.S.flatten()[self.prd.V.flatten() > 0],
             self.prd.T.flatten()[self.prd.V.flatten() > 0],
             bins=100,
-            weights=(self.prd.V * self.fut.dTraw).flatten()[self.prd.V.flatten() > 0])  # noqa: E501
+            weights=(self.prd.V * self.fut.dTraw).flatten()
+                [self.prd.V.flatten() > 0])
         self.fut.deltaT = VTdel / self.prd.Vb
         VSdel, Sdel, Tdel = np.histogram2d(
             self.prd.S.flatten()[self.prd.V.flatten() > 0],
             self.prd.T.flatten()[self.prd.V.flatten() > 0],
             bins=100,
-            weights=(self.prd.V * self.fut.dSraw).flatten()[self.prd.V.flatten() > 0])  # noqa: E501
+            weights=(self.prd.V * self.fut.dSraw).flatten()
+                [self.prd.V.flatten() > 0])
         self.fut.deltaS = VSdel / self.prd.Vb
 
         # Create filled binned deltaT and deltaS through extrapolation
@@ -299,7 +303,8 @@ class Region:
             bins=100,
             range=[[self.ref.Sb[0], self.ref.Sb[-1]],
                    [self.ref.Tb[0], self.ref.Tb[-1]]],
-            weights=(self.ref.V * self.fut.dTcor).flatten()[self.ref.V.flatten() > 0])  # noqa: E501
+            weights=(self.ref.V * self.fut.dTcor).flatten()
+                [self.ref.V.flatten() > 0])
         self.fut.dTcorb = VTdel / self.ref.Vb
         VSdel, Sdel, Tdel = np.histogram2d(
             self.ref.S.flatten()[self.ref.V.flatten() > 0],
@@ -307,7 +312,8 @@ class Region:
             bins=100,
             range=[[self.ref.Sb[0], self.ref.Sb[-1]],
                    [self.ref.Tb[0], self.ref.Tb[-1]]],
-            weights=(self.ref.V * self.fut.dScor).flatten()[self.ref.V.flatten() > 0])  # noqa: E501
+            weights=(self.ref.V * self.fut.dScor).flatten()
+                [self.ref.V.flatten() > 0])
         self.fut.dScorb = VSdel / self.ref.Vb
 
     def get_profiles(self):
@@ -338,7 +344,7 @@ class Region:
         try:
             out = np.average(np.where(np.isnan(var), 0, var), axis=(1, 2),
                              weights=run.V)
-        except:  # noqa: E722
+        except ZeroDivisionError:
             out = np.nan * np.ones(var.shape[0])
             kmax = np.where(np.sum(run.V, axis=(1, 2)) == 0)[0][0]
             out[:kmax] = np.average(np.where(np.isnan(var[:kmax, :, :]), 0,

@@ -78,7 +78,7 @@ class Run:
         if self.model in ['CESM2']:
             # Read all available volcello files
             ds = xr.open_mfdataset(
-                f'/usr/people/lambert/work2/data/cmip6/{self.model}/volcello*.nc')  # noqa: E501
+                f'/home/erwin/data/cmip6/cmip6/{self.model}/volcello*.nc')  # noqa: E501
 
             # Select specified domain (horizontal and vertical). Note: volume
             # is time-independent for this model
@@ -96,7 +96,7 @@ class Run:
 
             # Read thetao files
             ds = xr.open_mfdataset(
-                f'/usr/people/lambert/work2/data/cmip6/{self.model}/historical/thetao/thetao*.nc')  # noqa: E501
+                f'/home/erwin/data/cmip6/cmip6/{self.model}/historical/thetao/thetao*.nc')  # noqa: E501
             ds = ds.sel(nlat=slice(self.j0, self.j1),
                         nlon=slice(self.i0, self.i1),
                         lev=slice(self.k0 * 100., self.k1 * 100.))
@@ -109,10 +109,10 @@ class Run:
             # Read thickness files
             if self.y1 - self.y0 == 1:
                 ds = xr.open_dataset(
-                    f'/usr/people/lambert/work2/data/cmip6/{self.model}/{self.run}/thkcello/thkcello_Omon_{self.model}_{self.run}_r1i1p1f1_gn_{self.y0}01-{self.y0}12.nc')  # noqa: E501
+                    f'/home/erwin/data/cmip6/cmip6/{self.model}/{self.run}/thkcello/thkcello_Omon_{self.model}_{self.run}_r1i1p1f1_gn_{self.y0}01-{self.y0}12.nc')  # noqa: E501
             else:
                 ds = xr.open_mfdataset(
-                    f'/usr/people/lambert/work2/data/cmip6/{self.model}/{self.run}/thkcello/*.nc', combine='by_coords')  # noqa: E501
+                    f'/home/erwin/data/cmip6/cmip6/{self.model}/{self.run}/thkcello/*.nc', combine='by_coords')  # noqa: E501
 
             # Select temporal and spatial domains
             ds = ds.sel(time=slice(f'{self.y0}-01-01', f'{self.y1}-01-01'),
@@ -134,7 +134,7 @@ class Run:
 
             # Read horizontal area of cells
             ds = xr.open_dataset(
-                f'/usr/people/lambert/work2/data/cmip6/{self.model}/areacello_Ofx_EC-Earth3_historical_r1i1p1f1_gn.nc')  # noqa: E501
+                f'/home/erwin/data/cmip6/cmip6/{self.model}/areacello_Ofx_EC-Earth3_historical_r1i1p1f1_gn.nc')  # noqa: E501
             ds = ds.sel(j=slice(self.j0, self.j1), i=slice(self.i0, self.i1))
 
             self.areacello = ds.areacello.values
@@ -149,7 +149,7 @@ class Run:
         elif self.model in ['UKESM1-0-LL']:
             # Read thickness files
             ds = xr.open_mfdataset(
-                f'/usr/people/lambert/work2/data/cmip6/{self.model}/{self.run}/thkcello/*.nc')  # noqa: E501
+                f'/home/erwin/data/cmip6/cmip6/{self.model}/{self.run}/thkcello/*.nc')  # noqa: E501
 
             # Select spatial and temporal domain
             ds = ds.sel(time=slice(f'{self.y0}-01-01', f'{self.y1}-01-01'),
@@ -168,7 +168,7 @@ class Run:
 
             # Read horizontal area of cells
             ds = xr.open_dataset(
-                f'/usr/people/lambert/work2/data/cmip6/{self.model}/areacello_Ofx_UKESM1-0-LL_piControl_r1i1p1f2_gn.nc')  # noqa: E501
+                f'/home/erwin/data/cmip6/cmip6/{self.model}/areacello_Ofx_UKESM1-0-LL_piControl_r1i1p1f2_gn.nc')  # noqa: E501
             ds = ds.sel(j=slice(self.j0, self.j1), i=slice(self.i0, self.i1))
 
             self.areacello = ds.areacello.values
@@ -183,7 +183,7 @@ class Run:
         elif self.model == 'WOA23':
             # Read data file and select temporal and spatial domain
             ds = xr.open_dataset(
-                '/usr/people/lambert/work/projects/data/woa23/woa23_decav91C0_t00_04.nc', decode_cf=False)  # noqa: E501
+                '//home/erwin/data/woa23/woa23_decav91C0_t00_04.nc', decode_cf=False)  # noqa: E501
             ds = ds.isel(time=0)
             ds = ds.sel(lon=slice(self.i0, self.i1),
                         lat=slice(self.j0, self.j1),
@@ -221,7 +221,7 @@ class Run:
 
         if self.model in ['CESM2']:
             ds = xr.open_mfdataset(
-                f'/usr/people/lambert/work2/data/cmip6/{self.model}/{self.run}/thetao/*.nc', combine='by_coords')  # noqa: E501
+                f'/home/erwin/data/cmip6/cmip6/{self.model}/{self.run}/thetao/*.nc', combine='by_coords')  # noqa: E501
             ds = ds.sel(time=slice(f'{self.y0}-01-01', f'{self.y1}-01-01'),
                         nlat=slice(self.j0, self.j1),
                         nlon=slice(self.i0, self.i1),
@@ -231,7 +231,7 @@ class Run:
             ds.close()
 
             ds = xr.open_mfdataset(
-                f'/usr/people/lambert/work2/data/cmip6/{self.model}/{self.run}/so/*.nc', combine='by_coords')  # noqa: E501
+                f'/home/erwin/data/cmip6/cmip6/{self.model}/{self.run}/so/*.nc', combine='by_coords')  # noqa: E501
             ds = ds.sel(time=slice(f'{self.y0}-01-01', f'{self.y1}-01-01'),
                         nlat=slice(self.j0, self.j1),
                         nlon=slice(self.i0, self.i1),
@@ -242,10 +242,10 @@ class Run:
         elif self.model in ['EC-Earth3']:
             if self.y1 - self.y0 == 1:
                 ds = xr.open_dataset(
-                    f'/usr/people/lambert/work2/data/cmip6/{self.model}/{self.run}/thetao/thetao_Omon_{self.model}_{self.run}_r1i1p1f1_gn_{self.y0}01-{self.y0}12.nc')  # noqa: E501
+                    f'/home/erwin/data/cmip6/cmip6/{self.model}/{self.run}/thetao/thetao_Omon_{self.model}_{self.run}_r1i1p1f1_gn_{self.y0}01-{self.y0}12.nc')  # noqa: E501
             else:
                 ds = xr.open_mfdataset(
-                    f'/usr/people/lambert/work2/data/cmip6/{self.model}/{self.run}/thetao/*.nc', combine='by_coords')  # noqa: E501
+                    f'/home/erwin/data/cmip6/cmip6/{self.model}/{self.run}/thetao/*.nc', combine='by_coords')  # noqa: E501
             ds = ds.sel(time=slice(f'{self.y0}-01-01', f'{self.y1}-01-01'),
                         j=slice(self.j0, self.j1), i=slice(self.i0, self.i1),
                         lev=slice(self.k0, self.k1))
@@ -255,10 +255,10 @@ class Run:
 
             if self.y1 - self.y0 == 1:
                 ds = xr.open_dataset(
-                    f'/usr/people/lambert/work2/data/cmip6/{self.model}/{self.run}/so/so_Omon_{self.model}_{self.run}_r1i1p1f1_gn_{self.y0}01-{self.y0}12.nc')  # noqa: E501
+                    f'/home/erwin/data/cmip6/cmip6/{self.model}/{self.run}/so/so_Omon_{self.model}_{self.run}_r1i1p1f1_gn_{self.y0}01-{self.y0}12.nc')  # noqa: E501
             else:
                 ds = xr.open_mfdataset(
-                    f'/usr/people/lambert/work2/data/cmip6/{self.model}/{self.run}/so/*.nc', combine='by_coords')  # noqa: E501
+                    f'/home/erwin/data/cmip6/cmip6/{self.model}/{self.run}/so/*.nc', combine='by_coords')  # noqa: E501
             ds = ds.sel(time=slice(f'{self.y0}-01-01', f'{self.y1}-01-01'),
                         j=slice(self.j0, self.j1), i=slice(self.i0, self.i1),
                         lev=slice(self.k0, self.k1))
@@ -267,7 +267,7 @@ class Run:
 
         elif self.model in ['UKESM1-0-LL']:
             ds = xr.open_mfdataset(
-                f'/usr/people/lambert/work2/data/cmip6/{self.model}/{self.run}/thetao/*.nc', combine='by_coords')  # noqa: E501
+                f'/home/erwin/data/cmip6/cmip6/{self.model}/{self.run}/thetao/*.nc', combine='by_coords')  # noqa: E501
             ds = ds.sel(time=slice(f'{self.y0}-01-01', f'{self.y1}-01-01'),
                         j=slice(self.j0, self.j1), i=slice(self.i0, self.i1),
                         lev=slice(self.k0, self.k1))
@@ -276,7 +276,7 @@ class Run:
             ds.close()
 
             ds = xr.open_mfdataset(
-                f'/usr/people/lambert/work2/data/cmip6/{self.model}/{self.run}/so/*.nc', combine='by_coords')  # noqa: E501
+                f'/home/erwin/data/cmip6/cmip6/{self.model}/{self.run}/so/*.nc', combine='by_coords')  # noqa: E501
             ds = ds.sel(time=slice(f'{self.y0}-01-01', f'{self.y1}-01-01'),
                         j=slice(self.j0, self.j1), i=slice(self.i0, self.i1),
                         lev=slice(self.k0, self.k1))
@@ -286,7 +286,7 @@ class Run:
         elif self.model == 'WOA23':
             # Already got T, so only need to read S
             ds = xr.open_dataset(
-                '/usr/people/lambert/work/projects/data/woa23/woa23_decav91C0_s00_04.nc', decode_cf=False)  # noqa: E501
+                '/home/erwin/data/woa23/woa23_decav91C0_s00_04.nc', decode_cf=False)  # noqa: E501
             ds = ds.isel(time=0)
             ds = ds.sel(lon=slice(self.i0, self.i1),
                         lat=slice(self.j0, self.j1),
