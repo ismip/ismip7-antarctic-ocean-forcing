@@ -185,9 +185,9 @@ class Region:
             prd, dum = np.histogram(AA * (self.prd.S - self.prd.S95) +
                                     self.ref.S95, bins=self.ref.Sb,
                                     weights=self.prd.V)
-            rmse[A] = (np.sum(np.where(prd == 0, 0, 
-                       (np.log10(prd / np.sum(prd)) 
-                        - np.log10(ref / np.sum(ref))) ** 2)) ** .5 
+            rmse[A] = (np.sum(np.where(prd == 0, 0,
+                       (np.log10(prd / np.sum(prd))
+                        - np.log10(ref / np.sum(ref))) ** 2)) ** .5
                       / np.sum(np.where(prd == 0, 0, 1)))
 
             # print(AA,rmse[A])
