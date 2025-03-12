@@ -1,4 +1,4 @@
-import cmocean
+import cmocean # noqa: F401
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
