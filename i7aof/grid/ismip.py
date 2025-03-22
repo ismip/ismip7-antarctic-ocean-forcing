@@ -31,8 +31,8 @@ def write_ismip_grid(config):
     section = config['ismip_grid']
     dx = section.getfloat('dx')
     dy = section.getfloat('dy')
-    nx = np.round(ismip_lx / dx)
-    ny = np.round(ismip_ly / dy)
+    nx = int(np.round(ismip_lx / dx))
+    ny = int(np.round(ismip_ly / dy))
     dx = ismip_lx / nx
     dy = ismip_ly / ny
     x = dx * np.arange(-(nx - 1) // 2, (nx - 1) // 2 + 1)
