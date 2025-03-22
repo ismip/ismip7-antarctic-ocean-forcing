@@ -13,6 +13,7 @@ requests
 progressbar2
 pyremap >=1.4.1
 scipy
+tqdm
 xarray
 
 # build
