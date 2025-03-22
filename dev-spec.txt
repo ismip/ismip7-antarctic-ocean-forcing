@@ -12,6 +12,7 @@ netcdf4
 numpy
 requests
 progressbar2
+pyproj
 pyremap >=1.4.1
 scipy
 tqdm
