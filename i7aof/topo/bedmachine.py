@@ -64,7 +64,16 @@ class BedMachineAntarcticaV3(TopoBase):
         in_mesh_name = 'bedmachine_antarctica_v3'
         out_mesh_name = f'ismip_{horiz_res_str}'
         method = config.get('topo', 'remap_method')
-        cores = config.get('topo', 'remap_cores')
+        cores = config.get('remap', 'cores')
+        regrid_weight_gen = config.get('remap', 'regrid_weight_gen')
+
+        if regrid_weight_gen.lower() == 'none':
+            regrid_weight_gen = None
+        parallel_exec = config.get('remap', 'parallel_exec')
+
+        if parallel_exec.lower() == 'none':
+            parallel_exec = None
+        include_logs = config.getboolean('remap', 'include_logs')
 
         map_filename = os.path.join(
             'topo', f'map_{in_mesh_name}_to_{out_mesh_name}_{method}.nc'
@@ -92,7 +101,13 @@ class BedMachineAntarcticaV3(TopoBase):
             mappingFileName=map_filename,
         )
         print('  Computing remapping weights...')
-        remapper.build_mapping_file(method=method, mpiTasks=cores)
+        remapper.build_mapping_file(
+            method=method,
+            mpiTasks=cores,
+            esmf_parallel_exec=parallel_exec,
+            esmf_path=regrid_weight_gen,
+            include_logs=include_logs,
+        )
         print('  Remapping fields...')
         remapper.remap_file(in_filename, out_filename)
         print('  Done.')
