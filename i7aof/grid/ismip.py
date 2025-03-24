@@ -44,11 +44,25 @@ def write_ismip_grid(config):
     ds.y.attrs['units'] = 'meters'
     ds.y.attrs['standard_name'] = 'projection_y_coordinate'
     ds.y.attrs['long_name'] = 'y coordinate of projection'
+    x_bnds = np.zeros((nx, 2))
+    y_bnds = np.zeros((ny, 2))
+    x_bnds[:, 0] = x - 0.5 * dx
+    x_bnds[:, 1] = x + 0.5 * dx
+    y_bnds[:, 0] = y - 0.5 * dy
+    y_bnds[:, 1] = y + 0.5 * dy
+    ds['x_bnds'] = (('x', 'nbounds'), x_bnds)
+    ds['y_bnds'] = (('y', 'nbounds'), y_bnds)
+    ds.x_bnds.attrs['units'] = 'meters'
+    ds.x_bnds.attrs['standard_name'] = 'projection_x_coordinate_bounds'
+    ds.x_bnds.attrs['long_name'] = 'x coordinate bounds of projection'
+    ds.y_bnds.attrs['units'] = 'meters'
+    ds.y_bnds.attrs['standard_name'] = 'projection_y_coordinate_bounds'
+    ds.y_bnds.attrs['long_name'] = 'y coordinate bounds of projection'
     ds.attrs['Grid'] = (
         'Datum = WGS84, earth_radius = 6378137., '
         'earth_eccentricity = 0.081819190842621, '
-        'falseeasting = -3040000., '
-        'falsenorthing = -3040000., '
+        'falseeasting = -3044000., '
+        'falsenorthing = -3044000., '
         'standard_parallel = -71., central_meridien = 0, '
         'EPSG=3031'
     )
