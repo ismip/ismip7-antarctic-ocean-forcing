@@ -5,14 +5,17 @@ python >=3.10
 cmocean
 esmf
 gsw
+mpas_tools >=0.36.0,<1.0.0
 matplotlib
 nco
 netcdf4
 numpy
 requests
 progressbar2
+pyproj
 pyremap >=1.4.1
 scipy
+tqdm
 xarray
 
 # build

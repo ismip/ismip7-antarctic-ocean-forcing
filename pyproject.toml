@@ -27,6 +27,7 @@ dependencies = [
     "requests",
     "progressbar2",
     "scipy",
+    "tqdm",
     "xarray"
 ]
 
