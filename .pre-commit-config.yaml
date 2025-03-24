@@ -14,4 +14,12 @@ repos:
   - repo: https://github.com/charliermarsh/ruff-pre-commit
     rev: v0.11.0
     hooks:
+      # Sort the imports
       - id: ruff
+        name: ruff-sort-imports
+        args: [--select, I, --fix]
+      # Run the linter.
+      - id: ruff
+        args: [--fix]
+      # Run the formatter.
+      - id: ruff-format
