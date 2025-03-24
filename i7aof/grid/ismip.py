@@ -2,6 +2,7 @@ import os
 
 import numpy as np
 import xarray as xr
+from pyproj import Proj
 
 # size of the ISMIP grid in meters
 ismip_lx = 6088e3
@@ -44,6 +45,20 @@ def write_ismip_grid(config):
     ds.y.attrs['units'] = 'meters'
     ds.y.attrs['standard_name'] = 'projection_y_coordinate'
     ds.y.attrs['long_name'] = 'y coordinate of projection'
+
+    # Compute lat/lon using pyproj
+    proj = Proj(ismip_proj4)
+    lon, lat = np.meshgrid(x, y)
+    lon, lat = proj(lon, lat, inverse=True)
+    ds['lat'] = (('y', 'x'), lat)
+    ds.lat.attrs['units'] = 'degrees_north'
+    ds.lat.attrs['standard_name'] = 'latitude'
+    ds.lat.attrs['long_name'] = 'latitude coordinate'
+    ds['lon'] = (('y', 'x'), lon)
+    ds.lon.attrs['units'] = 'degrees_east'
+    ds.lon.attrs['standard_name'] = 'longitude'
+    ds.lon.attrs['long_name'] = 'longitude coordinate'
+
     x_bnds = np.zeros((nx, 2))
     y_bnds = np.zeros((ny, 2))
     x_bnds[:, 0] = x - 0.5 * dx
@@ -58,6 +73,22 @@ def write_ismip_grid(config):
     ds.y_bnds.attrs['units'] = 'meters'
     ds.y_bnds.attrs['standard_name'] = 'projection_y_coordinate_bounds'
     ds.y_bnds.attrs['long_name'] = 'y coordinate bounds of projection'
+
+    # Compute lat_bnds and lon_bnds using numpy array math
+    x_corners = np.array([[-0.5, 0.5, 0.5, -0.5], [-0.5, -0.5, 0.5, 0.5]]) * dx
+    y_corners = np.array([[-0.5, -0.5, 0.5, 0.5], [-0.5, 0.5, 0.5, -0.5]]) * dy
+    x_corners = x[:, np.newaxis] + x_corners
+    y_corners = y[:, np.newaxis] + y_corners
+    lon_bnds, lat_bnds = proj(x_corners, y_corners, inverse=True)
+    ds['lat_bnds'] = (('y', 'x', 'nv'), lat_bnds)
+    ds.lat_bnds.attrs['units'] = 'degrees_north'
+    ds.lat_bnds.attrs['standard_name'] = 'latitude_bounds'
+    ds.lat_bnds.attrs['long_name'] = 'latitude bounds'
+    ds['lon_bnds'] = (('y', 'x', 'nv'), lon_bnds)
+    ds.lon_bnds.attrs['units'] = 'degrees_east'
+    ds.lon_bnds.attrs['standard_name'] = 'longitude_bounds'
+    ds.lon_bnds.attrs['long_name'] = 'longitude bounds'
+
     ds.attrs['Grid'] = (
         'Datum = WGS84, earth_radius = 6378137., '
         'earth_eccentricity = 0.081819190842621, '
