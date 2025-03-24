@@ -48,8 +48,8 @@ def write_ismip_grid(config):
 
     # Compute lat/lon using pyproj
     proj = Proj(ismip_proj4)
-    lon, lat = np.meshgrid(x, y)
-    lon, lat = proj(lon, lat, inverse=True)
+    x_bcast, y_bcast = np.meshgrid(x, y)
+    lon, lat = proj(x_bcast, y_bcast, inverse=True)
     ds['lat'] = (('y', 'x'), lat)
     ds.lat.attrs['units'] = 'degrees_north'
     ds.lat.attrs['standard_name'] = 'latitude'
@@ -75,10 +75,13 @@ def write_ismip_grid(config):
     ds.y_bnds.attrs['long_name'] = 'y coordinate bounds of projection'
 
     # Compute lat_bnds and lon_bnds using numpy array math
-    x_corners = np.array([[-0.5, 0.5, 0.5, -0.5], [-0.5, -0.5, 0.5, 0.5]]) * dx
-    y_corners = np.array([[-0.5, -0.5, 0.5, 0.5], [-0.5, 0.5, 0.5, -0.5]]) * dy
-    x_corners = x[:, np.newaxis] + x_corners
-    y_corners = y[:, np.newaxis] + y_corners
+    x_offsets = np.array([-0.5, 0.5, 0.5, -0.5]) * dx
+    y_offsets = np.array([-0.5, -0.5, 0.5, 0.5]) * dy
+    x_corners = np.zeros((ny, nx, 4))
+    y_corners = np.zeros((ny, nx, 4))
+    for i in range(4):
+        x_corners[:, :, i] = x_bcast + x_offsets[i]
+        y_corners[:, :, i] = y_bcast + y_offsets[i]
     lon_bnds, lat_bnds = proj(x_corners, y_corners, inverse=True)
     ds['lat_bnds'] = (('y', 'x', 'nv'), lat_bnds)
     ds.lat_bnds.attrs['units'] = 'degrees_north'
