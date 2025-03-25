@@ -4,7 +4,7 @@ import requests
 from tqdm import tqdm
 
 
-def download_file(url, dest_dir, quiet=False, overwrite=False):
+def download_file(url, dest_path, quiet=False, overwrite=False):
     """
     Download a file from a given URL to a specified destination directory.
 
@@ -12,8 +12,10 @@ def download_file(url, dest_dir, quiet=False, overwrite=False):
     ----------
     url : str
         The URL of the file to download.
-    dest_dir : str
-        The destination directory where the file will be saved.
+    dest_path : str
+        The destination directory or filename where the file will be saved.
+        If a directory, it should already exist.  If a filename, its directory
+        will be created if it does not exist.
     quiet : bool, optional
         If True, suppress the progress bar. Default is False.
     overwrite : bool, optional
@@ -23,22 +25,27 @@ def download_file(url, dest_dir, quiet=False, overwrite=False):
     --------
     >>> download_file('http://example.com/file1.txt', '/path/to/destination', quiet=True, overwrite=True)
     """  # noqa: E501
+    if os.path.isdir(dest_path):
+        dest_dir = dest_path
+        dest_filename = os.path.join(dest_dir, url.split('/')[-1])
+    else:
+        dest_dir = os.path.dirname(dest_path)
+        dest_filename = dest_path
     if not os.path.exists(dest_dir):
         os.makedirs(dest_dir)
-    filename = os.path.join(dest_dir, url.split('/')[-1])
-    if not overwrite and os.path.exists(filename):
+    if not overwrite and os.path.exists(dest_filename):
         if not quiet:
-            print(f'File {filename} already exists, skipping download.')
+            print(f'File {dest_filename} already exists, skipping download.')
         return
     response = requests.get(url, stream=True)
     total_size = int(response.headers.get('content-length', 0))
-    with open(filename, 'wb') as file:
+    with open(dest_filename, 'wb') as file:
         if quiet:
             for data in response.iter_content(chunk_size=1024):
                 file.write(data)
         else:
             with tqdm(
-                desc=filename,
+                desc=dest_filename,
                 total=total_size,
                 unit='B',
                 unit_scale=True,
@@ -48,7 +55,7 @@ def download_file(url, dest_dir, quiet=False, overwrite=False):
                     size = file.write(data)
                     bar.update(size)
     if not quiet:
-        print(f'Downloaded {filename}')
+        print(f'Downloaded {dest_filename}')
 
 
 def download_files(files, base_url, dest_dir, quiet=False, overwrite=False):
@@ -75,5 +82,5 @@ def download_files(files, base_url, dest_dir, quiet=False, overwrite=False):
     """  # noqa: E501
     for file_path in files:
         url = os.path.join(base_url, file_path)
-        dest_subdir = os.path.join(dest_dir, os.path.dirname(file_path))
-        download_file(url, dest_subdir, quiet, overwrite)
+        dest_path = os.path.join(dest_dir, file_path)
+        download_file(url, dest_path, quiet, overwrite)
