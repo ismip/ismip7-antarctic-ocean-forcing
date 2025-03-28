@@ -1,6 +1,6 @@
 import os
 
-from i7aof.remap import remap_projection_to_ismip
+from i7aof.remap.remap import remap_projection_to_ismip
 from i7aof.topo.topo_base import TopoBase
 
 data_url = 'https://nsidc.org/data/nsidc-0756/versions/3'
