@@ -1,14 +1,11 @@
 import os
 
-import pyproj
-from pyremap import Remapper
-from pyremap.descriptor import ProjectionGridDescriptor
-
 from i7aof.grid.ismip import (
     get_horiz_res_string,
     get_ismip_grid_filename,
     ismip_proj4,
 )
+from i7aof.remap.mapping import Mapping
 
 
 def remap_projection_to_ismip(
@@ -45,52 +42,44 @@ def remap_projection_to_ismip(
     if os.path.exists(out_filename):
         return
 
+    in_scrip_filename = in_filename.replace('.nc', '.scrip.nc')
     ismip_grid_filename = get_ismip_grid_filename(config)
+    ismip_scrip_filename = ismip_grid_filename.replace('.nc', '.scrip.nc')
     horiz_res_str = get_horiz_res_string(config)
     out_mesh_name = f'ismip_{horiz_res_str}'
-
-    cores = config.get('remap', 'cores')
-
-    esmf_path = config.get('remap', 'esmf_path')
-    if esmf_path.lower() == 'none':
-        esmf_path = None
-
-    parallel_exec = config.get('remap', 'parallel_exec')
-    if parallel_exec.lower() == 'none':
-        parallel_exec = None
-
-    include_logs = config.getboolean('remap', 'include_logs')
 
     map_filename = os.path.join(
         map_dir, f'map_{in_mesh_name}_to_{out_mesh_name}_{method}.nc'
     )
+    cores = config.getint('remap', 'cores')
+    mapping = Mapping(
+        config=config,
+        ntasks=cores,
+        map_filename=map_filename,
+        method=method,
+        src_mesh_filename=in_scrip_filename,
+        dst_mesh_filename=ismip_scrip_filename,
+    )
+    mapping.src_from_proj(
+        filename=in_filename,
+        mesh_name=in_mesh_name,
+        x_var='x',
+        y_var='y',
+        proj_str=in_proj4,
+    )
+    mapping.dst_from_proj(
+        filename=ismip_grid_filename,
+        mesh_name=out_mesh_name,
+        x_var='x',
+        y_var='y',
+        proj_str=ismip_proj4,
+    )
 
     print(f'Remapping from {in_mesh_name} to ISMIP {horiz_res_str} grid...')
 
-    in_proj = pyproj.Proj(in_proj4)
-    out_proj = pyproj.Proj(ismip_proj4)
-    in_descriptor = ProjectionGridDescriptor.read(
-        projection=in_proj, fileName=in_filename, meshName=in_mesh_name
-    )
-    out_descriptor = ProjectionGridDescriptor.read(
-        projection=out_proj,
-        fileName=ismip_grid_filename,
-        meshName=out_mesh_name,
-    )
-
-    remapper = Remapper(
-        sourceDescriptor=in_descriptor,
-        destinationDescriptor=out_descriptor,
-        mappingFileName=map_filename,
-    )
     print('  Computing remapping weights...')
-    remapper.build_mapping_file(
-        method=method,
-        mpiTasks=cores,
-        esmf_parallel_exec=parallel_exec,
-        esmf_path=esmf_path,
-        include_logs=include_logs,
-    )
+    remapper = mapping.build_map()
+
     print('  Remapping fields...')
     remapper.remap_file(in_filename, out_filename)
     print('  Done.')
