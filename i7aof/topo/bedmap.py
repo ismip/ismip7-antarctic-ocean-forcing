@@ -1,38 +1,42 @@
 import os
 
+from i7aof.download import download_file
 from i7aof.remap import remap_projection_to_ismip
 from i7aof.topo.topo_base import TopoBase
 
-data_url = 'https://nsidc.org/data/nsidc-0756/versions/3'
+data_url = (
+    'https://ramadda.data.bas.ac.uk/repository/entry/get/bedmap3.nc'
+    '?entryid=synth%3A2d0e4791-8e20-46a3-80e4-f5f6716025d2%3AL2JlZG1hcDMubmM%3D'  # noqa: E501
+)
 
-data_filename = 'BedMachineAntarctica-v3.nc'
+data_filename = 'bedmap3.nc'
 
 
-class BedMachineAntarcticaV3(TopoBase):
+class Bedmap3(TopoBase):
     """
-    A class for remapping and reading Bedmachine Antarctica v3 data
+    A class for remapping and reading Bedmap3 data
 
-    See https://nsidc.org/data/nsidc-0756/versions/3 for more information
-    about Bedmachine Antarctica v3 topography data.
+    See https://doi.org/10.5285/2d0e4791-8e20-46a3-80e4-f5f6716025d2 and
+    https://doi.org/10.1038/s41597-025-04672-y for more information about
+    Bedmap3 topography data.
     """
 
     def download_topo(self):
         """
         Download the original topography file.
         """
-        self.get_orig_topo_path()
+        download_file(
+            url=data_url,
+            dest_path='topo/bedmap3.nc',
+            quiet=self.config.getboolean('download', 'quiet'),
+            overwrite=False,
+        )
 
     def get_orig_topo_path(self):
         """
         Get the path to the original topography file before remapping
         """
         filename = os.path.join('topo', data_filename)
-        if not os.path.exists(filename):
-            raise FileNotFoundError(
-                f'File {filename} not found. Please download manually from '
-                f'{data_url}, as we are not authorized to download it for '
-                f'you.'
-            )
         return filename
 
     def get_topo_on_ismip_path(self):
@@ -51,7 +55,7 @@ class BedMachineAntarcticaV3(TopoBase):
         """
         remap_projection_to_ismip(
             in_filename=self.get_orig_topo_path(),
-            in_mesh_name='bedmachine_antarctica_v3',
+            in_mesh_name='bedmap3',
             in_proj4='epsg:3031',
             out_filename=self.get_topo_on_ismip_path(),
             map_dir='topo',
