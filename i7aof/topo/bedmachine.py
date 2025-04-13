@@ -57,4 +57,5 @@ class BedMachineAntarcticaV3(TopoBase):
             map_dir='topo',
             method=self.config.get('topo', 'remap_method'),
             config=self.config,
+            logger=self.logger,
         )

@@ -10,11 +10,14 @@ class TopoBase:
     config : mpas_tools.config.MpasConfigParser
         Configuration options.
 
+    logger : logging.Logger
+        Logger for the class.
+
     horiz_res_str : str
         The horizontal resolution string (e.g. '1km', '2km', '4km', '8km').
     """
 
-    def __init__(self, config):
+    def __init__(self, config, logger):
         """
         Create a topography object.
 
@@ -22,8 +25,11 @@ class TopoBase:
         ----------
         config : mpas_tools.config.MpasConfigParser
             Configuration options.
+        logger : logging.Logger
+            Logger for the class.
         """
         self.config = config
+        self.logger = logger
         self.horiz_res_str = get_horiz_res_string(config)
 
     def download_topo(self):
