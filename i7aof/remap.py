@@ -95,8 +95,9 @@ def remap_projection_to_ismip(
         mesh_name=out_mesh_name,
         proj_str=ismip_proj4,
     )
-    print('  Computing remapping weights...')
-    remapper.build_map(logger=logger)
+    if not os.path.exists(map_filename):
+        print('  Computing remapping weights...')
+        remapper.build_map(logger=logger)
     print('  Remapping fields...')
     remapper.ncremap(in_filename, out_filename)
     print('  Done.')
