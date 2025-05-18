@@ -5,10 +5,16 @@ import xarray as xr
 from pyproj import Proj
 
 # size of the ISMIP grid in meters
-ismip_lx = 6088e3
-ismip_ly = 6088e3
+ismip_lx = 6080e3
+ismip_ly = 6080e3
 
 ismip_proj4 = 'epsg:3031'
+
+# Reference grid metadata
+falseeasting = -3040000.0
+falsenorthing = -3040000.0
+nx_base = 6081
+ny_base = 6081
 
 
 def write_ismip_grid(config):
@@ -31,12 +37,14 @@ def write_ismip_grid(config):
     section = config['ismip_grid']
     dx = section.getfloat('dx')
     dy = section.getfloat('dy')
-    nx = int(np.round(ismip_lx / dx))
-    ny = int(np.round(ismip_ly / dy))
-    dx = ismip_lx / nx
-    dy = ismip_ly / ny
-    x = dx * np.arange(-(nx - 1) // 2, (nx - 1) // 2 + 1)
-    y = dy * np.arange(-(ny - 1) // 2, (ny - 1) // 2 + 1)
+    # Compute nx, ny as in reference: ((nx_base-1)/r)+1
+    nx = int(((nx_base - 1) * 1000 / dx) + 1)
+    ny = int(((ny_base - 1) * 1000 / dy) + 1)
+    dx = ismip_lx / (nx - 1)
+    dy = ismip_ly / (ny - 1)
+    # x/y start at falseeasting/falsenorthing, not centered at zero
+    x = falseeasting + dx * np.arange(nx)
+    y = falsenorthing + dy * np.arange(ny)
     ds['x'] = ('x', x)
     ds.x.attrs['units'] = 'meters'
     ds.x.attrs['standard_name'] = 'projection_x_coordinate'
@@ -95,8 +103,8 @@ def write_ismip_grid(config):
     ds.attrs['Grid'] = (
         'Datum = WGS84, earth_radius = 6378137., '
         'earth_eccentricity = 0.081819190842621, '
-        'falseeasting = -3044000., '
-        'falsenorthing = -3044000., '
+        f'falseeasting = {falseeasting}, '
+        f'falsenorthing = {falsenorthing}, '
         'standard_parallel = -71., central_meridien = 0, '
         'EPSG=3031'
     )
