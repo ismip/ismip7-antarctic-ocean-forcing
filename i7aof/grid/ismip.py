@@ -42,7 +42,7 @@ def write_ismip_grid(config):
     ny = int(((ny_base - 1) * 1000 / dy) + 1)
     dx = ismip_lx / (nx - 1)
     dy = ismip_ly / (ny - 1)
-    # x/y start at falseeasting/falsenorthing, not centered at zero
+    # x/y start at falseeasting/falsenorthing
     x = falseeasting + dx * np.arange(nx)
     y = falsenorthing + dy * np.arange(ny)
     ds['x'] = ('x', x)
