@@ -5,10 +5,16 @@ import xarray as xr
 from pyproj import Proj
 
 # size of the ISMIP grid in meters
-ismip_lx = 6088e3
-ismip_ly = 6088e3
+ismip_lx = 6080e3
+ismip_ly = 6080e3
 
 ismip_proj4 = 'epsg:3031'
+
+# Reference grid metadata
+falseeasting = -3040000.0
+falsenorthing = -3040000.0
+nx_base = 6081
+ny_base = 6081
 
 
 def write_ismip_grid(config):
@@ -31,12 +37,14 @@ def write_ismip_grid(config):
     section = config['ismip_grid']
     dx = section.getfloat('dx')
     dy = section.getfloat('dy')
-    nx = int(np.round(ismip_lx / dx))
-    ny = int(np.round(ismip_ly / dy))
-    dx = ismip_lx / nx
-    dy = ismip_ly / ny
-    x = dx * np.arange(-(nx - 1) // 2, (nx - 1) // 2 + 1)
-    y = dy * np.arange(-(ny - 1) // 2, (ny - 1) // 2 + 1)
+    # Compute nx, ny as in reference: ((nx_base-1)/r)+1
+    nx = int(((nx_base - 1) * 1000 / dx) + 1)
+    ny = int(((ny_base - 1) * 1000 / dy) + 1)
+    dx = ismip_lx / (nx - 1)
+    dy = ismip_ly / (ny - 1)
+    # x/y start at falseeasting/falsenorthing
+    x = falseeasting + dx * np.arange(nx)
+    y = falsenorthing + dy * np.arange(ny)
     ds['x'] = ('x', x)
     ds.x.attrs['units'] = 'meters'
     ds.x.attrs['standard_name'] = 'projection_x_coordinate'
@@ -50,6 +58,8 @@ def write_ismip_grid(config):
     proj = Proj(ismip_proj4)
     x_bcast, y_bcast = np.meshgrid(x, y)
     lon, lat = proj(x_bcast, y_bcast, inverse=True)
+    # Ensure lon in [-180, 180)
+    lon = np.mod(lon + 180, 360) - 180
     ds['lat'] = (('y', 'x'), lat)
     ds.lat.attrs['units'] = 'degrees_north'
     ds.lat.attrs['standard_name'] = 'latitude'
@@ -75,14 +85,16 @@ def write_ismip_grid(config):
     ds.y_bnds.attrs['long_name'] = 'y coordinate bounds of projection'
 
     # Compute lat_bnds and lon_bnds using numpy array math
-    x_offsets = np.array([-0.5, 0.5, 0.5, -0.5]) * dx
-    y_offsets = np.array([-0.5, -0.5, 0.5, 0.5]) * dy
+    x_offsets = np.array([0.5, 0.5, -0.5, -0.5]) * dx
+    y_offsets = np.array([-0.5, 0.5, 0.5, -0.5]) * dy
     x_corners = np.zeros((ny, nx, 4))
     y_corners = np.zeros((ny, nx, 4))
     for i in range(4):
         x_corners[:, :, i] = x_bcast + x_offsets[i]
         y_corners[:, :, i] = y_bcast + y_offsets[i]
     lon_bnds, lat_bnds = proj(x_corners, y_corners, inverse=True)
+    # Ensure lon_bnds in [-180, 180)
+    lon_bnds = np.mod(lon_bnds + 180, 360) - 180
     ds['lat_bnds'] = (('y', 'x', 'nv'), lat_bnds)
     ds.lat_bnds.attrs['units'] = 'degrees_north'
     ds.lat_bnds.attrs['standard_name'] = 'latitude_bounds'
@@ -95,8 +107,8 @@ def write_ismip_grid(config):
     ds.attrs['Grid'] = (
         'Datum = WGS84, earth_radius = 6378137., '
         'earth_eccentricity = 0.081819190842621, '
-        'falseeasting = -3044000., '
-        'falsenorthing = -3044000., '
+        f'falseeasting = {falseeasting}, '
+        f'falsenorthing = {falsenorthing}, '
         'standard_parallel = -71., central_meridien = 0, '
         'EPSG=3031'
     )
