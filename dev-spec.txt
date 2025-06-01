@@ -13,7 +13,7 @@ numpy
 requests
 progressbar2
 pyproj
-pyremap >=1.4.1
+pyremap >=2.0.0,<3.0.0
 scipy
 tqdm
 xarray
