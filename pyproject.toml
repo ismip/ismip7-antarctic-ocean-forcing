@@ -21,11 +21,14 @@ classifiers = [
 dependencies = [
     "cmocean",
     "gsw",
+    "inpoly",
     "matplotlib",
     "netcdf4",
     "numpy",
     "requests",
     "progressbar2",
+    "pyshp",
+    "scikit-fmm",
     "scipy",
     "tqdm",
     "xarray"
