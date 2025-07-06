@@ -95,9 +95,16 @@ class Bedmap3(TopoBase):
         ds_out = xr.Dataset()
         ds_out.attrs = ds_in.attrs
 
+        mask = ds_in.mask
+        ice_mask = np.logical_and(mask.notnull(), mask != 4)
+
         for var_name, new_var_name in rename.items():
             if var_name in ds_in:
-                ds_out[new_var_name] = ds_in[var_name].astype(float)
+                var_data = ds_in[var_name].astype(float)
+                if new_var_name in ['surface', 'thickness']:
+                    # use zero instead of NaN where ice is absent
+                    var_data = var_data.where(ice_mask, 0.0)
+                ds_out[new_var_name] = var_data
                 ds_out[new_var_name].attrs = ds_in[var_name].attrs
             else:
                 self.logger.warning(
@@ -117,11 +124,7 @@ class Bedmap3(TopoBase):
         # 3: floating_ice_shelf
         # 4: rock
 
-        mask = ds_in.mask
-
-        ds_out['ice_frac'] = np.logical_and(mask.notnull(), mask != 4).astype(
-            float
-        )
+        ds_out['ice_frac'] = ice_mask.astype(float)
         ds_out.ice_frac.attrs = {
             'long_name': 'Area Fraction of Ice',
             'units': '1',
