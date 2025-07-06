@@ -23,7 +23,7 @@ def write_ismip_grid(config):
 
     Parameters
     ----------
-    config : ConfigParser
+    config : mpas_tools.config.MpasConfigParser
         Configuration object with grid parameters.
     """
     out_filename = get_ismip_grid_filename(config)
@@ -126,7 +126,7 @@ def get_ismip_grid_filename(config):
 
     Parameters
     ----------
-    config : ConfigParser
+    config : mpas_tools.config.MpasConfigParser
         Configuration object with grid parameters.
 
     Returns
@@ -144,7 +144,7 @@ def get_horiz_res_string(config):
 
     Parameters
     ----------
-    config : ConfigParser
+    config : mpas_tools.config.MpasConfigParser
         Configuration object with grid parameters.
 
     Returns
