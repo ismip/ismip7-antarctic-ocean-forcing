@@ -151,4 +151,20 @@ class Bedmap3(TopoBase):
             'units': '1',
         }
 
+        topo_vars = [
+            'bed',
+            'draft',
+            'surface',
+            'thickness',
+        ]
+        for var in topo_vars:
+            masked_var = f'ocean_masked_{var}'
+            ds_out[masked_var] = ds_out[var].where(
+                ds_out['ocean_frac'] > 0.0, 0.0
+            )
+            ds_out[masked_var].attrs = ds_out[var].attrs
+            ds_out[masked_var].attrs['long_name'] = (
+                f'Ocean-masked {ds_out[var].attrs["long_name"]}'
+            )
+
         ds_out.to_netcdf(out_filename)
