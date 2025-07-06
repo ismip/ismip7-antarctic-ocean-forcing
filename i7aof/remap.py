@@ -33,9 +33,9 @@ def remap_projection_to_ismip(
         The output dataset filename.
     map_dir : str
         The directory where the mapping file will be stored.
-    method : str
-        The remapping method to use (e.g., 'bilinear', 'nearest_s2d').
-    config : ConfigParser
+    method : {'bilinear', 'neareststod', 'conserve'}
+        The remapping method to use.
+    config : mpas_tools.config.MpasConfigParser
         Configuration object with remapping parameters.
     logger : logging.Logger
         Logger object for logging messages.
