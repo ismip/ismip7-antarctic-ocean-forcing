@@ -37,6 +37,7 @@ class Bedmap3(TopoBase):
         )
 
         out_filename = self.get_preprocessed_topo_path()
+        os.makedirs(os.path.join('topo', 'intermediate'), exist_ok=True)
         self._preprocess_topo(download_filename, out_filename)
         super().download_and_preprocess_topo()
 
@@ -45,7 +46,9 @@ class Bedmap3(TopoBase):
         Get the path to the preprocessed topography file before remapping
         """
         filename = os.path.join(
-            'topo', data_filename.replace('.nc', '_processed.nc')
+            'topo',
+            'intermediate',
+            data_filename.replace('.nc', '_processed.nc'),
         )
         return filename
 
@@ -63,15 +66,25 @@ class Bedmap3(TopoBase):
         """
         Remap the topography to the ISMIP grid."
         """
+        os.makedirs(os.path.join('topo', 'intermediate'), exist_ok=True)
+        remapped_filename = os.path.join(
+            'topo',
+            'intermediate',
+            data_filename.replace('.nc', '_remapped.nc'),
+        )
         remap_projection_to_ismip(
             in_filename=self.get_preprocessed_topo_path(),
             in_mesh_name='bedmap3',
             in_proj4='epsg:3031',
-            out_filename=self.get_topo_on_ismip_path(),
+            out_filename=remapped_filename,
             map_dir='topo',
             method=self.config.get('topo', 'remap_method'),
             config=self.config,
             logger=self.logger,
+        )
+        self.renormalize_topo_fields(
+            remapped_filename,
+            self.get_topo_on_ismip_path(),
         )
 
     def _preprocess_topo(self, in_filename, out_filename):

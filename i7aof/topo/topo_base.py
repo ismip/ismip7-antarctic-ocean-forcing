@@ -1,3 +1,4 @@
+import numpy as np
 import xarray as xr
 
 from i7aof.grid.ismip import get_horiz_res_string
@@ -78,6 +79,40 @@ class TopoBase:
         raise NotImplementedError(
             'remap_topo_to_ismip must be implemented in a subclass'
         )
+
+    def renormalize_topo_fields(self, in_filename, out_filename):
+        """
+        Renormalize the topography fields (those that aren't fractions) by
+        the appropriate area fractions.
+
+        Parameters
+        ----------
+        in_filename : str
+            The input filename to preprocess.
+        out_filename : str
+            The output filename after preprocessing.
+        """
+        renorm_threshold = self.config.getfloat('topo', 'renorm_threshold')
+
+        renorm_fields = {
+            'draft': 'ice_frac',
+            'surface': 'ice_frac',
+            'thickness': 'ice_frac',
+            'ocean_masked_bed': 'ocean_frac',
+            'ocean_masked_draft': 'floating_frac',
+            'ocean_masked_surface': 'floating_frac',
+            'ocean_masked_thickness': 'floating_frac',
+        }
+
+        ds = xr.open_dataset(in_filename)
+
+        for field, frac in renorm_fields.items():
+            attrs = ds[field].attrs
+            mask = ds[frac] > renorm_threshold
+            ds[field] = xr.where(mask, ds[field] / ds[frac], np.nan)
+            ds[field].attrs = attrs
+
+        ds.to_netcdf(out_filename)
 
     def check(self, ds):
         """
