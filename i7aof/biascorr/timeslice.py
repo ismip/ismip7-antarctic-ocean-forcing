@@ -1,3 +1,4 @@
+import numpy as np
 import xarray as xr
 
 
@@ -39,13 +40,16 @@ class Timeslice:
         self.y0 = y0
         self.y1 = y1
 
+        section = self.config['biascorr']
+        self.Nbins = section.getint('Nbins')
+
     def get_all_data(self):
         """
         Extract all data from time slice
         """
 
-        self.get_volume()
         self.get_T_and_S()
+        self.get_volume()
         self.get_bins()
 
     def get_volume(self):
@@ -53,7 +57,15 @@ class Timeslice:
         Extract volume per grid cell
         """
 
-        # TODO
+        # TODO: apply grid cell fractions
+        ds = xr.open_dataset(self.thetao)
+        dz = abs(ds.z[1] - ds.z[0]).values
+        dx = abs(ds.x[1] - ds.x[0]).values
+        dy = abs(ds.y[1] - ds.y[0]).values
+        ds.close()
+
+        # Set volume to zero where temperature data is missing
+        self.V = xr.where(np.isnan(self.T), 0, dz * dy * dx)
 
     def get_T_and_S(self):
         """
@@ -74,16 +86,15 @@ class Timeslice:
 
     def get_bins(self):
         """
-        Get binned volume, temperature and salinity
+        Get 2D histogram of volume Vb
+        as a function of binned salinity (Sb) and temperature (Tb)
         """
-        # Create 2D histogram of volume Vb in terms of binned salinity Sb and
-        # temperature Tb
 
-        # self.Vb, self.Sb, self.Tb = np.histogram2d(
-        #    self.S.flatten()[self.V.flatten() > 0],
-        #    self.T.flatten()[self.V.flatten() > 0],
-        #    bins=100,
-        #    weights=self.V.flatten()[self.V.flatten() > 0]
-        # )
+        self.Vb, self.Sb, self.Tb = np.histogram2d(
+            self.S.values.flatten()[self.V.values.flatten() > 0],
+            self.T.values.flatten()[self.V.values.flatten() > 0],
+            bins=self.Nbins,
+            weights=self.V.values.flatten()[self.V.values.flatten() > 0],
+        )
 
-        # TODO
+        print(self.Vb.shape)

@@ -1,5 +1,3 @@
-import numpy as np
-
 from i7aof.biascorr.timeslice import Timeslice
 
 
@@ -58,5 +56,3 @@ class Projection:
             self.config, self.thetao_modref, self.so_modref
         )
         self.modref.get_all_data()
-
-        print(np.nanmean(self.modref.T))
