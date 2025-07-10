@@ -17,7 +17,7 @@ class Timeslice:
         name of file containing so
     """
 
-    def __init__(self, config, thetao, so, year=None):
+    def __init__(self, config, thetao, so, basinmask, year=None):
         """
         Extract T and S data from a timeslice
 
@@ -29,6 +29,8 @@ class Timeslice:
             name of file containing thetao
         so: str
             name of file containing so
+        basinmask: np.array(16, len(y), len(x))
+            mask to multiply volume with
         year: int
             year to select. If None, taking time-mean
             Use None for dataset with single time value
@@ -37,6 +39,7 @@ class Timeslice:
         self.config = config
         self.thetao = thetao
         self.so = so
+        self.basinmask = basinmask
         self.year = year
 
         section = self.config['biascorr']
@@ -98,6 +101,8 @@ class Timeslice:
         Get 2D histogram of volume Vb
         as a function of binned salinity (Sb) and temperature (Tb)
         """
+
+        # TODO apply per basin
 
         self.Vb, self.Sb, self.Tb = np.histogram2d(
             self.S.values.flatten()[self.V.values.flatten() > 0],

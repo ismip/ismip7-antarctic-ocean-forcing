@@ -63,10 +63,12 @@ class Projection:
         Read the reference period
         """
 
-        self.ref = Timeslice(self.config, self.thetao_ref, self.so_ref)
+        self.ref = Timeslice(
+            self.config, self.thetao_ref, self.so_ref, self.basinmask
+        )
         self.ref.get_all_data()
         self.modref = Timeslice(
-            self.config, self.thetao_modref, self.so_modref
+            self.config, self.thetao_modref, self.so_modref, self.basinmask
         )
         self.modref.get_all_data()
 
@@ -86,7 +88,13 @@ class Projection:
         Read a timeslice from the future period
         """
 
-        out = Timeslice(self.config, self.thetao_mod, self.so_mod, year=year)
+        out = Timeslice(
+            self.config,
+            self.thetao_mod,
+            self.so_mod,
+            self.basinmask,
+            year=year,
+        )
         out.get_all_data()
 
         return out
@@ -98,7 +106,6 @@ class Projection:
         """
 
         ds_topo = xr.open_dataset(self.filename_topo)
-        print(ds_topo)
         ds_topo.close()
 
         ds_imbie = xr.open_dataset(self.filename_imbie)
@@ -113,5 +120,4 @@ class Projection:
             self.basinmask[b, :, :] = np.where(
                 ds_topo.bed.values > self.z_shelf, self.basinmask[b, :, :], 0
             )
-            print(sum(sum(self.basinmask[b, :, :])))
         ds_imbie.close()
