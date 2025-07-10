@@ -1,3 +1,6 @@
+import numpy as np
+import xarray as xr
+
 from i7aof.biascorr.timeslice import Timeslice
 
 
@@ -32,6 +35,8 @@ class Projection:
 
         self.get_model_info()
 
+        self.create_basin_mask()
+
     def get_model_info(self):
         """
         Extract model info from config file
@@ -48,6 +53,9 @@ class Projection:
         self.mod_ystart = section.getint('mod_ystart')
         self.mod_yend = section.getint('mod_yend')
         self.mod_ystep = section.getint('mod_ystep')
+
+        self.filename_topo = section.get('filename_topo')
+        self.filename_imbie = section.get('filename_imbie')
 
     def read_reference(self):
         """
@@ -81,3 +89,17 @@ class Projection:
         out.get_all_data()
 
         return out
+
+    def create_basin_mask(self):
+        """
+        Create a mask per IMBIE basin
+        over the continental shelf
+        """
+
+        ds_topo = xr.open_dataset(self.filename_topo)
+        ds_topo.close()
+
+        ds_imbie = xr.open_dataset(self.filename_imbie)
+        basins = np.unique(ds_imbie.basinNumber.values)
+        print(basins)
+        ds_imbie.close()
