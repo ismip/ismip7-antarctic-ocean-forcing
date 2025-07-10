@@ -45,6 +45,10 @@ class Projection:
         self.thetao_mod = section.get('thetao_mod')
         self.so_mod = section.get('so_mod')
 
+        self.mod_ystart = section.getint('mod_ystart')
+        self.mod_yend = section.getint('mod_yend')
+        self.mod_ystep = section.getint('mod_ystep')
+
     def read_reference(self):
         """
         Read the reference period
@@ -56,3 +60,24 @@ class Projection:
             self.config, self.thetao_modref, self.so_modref
         )
         self.modref.get_all_data()
+
+    def read_model(self):
+        """
+        Read whole model period
+        """
+
+        self.years = range(self.mod_ystart, self.mod_yend)
+
+        for year in self.years:
+            _ = self.read_model_timeslice(year)
+            print(f'Read year {year}')
+
+    def read_model_timeslice(self, year):
+        """
+        Read a timeslice from the future period
+        """
+
+        out = Timeslice(self.config, self.thetao_mod, self.so_mod, year=year)
+        out.get_all_data()
+
+        return out

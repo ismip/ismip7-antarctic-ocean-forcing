@@ -1,5 +1,6 @@
 import numpy as np
 import xarray as xr
+from cftime import DatetimeNoLeap
 
 
 class Timeslice:
@@ -16,7 +17,7 @@ class Timeslice:
         name of file containing so
     """
 
-    def __init__(self, config, thetao, so, y0=None, y1=None):
+    def __init__(self, config, thetao, so, year=None):
         """
         Extract T and S data from a timeslice
 
@@ -28,17 +29,15 @@ class Timeslice:
             name of file containing thetao
         so: str
             name of file containing so
-        y0: int
-            start year
-        y1: int
-            end year
+        year: int
+            year to select. If None, taking time-mean
+            Use None for dataset with single time value
         """
 
         self.config = config
         self.thetao = thetao
         self.so = so
-        self.y0 = y0
-        self.y1 = y1
+        self.year = year
 
         section = self.config['biascorr']
         self.Nbins = section.getint('Nbins')
@@ -58,7 +57,7 @@ class Timeslice:
         """
 
         # TODO: apply grid cell fractions
-        ds = xr.open_dataset(self.thetao)
+        ds = xr.open_mfdataset(self.thetao, use_cftime=True)
         dz = abs(ds.z[1] - ds.z[0]).values
         dx = abs(ds.x[1] - ds.x[0]).values
         dy = abs(ds.y[1] - ds.y[0]).values
@@ -72,15 +71,25 @@ class Timeslice:
         Extract T and S data
         """
 
-        ds = xr.open_dataset(self.thetao)
-        if not (self.y0 is None and self.y1 is None):
-            ds = ds.sel(time=slice(self.y0, self.y1))
+        ds = xr.open_mfdataset(self.thetao, use_cftime=True)
+        if self.year is not None:
+            ds = ds.sel(
+                time=slice(
+                    DatetimeNoLeap(self.year, 1, 1),
+                    DatetimeNoLeap(self.year + 1, 1, 1),
+                )
+            )
         self.T = ds.thetao.mean(dim='time')
         ds.close()
 
-        ds = xr.open_dataset(self.so)
-        if not (self.y0 is None and self.y1 is None):
-            ds = ds.sel(time=slice(self.y0, self.y1))
+        ds = xr.open_mfdataset(self.so, use_cftime=True)
+        if self.year is not None:
+            ds = ds.sel(
+                time=slice(
+                    DatetimeNoLeap(self.year, 1, 1),
+                    DatetimeNoLeap(self.year + 1, 1, 1),
+                )
+            )
         self.S = ds.so.mean(dim='time')
         ds.close()
 
@@ -96,5 +105,3 @@ class Timeslice:
             bins=self.Nbins,
             weights=self.V.values.flatten()[self.V.values.flatten() > 0],
         )
-
-        print(self.Vb.shape)
