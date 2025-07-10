@@ -54,6 +54,7 @@ class Projection:
         self.mod_yend = section.getint('mod_yend')
         self.mod_ystep = section.getint('mod_ystep')
 
+        self.z_shelf = section.getfloat('z_shelf')
         self.filename_topo = section.get('filename_topo')
         self.filename_imbie = section.get('filename_imbie')
 
@@ -97,9 +98,20 @@ class Projection:
         """
 
         ds_topo = xr.open_dataset(self.filename_topo)
+        print(ds_topo)
         ds_topo.close()
 
         ds_imbie = xr.open_dataset(self.filename_imbie)
-        basins = np.unique(ds_imbie.basinNumber.values)
-        print(basins)
+        self.basins = np.unique(ds_imbie.basinNumber.values)
+        self.basinmask = np.zeros(
+            (len(self.basins), len(ds_imbie.x), len(ds_imbie.y))
+        )
+        for b, basin in enumerate(self.basins):
+            self.basinmask[b, :, :] = np.where(
+                ds_imbie.basinNumber.values == basin, 1, 0
+            )
+            self.basinmask[b, :, :] = np.where(
+                ds_topo.bed.values > self.z_shelf, self.basinmask[b, :, :], 0
+            )
+            print(sum(sum(self.basinmask[b, :, :])))
         ds_imbie.close()
