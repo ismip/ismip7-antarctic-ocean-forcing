@@ -44,6 +44,7 @@ class Timeslice:
 
         section = self.config['biascorr']
         self.Nbins = section.getint('Nbins')
+        self.Nbasins = self.basinmask.shape[0]
 
     def get_all_data(self):
         """
@@ -102,11 +103,16 @@ class Timeslice:
         as a function of binned salinity (Sb) and temperature (Tb)
         """
 
-        # TODO apply per basin
+        self.Vb = np.zeros((self.Nbasins, self.Nbins, self.Nbins))
+        self.Sb = np.zeros((self.Nbasins, self.Nbins + 1))
+        self.Tb = np.zeros((self.Nbasins, self.Nbins + 1))
 
-        self.Vb, self.Sb, self.Tb = np.histogram2d(
-            self.S.values.flatten()[self.V.values.flatten() > 0],
-            self.T.values.flatten()[self.V.values.flatten() > 0],
-            bins=self.Nbins,
-            weights=self.V.values.flatten()[self.V.values.flatten() > 0],
-        )
+        for b, bmask in enumerate(self.basinmask):
+            volume = self.V.values * bmask
+            self.Vb[b, :, :], self.Sb[b, :], self.Tb[b, :] = np.histogram2d(
+                self.S.values.flatten()[volume.flatten() > 0],
+                self.T.values.flatten()[volume.flatten() > 0],
+                bins=self.Nbins,
+                weights=volume.flatten()[volume.flatten() > 0],
+            )
+            print(b, sum(sum(self.Vb[b, :, :])))
