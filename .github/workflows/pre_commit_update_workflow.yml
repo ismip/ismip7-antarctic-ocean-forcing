@@ -46,7 +46,7 @@ jobs:
         run: |
           eval "$(micromamba shell hook --shell bash)"
           micromamba activate pre_commit_dev
-          git clone https://github.com/E3SM-Project/mache.git update-pre-commit-deps
+          git clone https://github.com/ismip/ismip7-antarctic-ocean-forcing.git update-pre-commit-deps
           cd update-pre-commit-deps
           # Configure git using GitHub Actions credentials.
           git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
