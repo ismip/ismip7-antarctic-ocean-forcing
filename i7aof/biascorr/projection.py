@@ -70,6 +70,8 @@ class Projection:
         self.so_modref = section.get('so_modref')
         self.thetao_mod = section.get('thetao_mod')
         self.so_mod = section.get('so_mod')
+        self.thetao_base = section.get('thetao_base')
+        self.so_base = section.get('so_base')
 
         self.mod_ystart = section.getint('mod_ystart')
         self.mod_yend = section.getint('mod_yend')
@@ -85,19 +87,37 @@ class Projection:
     def read_reference(self):
         """
         Read the reference period of
-        reference data set (ref)
-        and model (modref)
+        reference data set (ref),
+        model (modref),
+        and base, extrapolated reference (base)
         """
 
         self.ref = Timeslice(
-            self.config, self.thetao_ref, self.so_ref, self.basinmask
+            self.config,
+            self.thetao_ref,
+            self.so_ref,
+            self.basinmask,
+            self.basinNumber,
         )
         self.ref.get_all_data()
 
         self.modref = Timeslice(
-            self.config, self.thetao_modref, self.so_modref, self.basinmask
+            self.config,
+            self.thetao_modref,
+            self.so_modref,
+            self.basinmask,
+            self.basinNumber,
         )
         self.modref.get_all_data()
+
+        self.base = Timeslice(
+            self.config,
+            self.thetao_base,
+            self.so_base,
+            self.basinmask,
+            self.basinNumber,
+        )
+        self.base.get_all_data()
 
     def read_model(self):
         """
@@ -122,10 +142,12 @@ class Projection:
             self.thetao_mod,
             self.so_mod,
             self.basinmask,
+            self.basinNumber,
             year=year,
         )
         timeslice.get_all_data()
         timeslice.compute_delta(self.modref)
+        timeslice.apply_anomaly(self.base)
 
         return timeslice
 
@@ -140,6 +162,7 @@ class Projection:
         ds_topo.close()
 
         ds_imbie = xr.open_dataset(self.filename_imbie)
+        self.basinNumber = ds_imbie.basinNumber.values
         self.basins = np.unique(ds_imbie.basinNumber.values)
         self.basinmask = np.zeros(
             (len(self.basins), len(ds_imbie.x), len(ds_imbie.y))

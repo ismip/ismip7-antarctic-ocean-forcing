@@ -17,7 +17,7 @@ class Timeslice:
         name of file containing so
     """
 
-    def __init__(self, config, thetao, so, basinmask, year=None):
+    def __init__(self, config, thetao, so, basinmask, basinNumber, year=None):
         """
         Extract T and S data from a timeslice
 
@@ -31,6 +31,8 @@ class Timeslice:
             name of file containing so
         basinmask: np.array(16, len(y), len(x))
             mask to multiply volume with
+        basinNumber: np.array(len(y), len(x))
+            gridded basin numbers
         year: int
             year to select. If None, taking time-mean
             Use None for dataset with single time value
@@ -40,6 +42,7 @@ class Timeslice:
         self.thetao = thetao
         self.so = so
         self.basinmask = basinmask
+        self.basinNumber = basinNumber
         self.year = year
 
         section = self.config['biascorr']
@@ -218,3 +221,53 @@ class Timeslice:
             Nleft = np.sum(np.isnan(newval[1:, 1:]))
 
         return newval[1:, 1:]
+
+    def apply_anomaly(self, base):
+        """
+        Determine model anomaly with respect to reference period
+        and apply anomaly to the base T and S to get the corrected
+        values
+        """
+
+        self.T_corrected = np.zeros(base.T.shape)
+        self.S_corrected = np.zeros(base.S.shape)
+
+        # TODO write in parallel
+
+        for i in range(base.T.shape[0]):
+            for j in range(base.T.shape[1]):
+                # Determine basin
+                b = self.basinNumber[i, j] - 1
+                for k in range(base.T.shape[2]):
+                    if base.V[i, j, k] == 0:
+                        continue
+                    else:
+                        isref = min(
+                            self.Nbins - 1,
+                            max(
+                                0,
+                                int(
+                                    (self.Nbins - 1)
+                                    * (base.S[i, j, k] - self.Sc[b, 0])
+                                    / (self.Sc[b, -1] - self.Sc[b, 0])
+                                ),
+                            ),
+                        )
+                        jtref = min(
+                            self.Nbins - 1,
+                            max(
+                                0,
+                                int(
+                                    (self.Nbins - 1)
+                                    * (base.T[i, j, k] - self.Tc[b, 0])
+                                    / (self.Tc[b, -1] - self.Tc[b, 0])
+                                ),
+                            ),
+                        )
+                        self.T_corrected[i, j, k] = (
+                            base.T[i, j, k] + self.deltaTf[b, isref, jtref]
+                        )
+                        self.S_corrected[i, j, k] = (
+                            base.S[i, j, k] + self.deltaSf[b, isref, jtref]
+                        )
+        return
