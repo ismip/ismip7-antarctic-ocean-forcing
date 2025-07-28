@@ -9,14 +9,15 @@ from i7aof.biascorr.timeslice import Timeslice
 def status(process_name):
     def inner_decorator(func):
         def wrapper(*args, **kwargs):
-            Ndots = max(3, 40 - len(process_name))
-            # Code to execute before the function call
-            print(f'{process_name} {"." * Ndots} \033[033mRunning\033[0m')
+            statement = process_name
+            for _key, value in kwargs.items():
+                statement += f'{value}'
+
+            Ndots = max(3, 40 - len(statement))
+            print(f'{statement} {"." * Ndots} \033[033mRunning\033[0m')
             result = func(*args, **kwargs)
             # Code to execute after the function call
-            print(
-                f'\033[F{process_name} {"." * Ndots} \033[032mFinished\033[0m'
-            )
+            print(f'\033[F{statement} {"." * Ndots} \033[032mFinished\033[0m')
             return result
 
         return wrapper
@@ -106,24 +107,27 @@ class Projection:
         self.years = range(self.mod_ystart, self.mod_yend)
 
         for year in self.years:
-            _ = self.read_model_timeslice(year)
-            print(f'Read year {year}')
+            _ = self.read_model_timeslice(year=year)
 
+        return
+
+    @status('Reading model timeslice year ')
     def read_model_timeslice(self, year):
         """
         Read a timeslice from the future period
         """
 
-        out = Timeslice(
+        timeslice = Timeslice(
             self.config,
             self.thetao_mod,
             self.so_mod,
             self.basinmask,
             year=year,
         )
-        out.get_all_data()
+        timeslice.get_all_data()
+        timeslice.compute_delta(self.modref)
 
-        return out
+        return timeslice
 
     @status('Creating basin mask')
     def create_basin_mask(self):
