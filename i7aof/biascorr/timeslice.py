@@ -115,4 +115,3 @@ class Timeslice:
                 bins=self.Nbins,
                 weights=volume.flatten()[volume.flatten() > 0],
             )
-            print(b, sum(sum(self.Vb[b, :, :])))
