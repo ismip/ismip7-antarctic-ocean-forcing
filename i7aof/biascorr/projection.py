@@ -1,3 +1,5 @@
+import matplotlib as mpl
+import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
 
@@ -265,3 +267,43 @@ class Projection:
                 * (self.modref.Tb[b, :] - self.modref.Tb[b, 0])
                 + self.ref.Tb[b, 0]
             )
+
+    @status('Plotting TS diagrams')
+    def plot_TS_diagrams(self, filename):
+        """
+        Create a figure with T-S diagrams per basin
+        of reference (blue), model reference (orange)
+        and bias-corrected model (green)
+        """
+
+        fig = plt.figure(figsize=(7, 7), constrained_layout=True)
+
+        for b, _bmask in enumerate(self.basinmask):
+            ax = fig.add_subplot(4, 4, b + 1)
+
+            ax.pcolormesh(
+                self.ref.Sb[b, :],
+                self.ref.Tb[b, :],
+                self.ref.Vb[b, :, :].T,
+                cmap='Blues',
+                norm=mpl.colors.LogNorm(),
+                alpha=0.8,
+            )
+            ax.pcolormesh(
+                self.modref.Sb[b, :],
+                self.modref.Tb[b, :],
+                self.modref.Vb[b, :, :].T,
+                cmap='Oranges',
+                norm=mpl.colors.LogNorm(),
+                alpha=0.8,
+            )
+            ax.pcolormesh(
+                self.modref.Sc[b, :],
+                self.modref.Tc[b, :],
+                self.modref.Vb[b, :, :].T,
+                cmap='Greens',
+                norm=mpl.colors.LogNorm(),
+                alpha=0.8,
+            )
+
+        plt.savefig(filename)
