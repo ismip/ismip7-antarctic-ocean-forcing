@@ -4,6 +4,24 @@ import xarray as xr
 from i7aof.biascorr.timeslice import Timeslice
 
 
+def status(process_name):
+    def inner_decorator(func):
+        def wrapper(*args, **kwargs):
+            Ndots = max(3, 40 - len(process_name))
+            # Code to execute before the function call
+            print(f'{process_name} {"." * Ndots} \033[033mRunning\033[0m')
+            result = func(*args, **kwargs)
+            # Code to execute after the function call
+            print(
+                f'\033[F{process_name} {"." * Ndots} \033[032mFinished\033[0m'
+            )
+            return result
+
+        return wrapper
+
+    return inner_decorator
+
+
 class Projection:
     """
     A main class for projections
@@ -60,6 +78,7 @@ class Projection:
 
         self.Nbins = section.getint('Nbins')
 
+    @status('Reading reference data')
     def read_reference(self):
         """
         Read the reference period of
@@ -76,8 +95,6 @@ class Projection:
             self.config, self.thetao_modref, self.so_modref, self.basinmask
         )
         self.modref.get_all_data()
-
-        self.compute_bias()
 
     def read_model(self):
         """
@@ -106,6 +123,7 @@ class Projection:
 
         return out
 
+    @status('Creating basin mask')
     def create_basin_mask(self):
         """
         Create a mask per IMBIE basin
@@ -138,9 +156,12 @@ class Projection:
 
         self.compute_S_bias()
 
+        self.compute_T_bias()
+
         return
 
-    def compute_S_bias(self, perc=0.99):
+    @status('Computing salinity bias')
+    def compute_S_bias(self, perc=99):
         """
         Compute the salinity bias
         """
@@ -155,7 +176,7 @@ class Projection:
             volume = (self.ref.V.values * bmask).flatten()
             self.ref.Sperc[b] = np.percentile(
                 self.ref.S.values.flatten()[volume > 0],
-                100 * perc,
+                perc,
                 method='inverted_cdf',
                 weights=volume[volume > 0],
             )
@@ -164,7 +185,7 @@ class Projection:
             volume = (self.modref.V.values * bmask).flatten()
             self.modref.Sperc[b] = np.percentile(
                 self.modref.S.values.flatten()[volume > 0],
-                100 * perc,
+                perc,
                 method='inverted_cdf',
                 weights=volume[volume > 0],
             )
@@ -194,8 +215,6 @@ class Projection:
             idx = np.unravel_index(np.nanargmin(rmse, axis=None), rmse.shape)
             self.Sscaling[b] = scalings[idx[0]]
 
-            print(b, self.Sscaling[b], self.ref.Sperc[b], self.modref.Sperc[b])
-
             # Extract corrected bins
             self.modref.Sc[b, :] = (
                 self.Sscaling[b]
@@ -204,3 +223,45 @@ class Projection:
             )
 
         return
+
+    @status('Computing temperature bias')
+    def compute_T_bias(self, perc=99):
+        """
+        Compute the temperature bias
+        """
+
+        self.modref.Tc = 0.0 * self.modref.Tb
+        self.ref.Tperc = np.zeros(len(self.basins))
+        self.modref.Tperc = np.zeros(len(self.basins))
+        self.Tscaling = np.zeros(len(self.basins))
+
+        for b, bmask in enumerate(self.basinmask):
+            # Determine the percentile of reference T - Tmin
+            volume = (self.ref.V.values * bmask).flatten()
+            self.ref.Tperc[b] = np.percentile(
+                (self.ref.T - self.ref.Tb[b, 0]).values.flatten()[volume > 0],
+                perc,
+                method='inverted_cdf',
+                weights=volume[volume > 0],
+            )
+
+            # Determine the percentile of model T - Tmin
+            volume = (self.modref.V.values * bmask).flatten()
+            self.modref.Tperc[b] = np.percentile(
+                (self.modref.T - self.modref.Tb[b, 0]).values.flatten()[
+                    volume > 0
+                ],
+                perc,
+                method='inverted_cdf',
+                weights=volume[volume > 0],
+            )
+
+            # Determine scaling
+            self.Tscaling[b] = self.ref.Tperc[b] / self.modref.Tperc[b]
+
+            # Extract corrected bins
+            self.modref.Tc[b, :] = (
+                self.Tscaling[b]
+                * (self.modref.Tb[b, :] - self.modref.Tb[b, 0])
+                + self.ref.Tb[b, 0]
+            )
