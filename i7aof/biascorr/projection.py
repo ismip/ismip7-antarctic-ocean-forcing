@@ -58,6 +58,8 @@ class Projection:
         self.filename_topo = section.get('filename_topo')
         self.filename_imbie = section.get('filename_imbie')
 
+        self.Nbins = section.getint('Nbins')
+
     def read_reference(self):
         """
         Read the reference period of
@@ -144,72 +146,61 @@ class Projection:
         """
 
         self.modref.Sc = 0.0 * self.modref.Sb
+        self.ref.Sperc = np.zeros(len(self.basins))
+        self.modref.Sperc = np.zeros(len(self.basins))
+        self.Sscaling = np.zeros(len(self.basins))
 
         for b, bmask in enumerate(self.basinmask):
-            # Determine the PDF of reference salinity
+            # Determine the percentile of reference salinity
             volume = (self.ref.V.values * bmask).flatten()
-            A, B = np.histogram(
-                (self.ref.S.values).flatten()[volume > 0],
+            self.ref.Sperc[b] = np.percentile(
+                self.ref.S.values.flatten()[volume > 0],
+                100 * perc,
+                method='inverted_cdf',
                 weights=volume[volume > 0],
-                bins=1000,
-                density=True,
             )
-            # Determine the CDF
-            AA = np.cumsum(A) / np.cumsum(A)[-1]
-            # Extract the requested percentile
-            aa = np.argmin((AA - perc) ** 2)
-            self.ref.Sperc = B[aa]
 
             # Determine the PDF of model salinity
             volume = (self.modref.V.values * bmask).flatten()
-            A, B = np.histogram(
-                (self.modref.S.values).flatten()[volume > 0],
+            self.modref.Sperc[b] = np.percentile(
+                self.modref.S.values.flatten()[volume > 0],
+                100 * perc,
+                method='inverted_cdf',
                 weights=volume[volume > 0],
-                bins=1000,
-                density=True,
             )
-            # Determine the CDF
-            AA = np.cumsum(A) / np.cumsum(A)[-1]
-            # Extract the requested percentile
-            aa = np.argmin((AA - perc) ** 2)
-            self.modref.Sperc = B[aa]
 
             # Try various scalings
-            scalings = np.arange(0.7, 1.3, 0.01)
+            scalings = np.arange(0.5, 1.5, 0.1)
             rmse = np.zeros((len(scalings)))
+
             # Get binned histogram of reference salinity
             ref, _ = np.histogram(
-                self.ref.S, bins=self.ref.Sb[b, :], weights=self.ref.V
+                self.ref.S, bins=self.ref.Sb[b, :], weights=self.ref.V * bmask
             )
             # Determine rmse for each scaling
             for s, scaling in enumerate(scalings):
                 modref, _ = np.histogram(
-                    scaling * (self.modref.S - self.modref.Sperc)
-                    + self.ref.Sperc,
+                    scaling * (self.modref.S - self.modref.Sperc[b])
+                    + self.ref.Sperc[b],
                     bins=self.ref.Sb[b, :],
-                    weights=self.modref.V,
+                    weights=self.modref.V * bmask,
                 )
-                rmse[s] = np.sum(
-                    np.where(
-                        modref == 0,
-                        0,
-                        (
-                            np.log10(modref / np.sum(modref))
-                            - np.log10(ref / np.sum(ref))
-                        )
-                        ** 2,
-                    )
-                ) ** 0.5 / np.sum(np.where(modref == 0, 0, 1))
+                rmse[s] = (
+                    np.sum((modref / np.sum(modref) - ref / np.sum(ref)) ** 2)
+                    ** 0.5
+                )
+
             # Get the scaling with the lowest rmse
             idx = np.unravel_index(np.nanargmin(rmse, axis=None), rmse.shape)
-            self.Sscaling = scalings[idx[0]]
+            self.Sscaling[b] = scalings[idx[0]]
 
-            print(b, self.Sscaling, self.ref.Sperc, self.modref.Sperc)
+            print(b, self.Sscaling[b], self.ref.Sperc[b], self.modref.Sperc[b])
 
             # Extract corrected bins
             self.modref.Sc[b, :] = (
-                self.Sscaling * (self.modref.Sb[b, :] - self.modref.Sperc)
-                + self.ref.Sperc
+                self.Sscaling[b]
+                * (self.modref.Sb[b, :] - self.modref.Sperc[b])
+                + self.ref.Sperc[b]
             )
 
         return
