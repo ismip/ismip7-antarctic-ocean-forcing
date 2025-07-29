@@ -229,45 +229,32 @@ class Timeslice:
         values
         """
 
-        self.T_corrected = np.zeros(base.T.shape)
-        self.S_corrected = np.zeros(base.S.shape)
+        # Get basin per 3D grid cell
+        b = np.repeat(
+            self.basinNumber[np.newaxis, :, :] - 1, self.T.shape[0], axis=0
+        )
 
-        # TODO write in parallel
+        imax = self.Nbins - 1
+        Smin = self.Sc[b, 0]
+        Smax = self.Sc[b, -1]
 
-        for i in range(base.T.shape[0]):
-            for j in range(base.T.shape[1]):
-                # Determine basin
-                b = self.basinNumber[i, j] - 1
-                for k in range(base.T.shape[2]):
-                    if base.V[i, j, k] == 0:
-                        continue
-                    else:
-                        isref = min(
-                            self.Nbins - 1,
-                            max(
-                                0,
-                                int(
-                                    (self.Nbins - 1)
-                                    * (base.S[i, j, k] - self.Sc[b, 0])
-                                    / (self.Sc[b, -1] - self.Sc[b, 0])
-                                ),
-                            ),
-                        )
-                        jtref = min(
-                            self.Nbins - 1,
-                            max(
-                                0,
-                                int(
-                                    (self.Nbins - 1)
-                                    * (base.T[i, j, k] - self.Tc[b, 0])
-                                    / (self.Tc[b, -1] - self.Tc[b, 0])
-                                ),
-                            ),
-                        )
-                        self.T_corrected[i, j, k] = (
-                            base.T[i, j, k] + self.deltaTf[b, isref, jtref]
-                        )
-                        self.S_corrected[i, j, k] = (
-                            base.S[i, j, k] + self.deltaSf[b, isref, jtref]
-                        )
+        Tmin = self.Tc[b, 0]
+        Tmax = self.Tc[b, -1]
+
+        isref = np.minimum(
+            imax,
+            np.maximum(
+                0, (imax * (base.S - Smin) / (Smax - Smin)).astype(int)
+            ),
+        )
+        jtref = np.minimum(
+            imax,
+            np.maximum(
+                0, (imax * (base.T - Tmin) / (Tmax - Tmin)).astype(int)
+            ),
+        )
+
+        self.S_corrected = base.S + self.deltaSf[b, isref, jtref]
+        self.T_corrected = base.T + self.deltaTf[b, isref, jtref]
+
         return
