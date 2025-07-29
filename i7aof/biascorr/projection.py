@@ -175,7 +175,7 @@ class Projection:
             self.basinNumber,
             yidx=yidx,
         )
-        timeslice.get_all_data()
+        timeslice.get_T_and_S()
         timeslice.compute_delta(self.modref)
         timeslice.apply_anomaly(self.base)
 
