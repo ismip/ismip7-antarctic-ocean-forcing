@@ -1,6 +1,5 @@
 import numpy as np
 import xarray as xr
-from cftime import DatetimeNoLeap
 
 
 class Timeslice:
@@ -17,7 +16,7 @@ class Timeslice:
         name of file containing so
     """
 
-    def __init__(self, config, thetao, so, basinmask, basinNumber, year=None):
+    def __init__(self, config, thetao, so, basinmask, basinNumber, yidx=None):
         """
         Extract T and S data from a timeslice
 
@@ -43,7 +42,7 @@ class Timeslice:
         self.so = so
         self.basinmask = basinmask
         self.basinNumber = basinNumber
-        self.year = year
+        self.yidx = yidx
 
         section = self.config['biascorr']
         self.Nbins = section.getint('Nbins')
@@ -79,25 +78,19 @@ class Timeslice:
         """
 
         ds = xr.open_mfdataset(self.thetao, use_cftime=True)
-        if self.year is not None:
-            ds = ds.sel(
-                time=slice(
-                    DatetimeNoLeap(self.year, 1, 1),
-                    DatetimeNoLeap(self.year + 1, 1, 1),
-                )
-            )
-        self.T = ds.thetao.mean(dim='time')
+        if self.yidx is None:
+            ds = ds.isel(time=0)
+        else:
+            ds = ds.isel(time=self.yidx)
+        self.T = ds.thetao
         ds.close()
 
         ds = xr.open_mfdataset(self.so, use_cftime=True)
-        if self.year is not None:
-            ds = ds.sel(
-                time=slice(
-                    DatetimeNoLeap(self.year, 1, 1),
-                    DatetimeNoLeap(self.year + 1, 1, 1),
-                )
-            )
-        self.S = ds.so.mean(dim='time')
+        if self.yidx is None:
+            ds = ds.isel(time=0)
+        else:
+            ds = ds.isel(time=self.yidx)
+        self.S = ds.so
         ds.close()
 
     def get_bins(self):

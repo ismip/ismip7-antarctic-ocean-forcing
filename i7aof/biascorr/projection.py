@@ -128,15 +128,15 @@ class Projection:
         """
 
         # Get all thetao files
-        fnames = sorted(glob(self.thetao_mod))
+        thetao_files = sorted(glob(self.thetao_mod))
 
-        for fname in fnames:
+        for thetao_file in thetao_files:
             # Check whether similar so file exists
-            so_file = fname.replace('thetao', 'so')
-            assert os.path.isfile(so_file), f'No so file for {fname}'
+            so_file = thetao_file.replace('thetao', 'so')
+            assert os.path.isfile(so_file), f'No so file for {thetao_file}'
 
             # Create datasets for output
-            ds = xr.open_dataset(fname)
+            ds = xr.open_dataset(thetao_file)
             dsT = ds.copy()
             ds.close()
             dsT.thetao[:] = np.nan
@@ -147,35 +147,33 @@ class Projection:
 
             # Make sure time-dimensions are equal
             xr.testing.assert_equal(dsT.time, dsS.time)
-            times = dsT.time.values
+            years = [times.year for times in dsT.time.values]
 
             # Do actual bias correction
-            for t, time in enumerate(times):
-                ts = self.read_model_timeslice(year=time.year)
-                dsT.thetao[t, :, :, :] = ts.T_corrected
-                dsS.so[t, :, :, :] = ts.S_corrected
-            dsT.to_netcdf(
-                f'thetao_corrected_{times[0].year}_{times[-1].year}.nc'
-            )
-            dsS.to_netcdf(f'so_corrected_{times[0].year}_{times[-1].year}.nc')
+            for y, _year in enumerate(years):
+                ts = self.read_model_timeslice(thetao_file, so_file, yidx=y)
+                dsT.thetao[y, :, :, :] = ts.T_corrected
+                dsS.so[y, :, :, :] = ts.S_corrected
+            dsT.to_netcdf(f'thetao_corrected_{years[0]}_{years[-1]}.nc')
+            dsS.to_netcdf(f'so_corrected_{years[0]}_{years[-1]}.nc')
             dsT.close()
             dsS.close()
 
         return
 
     @status('Reading model timeslice year ')
-    def read_model_timeslice(self, year):
+    def read_model_timeslice(self, thetao_file, so_file, yidx):
         """
         Read a timeslice from the future period
         """
 
         timeslice = Timeslice(
             self.config,
-            self.thetao_mod,
-            self.so_mod,
+            thetao_file,
+            so_file,
             self.basinmask,
             self.basinNumber,
-            year=year,
+            yidx=yidx,
         )
         timeslice.get_all_data()
         timeslice.compute_delta(self.modref)
