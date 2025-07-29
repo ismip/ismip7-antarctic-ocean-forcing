@@ -129,9 +129,8 @@ class Timeslice:
         self.deltaTf = np.zeros((self.Nbasins, self.Nbins, self.Nbins))
         self.deltaSf = np.zeros((self.Nbasins, self.Nbins, self.Nbins))
 
-        out = np.nan * np.ones((self.Nbins, self.Nbins))
-
-        for b, bmask in enumerate(self.basinmask):
+        for b in range(self.Nbasins):
+            bmask = self.basinmask[b, :, :]
             volume = modref.V.values * bmask
 
             # Compute the binned deltaT and deltaS
@@ -144,7 +143,7 @@ class Timeslice:
             deltaT = np.divide(
                 VTdel,
                 modref.Vb[b, :, :],
-                out=out,
+                out=np.nan * np.ones((self.Nbins, self.Nbins)),
                 where=modref.Vb[b, :, :] > 0,
             )
 
@@ -157,7 +156,7 @@ class Timeslice:
             deltaS = np.divide(
                 VSdel,
                 modref.Vb[b, :, :],
-                out=out,
+                out=np.nan * np.ones((self.Nbins, self.Nbins)),
                 where=modref.Vb[b, :, :] > 0,
             )
 
@@ -174,7 +173,7 @@ class Timeslice:
         newval = np.nan * np.ones((self.Nbins + 1, self.Nbins + 1))
         out = np.nan * np.ones((self.Nbins + 1, self.Nbins + 1))
 
-        newval[1:, 1:] = deltavar
+        newval[1:, 1:] = deltavar.copy()
         Nleft = np.sum(np.isnan(newval[1:, 1:]))
         while Nleft > 0:
             mask = np.where(np.isnan(newval), 0, 1)
