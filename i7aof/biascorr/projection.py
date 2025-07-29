@@ -5,6 +5,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
+from tqdm import tqdm
 
 from i7aof.biascorr.timeslice import Timeslice
 
@@ -150,7 +151,8 @@ class Projection:
             years = [times.year for times in dsT.time.values]
 
             # Do actual bias correction
-            for y, _year in enumerate(years):
+            desc = f'Processing {years[0]} to {years[-1]}'
+            for y in tqdm(range(len(years)), desc=desc, colour='yellow'):
                 ts = self.read_model_timeslice(thetao_file, so_file, yidx=y)
                 dsT.thetao[y, :, :, :] = ts.T_corrected
                 dsS.so[y, :, :, :] = ts.S_corrected
@@ -161,7 +163,6 @@ class Projection:
 
         return
 
-    @status('Reading model timeslice year ')
     def read_model_timeslice(self, thetao_file, so_file, yidx):
         """
         Read a timeslice from the future period
