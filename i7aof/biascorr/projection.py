@@ -1,3 +1,6 @@
+import os
+from glob import glob
+
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
@@ -56,7 +59,7 @@ class Projection:
 
         self.get_model_info()
 
-        self.create_basin_mask()
+        self.create_basin_masks()
 
     def get_model_info(self):
         """
@@ -114,7 +117,7 @@ class Projection:
             self.config,
             self.thetao_base,
             self.so_base,
-            self.basinmask,
+            self.basinmask_extrap,
             self.basinNumber,
         )
         self.base.get_all_data()
@@ -124,10 +127,39 @@ class Projection:
         Read whole model period
         """
 
-        self.years = range(self.mod_ystart, self.mod_yend)
+        # Get all thetao files
+        fnames = sorted(glob(self.thetao_mod))
 
-        for year in self.years:
-            _ = self.read_model_timeslice(year=year)
+        for fname in fnames:
+            # Check whether similar so file exists
+            so_file = fname.replace('thetao', 'so')
+            assert os.path.isfile(so_file), f'No so file for {fname}'
+
+            # Create datasets for output
+            ds = xr.open_dataset(fname)
+            dsT = ds.copy()
+            ds.close()
+            dsT.thetao[:] = np.nan
+            ds = xr.open_dataset(so_file)
+            dsS = ds.copy()
+            dsS.so[:] = np.nan
+            ds.close()
+
+            # Make sure time-dimensions are equal
+            xr.testing.assert_equal(dsT.time, dsS.time)
+            times = dsT.time.values
+
+            # Do actual bias correction
+            for t, time in enumerate(times):
+                ts = self.read_model_timeslice(year=time.year)
+                dsT.thetao[t, :, :, :] = ts.T_corrected
+                dsS.so[t, :, :, :] = ts.S_corrected
+            dsT.to_netcdf(
+                f'thetao_corrected_{times[0].year}_{times[-1].year}.nc'
+            )
+            dsS.to_netcdf(f'so_corrected_{times[0].year}_{times[-1].year}.nc')
+            dsT.close()
+            dsS.close()
 
         return
 
@@ -152,7 +184,7 @@ class Projection:
         return timeslice
 
     @status('Creating basin mask')
-    def create_basin_mask(self):
+    def create_basin_masks(self):
         """
         Create a mask per IMBIE basin
         over the continental shelf
@@ -164,16 +196,25 @@ class Projection:
         ds_imbie = xr.open_dataset(self.filename_imbie)
         self.basinNumber = ds_imbie.basinNumber.values
         self.basins = np.unique(ds_imbie.basinNumber.values)
+
         self.basinmask = np.zeros(
             (len(self.basins), len(ds_imbie.x), len(ds_imbie.y))
         )
+        self.basinmask_extrap = np.zeros(
+            (len(self.basins), len(ds_imbie.x), len(ds_imbie.y))
+        )
         for b, basin in enumerate(self.basins):
-            self.basinmask[b, :, :] = np.where(
+            # Basin mask for extrapolated values
+            self.basinmask_extrap[b, :, :] = np.where(
                 ds_imbie.basinNumber.values == basin, 1, 0
             )
+            # Basin mask with ice, bed, and deep ocean masked
             self.basinmask[b, :, :] = np.where(
-                ds_topo.bed.values > self.z_shelf, self.basinmask[b, :, :], 0
+                ds_topo.bed.values > self.z_shelf,
+                self.basinmask_extrap[b, :, :],
+                0,
             )
+
         ds_imbie.close()
 
     def compute_bias(self):
