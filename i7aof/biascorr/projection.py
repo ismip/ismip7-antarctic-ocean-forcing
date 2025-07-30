@@ -77,10 +77,6 @@ class Projection:
         self.thetao_base = section.get('thetao_base')
         self.so_base = section.get('so_base')
 
-        self.mod_ystart = section.getint('mod_ystart')
-        self.mod_yend = section.getint('mod_yend')
-        self.mod_ystep = section.getint('mod_ystep')
-
         self.z_shelf = section.getfloat('z_shelf')
         self.filename_topo = section.get('filename_topo')
         self.filename_imbie = section.get('filename_imbie')
