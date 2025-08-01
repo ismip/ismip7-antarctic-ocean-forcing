@@ -4,6 +4,7 @@ from pathlib import Path
 
 import netCDF4
 import numpy
+from dask.diagnostics.progress import ProgressBar
 
 
 def write_netcdf(
@@ -12,6 +13,7 @@ def write_netcdf(
     fillvalues=None,
     format=None,
     engine=None,
+    progress_bar=False,
 ):
     """
     Write an xarray.Dataset to a file with NetCDF4 fill values
@@ -38,10 +40,10 @@ def write_netcdf(
         fillvalues = netCDF4.default_fillvals
 
     numpy_fillvals = {}
-    for filltype in fillvalues:
+    for filltype, fillvalue in fillvalues.items():
         # drop string fill values
         if not filltype.startswith('S'):
-            numpy_fillvals[numpy.dtype(filltype)] = fillvalues[filltype]
+            numpy_fillvals[numpy.dtype(filltype)] = fillvalue
 
     encoding_dict = {}
     var_names = list(ds.data_vars.keys()) + list(ds.coords.keys())
@@ -59,6 +61,10 @@ def write_netcdf(
                 fill = None
             encoding_dict[var_name]['_FillValue'] = fill
 
+    if 'time' in ds.dims:
+        # make sure the time dimension is unlimited
+        ds.encoding['unlimited_dims'] = {'time'}
+
     # for performance, we have to handle this as a special case
     convert = format == 'NETCDF3_64BIT_DATA'
 
@@ -74,9 +80,18 @@ def write_netcdf(
     else:
         out_filename = filename
 
-    ds.to_netcdf(
-        out_filename, encoding=encoding_dict, format=format, engine=engine
+    write_job = ds.to_netcdf(
+        out_filename,
+        encoding=encoding_dict,
+        format=format,
+        engine=engine,
+        compute=not progress_bar,
     )
+
+    if progress_bar:
+        with ProgressBar():
+            print(f'Writing to {out_filename}:')
+            write_job.compute()
 
     if convert:
         args = [
