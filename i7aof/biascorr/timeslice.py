@@ -17,28 +17,42 @@ class Timeslice:
 
     Public
     ------
-    V: array([nz, ny, nx])
+    V: float([nz, ny, nx])
         gridded volume in 3D space
-    T: array([nz, ny, nx])
+    T: float([nz, ny, nx])
         gridded temperature in 3D space
-    S: array([nz, ny, nx])
+    S: float([nz, ny, nx])
         gridded salinity in 3D space
-    Vb: array([Nbasins, Nbins, Nbins])
+    Vb: float([Nbasins, Nbins, Nbins])
         binned volume in S, T space per basin
-    Sb: array([Nbasins, Nbins + 1])
+    Sb: float([Nbasins, Nbins + 1])
         Evenly spaced salinity bins per basin
-    Tb: array([Nbasins, Nbins + 1])
+    Tb: float([Nbasins, Nbins + 1])
         Evenly spaced temperature bins per basin
-    deltaSf: array([Nbasins, Nbins, Nbins))
+    deltaSf: float([Nbasins, Nbins, Nbins))
         Filled delta S between this time slice and
         the model reference, in S, T space per basin
-    deltaTf: array([Nbasins, Nbins, Nbins))
+    deltaTf: float([Nbasins, Nbins, Nbins))
         Filled delta T between this time slice and
         the model reference, in S, T space per basin
-    S_corrected: array([nz, ny, nx])
+    S_corrected: float([nz, ny, nx])
         Bias-corrected salinity in 3D space
-    T_corrected: array([nz, ny, nx])
+    T_corrected: float([nz, ny, nx])
         Bias-corrected temperature in 3D space
+    Sperc: float([Nbasins])
+        Requested percentile of salinity, usually 99th
+    Tperc: float([Nbasins])
+        Requested percentile of temperature, usually 99th
+    Sscaling: float([Nbasins])
+        Scaling factor of salinity, effectively stretching
+        or compressing the model salinity distribution to
+        best fit the reference distribution whilst fixing
+        Sperc. Only values between 0.5 and 1.5 are allowed.
+    Tscaling: float([Nbasins])
+        Scaling factor of temperature, effectively stretching
+        or compressing the model temperature distribution to
+        best fit the reference distribution whilst fixing
+        the minimum temperature value (usually freezing point).
     """
 
     def __init__(self, config, thetao, so, basinmask, basinNumber, yidx=None):
