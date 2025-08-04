@@ -14,6 +14,31 @@ class Timeslice:
         name of file containing thetao
     so: str
         name of file containing so
+
+    Public
+    ------
+    V: array([nz, ny, nx])
+        gridded volume in 3D space
+    T: array([nz, ny, nx])
+        gridded temperature in 3D space
+    S: array([nz, ny, nx])
+        gridded salinity in 3D space
+    Vb: array([Nbasins, Nbins, Nbins])
+        binned volume in S, T space per basin
+    Sb: array([Nbasins, Nbins + 1])
+        Evenly spaced salinity bins per basin
+    Tb: array([Nbasins, Nbins + 1])
+        Evenly spaced temperature bins per basin
+    deltaSf: array([Nbasins, Nbins, Nbins))
+        Filled delta S between this time slice and
+        the model reference, in S, T space per basin
+    deltaTf: array([Nbasins, Nbins, Nbins))
+        Filled delta T between this time slice and
+        the model reference, in S, T space per basin
+    S_corrected: array([nz, ny, nx])
+        Bias-corrected salinity in 3D space
+    T_corrected: array([nz, ny, nx])
+        Bias-corrected temperature in 3D space
     """
 
     def __init__(self, config, thetao, so, basinmask, basinNumber, yidx=None):
@@ -116,6 +141,13 @@ class Timeslice:
         """
         Compute difference between timeslice and modref,
         binned on the modelref bins
+
+        Parameters
+        ----------
+        modref: Timeslice
+            Timeslice of the same model as this Timeslice
+            over the reference period.
+            This should usually be the non-extrapolated fields
         """
 
         # Get the raw, gridded difference in T and S
@@ -168,6 +200,11 @@ class Timeslice:
         """
         Fill deltavar (either deltaT or deltaS)
         in full normalised T,S space
+
+        Parameters
+        ----------
+        deltavar: array([Nbins, Nbins])
+            deltaT or deltaS in S,T space
         """
 
         newval = np.nan * np.ones((self.Nbins + 1, self.Nbins + 1))
@@ -219,6 +256,15 @@ class Timeslice:
         Determine model anomaly with respect to reference period
         and apply anomaly to the base T and S to get the corrected
         values
+
+        Parameters
+        ----------
+        base: Timeslice
+            base timeslice on which to add T- and S-anomalies.
+            This should usually be the timeslice of the same model
+            over the reference period (same as modref), but with
+            the extrapolated fields, so that T_corrected and
+            S_corrected are also extrapolated over the full domain
         """
 
         # Get basin per 3D grid cell
