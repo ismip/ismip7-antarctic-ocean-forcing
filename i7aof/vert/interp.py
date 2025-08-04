@@ -121,7 +121,14 @@ class VerticalInterpolator:
 
     def normalize(self, da_interp):
         """
-        Normalize the data array following interpolation
+        Normalize the data array following interpolation.  We remap a mask of
+        where the data is valid, which becomes a fraction of how much of a
+        destination cell overlapped with valid data.  For many "state" fields
+        like temperature and salinity, we want to renormalize them by the valid
+        fraction.  Otherwise, the values would be lower than expected by a
+        factor of the valid fraction.  Locations that have less than a
+        threshold fraction  of overlap (1e-3 by default) will be set to invalid
+        values.
 
         Parameters
         ----------

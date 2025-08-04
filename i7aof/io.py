@@ -31,10 +31,10 @@ def write_netcdf(
         ``netCDF4.default_fillvals``
 
     format : {'NETCDF4', 'NETCDF4_CLASSIC', 'NETCDF3_64BIT', 'NETCDF3_CLASSIC'}, optional
-        The NetCDF file format to use.
+        The NetCDF file format to use, the default is 'NETCDF4'
 
     engine : {'netcdf4', 'scipy', 'h5netcdf'}, optional
-        The library to use for NetCDF output
+        The library to use for NetCDF output, the default is 'netcdf4'
     """  # noqa: E501
     if fillvalues is None:
         fillvalues = netCDF4.default_fillvals
