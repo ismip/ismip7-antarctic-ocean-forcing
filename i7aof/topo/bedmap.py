@@ -4,6 +4,7 @@ import numpy as np
 import xarray as xr
 
 from i7aof.download import download_file
+from i7aof.io import write_netcdf
 from i7aof.remap import remap_projection_to_ismip
 from i7aof.topo.topo_base import TopoBase
 
@@ -183,4 +184,4 @@ class Bedmap3(TopoBase):
                 f'Ocean-masked {ds_out[var].attrs["long_name"]}'
             )
 
-        ds_out.to_netcdf(out_filename)
+        write_netcdf(ds_out, out_filename)
