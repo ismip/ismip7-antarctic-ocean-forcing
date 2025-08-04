@@ -1,5 +1,6 @@
 import os
 
+import numpy as np
 from pyremap import Remapper
 
 from i7aof.grid.ismip import (
@@ -173,6 +174,47 @@ def remap_lat_lon_to_ismip(
     _remap_common(
         remapper, in_filename, out_filename, map_filename, logger, renormalize
     )
+
+
+def add_periodic_lon(ds, threshold=1e-10):
+    """
+    Add a periodic longitude to a dataset if the longitude range is not
+    approximately 360 degrees. This is typically needed for bilinear remapping
+    to prevent there from being a seam between the first and last longitude
+    values.
+
+    Parameters
+    ----------
+    ds : xarray.Dataset
+        The dataset containing the longitude variable.
+
+    threshold : float, optional
+        The threshold to determine if the longitude range is approximately
+        360 degrees. Default is 1e-10.
+
+    Returns
+    -------
+    xarray.Dataset
+        The dataset with periodic longitude added if necessary.
+    """
+
+    if len(ds.lon.dims) == 1:
+        lon_dim = ds.lon.dims[0]
+        lon_range = ds.lon[-1].values - ds.lon[0].values
+    else:
+        assert len(ds.lon.dims) == 2
+        lon_dim = ds.lon.dims[1]
+        lon_range = ds.lon[0, -1].values - ds.lon[0, 0].values
+
+    rad = 'rad' in ds.lon.attrs.get('units', '')
+    if rad:
+        lon_range = np.rad2deg(lon_range)
+
+    if np.abs(lon_range - 360.0) > threshold:
+        nlon = ds.sizes[lon_dim]
+        ds = ds.isel({lon_dim: np.append(np.arange(nlon), [0])})
+
+    return ds
 
 
 # --- Private helper functions below ---
