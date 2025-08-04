@@ -40,6 +40,32 @@ class Projection:
 
     logger : logging.Logger
         Logger for the class.
+
+    Public
+    ------
+    ref: Timeslice
+        Reference timeslice to which a model will be bias-corrected.
+        This should usually be an observational dataset
+    modref: Timeslice
+        Model reference timeslice. This should be a model Timeslice
+        averaged over the reference period. The input fields (T,S)
+        should not be extrapolated, to prevent biases in the volume
+        of certain water masses.
+    base: Timeslice
+        Base timeslice to which anomalies are added. This should be
+        a model Timeslice over the reference period, similar to modref.
+        Usually, the base Timeslice should contain extrapolated T, S
+        fields though, to ensure the output bias-corrected fields are
+        also extrapolated.
+    basinNumber: int([ny, nx])
+        Gridded product denoting the individual basins by integer values
+        Usually, this should be the 16 IMBIE basins, though a modification
+        of these is required to ensure each contains a finite volume over
+        the continental shelf. This same modification is required for the
+        basic extrapolation of T and S.
+    basinmask: int([Nbasins, ny, nx])
+        Mask containing 0s and 1s, denoting which horizontal grid cell
+        is part of which basin. 1: True, 0: False
     """
 
     def __init__(self, config, logger):
