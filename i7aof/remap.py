@@ -18,6 +18,7 @@ def remap_projection_to_ismip(
     config,
     logger,
     in_proj4='epsg:3031',
+    renormalize=None,
 ):
     """
     Remap a dataset to the ISMIP grid, creating a mapping file if one does
@@ -42,6 +43,8 @@ def remap_projection_to_ismip(
     in_proj4 : str, optional
         The projection string for the input projection (default is
         'epsg:3031'). This can be any string that `pyproj.Proj` accepts.
+    renormalize : float, optional
+        If provided, a threshold to use to renormalize the data
     """
     if os.path.exists(out_filename):
         return
@@ -81,7 +84,9 @@ def remap_projection_to_ismip(
         mesh_name=out_mesh_name,
         proj_str=ismip_proj4,
     )
-    _remap_common(remapper, in_filename, out_filename, map_filename, logger)
+    _remap_common(
+        remapper, in_filename, out_filename, map_filename, logger, renormalize
+    )
 
 
 def remap_lat_lon_to_ismip(
@@ -94,6 +99,7 @@ def remap_lat_lon_to_ismip(
     logger,
     lon_var='lon',
     lat_var='lat',
+    renormalize=None,
 ):
     """
     Remap a dataset on a lat-lon grid to the ISMIP grid, creating a mapping
@@ -122,6 +128,8 @@ def remap_lat_lon_to_ismip(
     lat_var : str, optional
         The name of the latitude variable in the input dataset (default is
         'lat').
+    renormalize : float, optional
+        If provided, a threshold to use to renormalize the data
     """
     if os.path.exists(out_filename):
         return
@@ -162,7 +170,9 @@ def remap_lat_lon_to_ismip(
         mesh_name=out_mesh_name,
         proj_str=ismip_proj4,
     )
-    _remap_common(remapper, in_filename, out_filename, map_filename, logger)
+    _remap_common(
+        remapper, in_filename, out_filename, map_filename, logger, renormalize
+    )
 
 
 # --- Private helper functions below ---
@@ -228,7 +238,9 @@ def _get_remapper(
     return remapper
 
 
-def _remap_common(remapper, in_filename, out_filename, map_filename, logger):
+def _remap_common(
+    remapper, in_filename, out_filename, map_filename, logger, renormalize
+):
     """
     Common logic for building the map and remapping fields.
     """
@@ -238,5 +250,5 @@ def _remap_common(remapper, in_filename, out_filename, map_filename, logger):
         print('  Computing remapping weights...')
         remapper.build_map(logger=logger)
     print('  Remapping fields...')
-    remapper.ncremap(in_filename, out_filename)
+    remapper.ncremap(in_filename, out_filename, renormalize=renormalize)
     print('  Done.')
