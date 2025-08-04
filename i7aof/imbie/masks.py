@@ -11,6 +11,7 @@ from tqdm import tqdm
 
 from i7aof.grid.ismip import get_horiz_res_string, get_ismip_grid_filename
 from i7aof.imbie.download import download_imbie
+from i7aof.io import write_netcdf
 
 
 def make_imbie_masks(config):
@@ -153,5 +154,5 @@ def _write_basin_mask(x, y, basin_number, filename):
         {'basinNumber': (('y', 'x'), basin_number)},
         coords={'x': ('x', x), 'y': ('y', y)},
     )
-    ds_out.to_netcdf(filename)
+    write_netcdf(ds_out, filename)
     print(f'Extended IMBIE basin masks saved to {filename}.')

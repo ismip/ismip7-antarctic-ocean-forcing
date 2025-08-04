@@ -2,6 +2,7 @@ import numpy as np
 import xarray as xr
 
 from i7aof.grid.ismip import get_horiz_res_string
+from i7aof.io import write_netcdf
 
 
 class TopoBase:
@@ -112,7 +113,7 @@ class TopoBase:
             ds[field] = xr.where(mask, ds[field] / ds[frac], np.nan)
             ds[field].attrs = attrs
 
-        ds.to_netcdf(out_filename)
+        write_netcdf(ds, out_filename)
 
     def check(self, ds):
         """
