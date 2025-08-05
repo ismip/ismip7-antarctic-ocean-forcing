@@ -216,10 +216,14 @@ def add_periodic_lon(ds, threshold=1e-10, lon_var='lon'):
     if len(ds[lon_var].dims) == 1:
         lon_dim = ds[lon_var].dims[0]
         lon_range = ds[lon_var][-1].values - ds[lon_var][0].values
-    else:
-        assert len(ds[lon_var].dims) == 2
+    elif len(ds[lon_var].dims) == 2:
         lon_dim = ds[lon_var].dims[1]
         lon_range = ds[lon_var][0, -1].values - ds[lon_var][0, 0].values
+    else:
+        raise ValueError(
+            f'Expected longitude variable "{lon_var}" to have 1 or 2 '
+            f'dimensions, but got {len(ds[lon_var].dims)}.'
+        )
 
     rad = 'rad' in ds[lon_var].attrs.get('units', '')
     if rad:
