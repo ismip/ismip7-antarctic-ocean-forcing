@@ -153,7 +153,7 @@ def remap_horiz(config, in_filename, logger):
     if method == 'bilinear':
         # we need to add a periodic longitude value or remapping will have a
         # seam
-        ds = add_periodic_lon(ds, threshold=1e-10)
+        ds = add_periodic_lon(ds, threshold=1e-10, lon_var=lon_var)
 
     input_mask_path = os.path.join(tmpdir, 'input_mask.nc')
     output_mask_path = os.path.join(tmpdir, 'output_mask.nc')

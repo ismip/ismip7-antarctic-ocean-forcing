@@ -176,7 +176,7 @@ def remap_lat_lon_to_ismip(
     )
 
 
-def add_periodic_lon(ds, threshold=1e-10):
+def add_periodic_lon(ds, threshold=1e-10, lon_var='lon'):
     """
     Add a periodic longitude to a dataset if the longitude range is not
     approximately 360 degrees. This is typically needed for bilinear remapping
@@ -192,21 +192,24 @@ def add_periodic_lon(ds, threshold=1e-10):
         The threshold to determine if the longitude range is approximately
         360 degrees. Default is 1e-10.
 
+    lon_var : str, optional
+        The name of the longitude variable in the dataset. Default is 'lon'.
+
     Returns
     -------
     xarray.Dataset
         The dataset with periodic longitude added if necessary.
     """
 
-    if len(ds.lon.dims) == 1:
-        lon_dim = ds.lon.dims[0]
-        lon_range = ds.lon[-1].values - ds.lon[0].values
+    if len(ds[lon_var].dims) == 1:
+        lon_dim = ds[lon_var].dims[0]
+        lon_range = ds[lon_var][-1].values - ds[lon_var][0].values
     else:
-        assert len(ds.lon.dims) == 2
-        lon_dim = ds.lon.dims[1]
-        lon_range = ds.lon[0, -1].values - ds.lon[0, 0].values
+        assert len(ds[lon_var].dims) == 2
+        lon_dim = ds[lon_var].dims[1]
+        lon_range = ds[lon_var][0, -1].values - ds[lon_var][0, 0].values
 
-    rad = 'rad' in ds.lon.attrs.get('units', '')
+    rad = 'rad' in ds[lon_var].attrs.get('units', '')
     if rad:
         lon_range = np.rad2deg(lon_range)
 
