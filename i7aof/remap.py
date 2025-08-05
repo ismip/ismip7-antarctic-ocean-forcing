@@ -86,7 +86,13 @@ def remap_projection_to_ismip(
         proj_str=ismip_proj4,
     )
     _remap_common(
-        remapper, in_filename, out_filename, map_filename, logger, renormalize
+        remapper,
+        in_filename,
+        ismip_grid_filename,
+        out_filename,
+        map_filename,
+        logger,
+        renormalize,
     )
 
 
@@ -172,7 +178,13 @@ def remap_lat_lon_to_ismip(
         proj_str=ismip_proj4,
     )
     _remap_common(
-        remapper, in_filename, out_filename, map_filename, logger, renormalize
+        remapper,
+        in_filename,
+        ismip_grid_filename,
+        out_filename,
+        map_filename,
+        logger,
+        renormalize,
     )
 
 
@@ -284,13 +296,21 @@ def _get_remapper(
 
 
 def _remap_common(
-    remapper, in_filename, out_filename, map_filename, logger, renormalize
+    remapper,
+    in_filename,
+    ismip_grid_filename,
+    out_filename,
+    map_filename,
+    logger,
+    renormalize,
 ):
     """
     Common logic for building the map and remapping fields.
     """
     remapper.src_scrip_filename = in_filename.replace('.nc', '.scrip.nc')
-    # dst_scrip_filename is already set by the caller
+    remapper.dst_scrip_filename = ismip_grid_filename.replace(
+        '.nc', '.scrip.nc'
+    )
     if not os.path.exists(map_filename):
         print('  Computing remapping weights...')
         remapper.build_map(logger=logger)
