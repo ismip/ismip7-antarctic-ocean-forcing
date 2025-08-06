@@ -75,7 +75,7 @@ class Bedmap3(TopoBase):
         )
         remap_projection_to_ismip(
             in_filename=self.get_preprocessed_topo_path(),
-            in_mesh_name='bedmap3',
+            in_grid_name='bedmap3',
             in_proj4='epsg:3031',
             out_filename=remapped_filename,
             map_dir='topo',
