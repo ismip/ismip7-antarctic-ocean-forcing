@@ -146,6 +146,7 @@ def remap_horiz(config, in_filename, logger):
     method = config.get('cesm2_waccm', 'remap_method')
     lat_var = config.get('cesm2_waccm', 'lat_var')
     lon_var = config.get('cesm2_waccm', 'lon_var')
+    lon_dim = config.get('cesm2_waccm', 'lon_dim')
 
     # Open dataset (but do not load into memory)
     ds = xr.open_dataset(in_filename, chunks={'time': 1}, decode_times=False)
@@ -153,7 +154,7 @@ def remap_horiz(config, in_filename, logger):
     if method == 'bilinear':
         # we need to add a periodic longitude value or remapping will have a
         # seam
-        ds = add_periodic_lon(ds, threshold=1e-10, lon_var=lon_var)
+        ds = add_periodic_lon(ds, lon_var=lon_var, periodic_dim=lon_dim)
 
     input_mask_path = os.path.join(tmpdir, 'input_mask.nc')
     output_mask_path = os.path.join(tmpdir, 'output_mask.nc')

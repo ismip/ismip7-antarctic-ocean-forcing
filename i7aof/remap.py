@@ -188,7 +188,7 @@ def remap_lat_lon_to_ismip(
     )
 
 
-def add_periodic_lon(ds, threshold=1e-10, lon_var='lon'):
+def add_periodic_lon(ds, threshold=1e-10, lon_var='lon', periodic_dim=None):
     """
     Add a periodic longitude to a dataset if the longitude range is not
     approximately 360 degrees. This is typically needed for bilinear remapping
@@ -207,18 +207,28 @@ def add_periodic_lon(ds, threshold=1e-10, lon_var='lon'):
     lon_var : str, optional
         The name of the longitude variable in the dataset. Default is 'lon'.
 
+    periodic_dim : str, optional
+        The name of the dimension along which to add periodicity. For 1D
+        longitude, `periodic_dim` is found automatically and this parameter is
+        ignored.  For 2D longitude, the default is the same as `lon_var`.
+
     Returns
     -------
     xarray.Dataset
         The dataset with periodic longitude added if necessary.
     """
-
     if len(ds[lon_var].dims) == 1:
-        lon_dim = ds[lon_var].dims[0]
-        lon_range = ds[lon_var][-1].values - ds[lon_var][0].values
+        lon = ds[lon_var].values
+        lon_gap = np.abs(lon[-1] - lon[0] - 360.0)
+        periodic_dim = ds[lon_var].dims[0]
     elif len(ds[lon_var].dims) == 2:
-        lon_dim = ds[lon_var].dims[1]
-        lon_range = ds[lon_var][0, -1].values - ds[lon_var][0, 0].values
+        if periodic_dim is None:
+            periodic_dim = lon_var
+
+        lon_min = ds[lon_var].isel({periodic_dim: 0})
+        lon_max = ds[lon_var].isel({periodic_dim: -1})
+        # the maximum gap
+        lon_gap = np.abs(lon_max - lon_min - 360.0).max().values
     else:
         raise ValueError(
             f'Expected longitude variable "{lon_var}" to have 1 or 2 '
@@ -227,11 +237,19 @@ def add_periodic_lon(ds, threshold=1e-10, lon_var='lon'):
 
     rad = 'rad' in ds[lon_var].attrs.get('units', '')
     if rad:
-        lon_range = np.rad2deg(lon_range)
+        lon_gap = np.rad2deg(lon_gap)
 
-    if np.abs(lon_range - 360.0) > threshold:
-        nlon = ds.sizes[lon_dim]
-        ds = ds.isel({lon_dim: np.append(np.arange(nlon), [0])})
+    if lon_gap > threshold:
+        nperiodic_dim = ds.sizes[periodic_dim]
+        ds = ds.isel({periodic_dim: np.append(np.arange(nperiodic_dim), [0])})
+
+        if len(ds[lon_var].dims) == 1:
+            # keep 1D longitude monotonic
+            attrs = ds[lon_var].attrs
+            lon = ds[lon_var].values
+            lon[-1] = lon[0] + (2 * np.pi if rad else 360.0)
+            ds[lon_var] = (periodic_dim, lon)
+            ds[lon_var].attrs = attrs
 
     return ds
 
