@@ -22,6 +22,8 @@ def mask(interpolator, src_filename, time_chunk):
     lev_bnds = -ds_raw['lev_bnds']
 
     ds = xr.open_dataset(src_filename, decode_times=False)
+    # test with 20 years of data
+    ds = ds.isel(time=slice(0, 240))
     ds = ds.chunk({'time': time_chunk})
 
     da = ds['thetao']
