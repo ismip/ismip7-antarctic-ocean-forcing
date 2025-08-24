@@ -39,6 +39,7 @@ include = ["i7aof"]
 
 [project.scripts]
 ismip7-antarctic-ocean-forcing = "i7aof.__main__:main"
+ismip7-antarctic-remap-cmip = "i7aof.remap.cmip:main"
 
 [tool.setuptools.dynamic]
 version = { attr = "i7aof.version.__version__" }
