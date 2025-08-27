@@ -86,8 +86,6 @@ jobs:
           python -m pip install -vv --no-deps --no-build-isolation .
 
       - name: Run Tests
-        env:
-          CHECK_IMAGES: False
         run: |
           conda activate ismip7_dev
           ismip7-antarctic-ocean-forcing --help
