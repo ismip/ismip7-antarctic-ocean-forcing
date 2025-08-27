@@ -35,7 +35,10 @@ dependencies = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["i7aof"]
+include = ["i7aof*"]
+
+[tool.setuptools.package-data]
+i7aof = ["*.cfg", "**/*.cfg"]
 
 [project.scripts]
 ismip7-antarctic-ocean-forcing = "i7aof.__main__:main"
