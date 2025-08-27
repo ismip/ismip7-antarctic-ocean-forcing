@@ -27,6 +27,10 @@ class VerticalInterpolator:
 
     src_frac_interp : xarray.DataArray
         The fraction of valid source data after interpolation.
+
+    z_src : xarray.DataArray
+        The source vertical coordinate from the dataset, corrected to be
+        positive up if needed
     """
 
     def __init__(self, src_valid, src_coord, dst_coord, config):
@@ -55,12 +59,8 @@ class VerticalInterpolator:
         self.config = config
 
         # Prepare source coordinate
-        self.z_src = self._fix_src_coord(src_valid[src_coord])
         src_valid = src_valid.copy()
-        src_valid = src_valid.assign_coords(
-            {src_coord: (src_coord, self.z_src.data)}
-        )
-        src_valid[src_coord].attrs = self.z_src.attrs
+        self.z_src = src_valid[src_coord].copy()
         self.src_valid = src_valid
 
         # Prepare destination coordinate
@@ -150,21 +150,6 @@ class VerticalInterpolator:
         return da_normalized
 
     @staticmethod
-    def _fix_src_coord(z_src):
-        """
-        Invert the coordinate and convert to meters if necessary.
-        """
-        attrs = z_src.attrs
-        if attrs.get('units', 'm').lower() in ['cm', 'centimeters']:
-            z_src = 1e-2 * z_src
-        if attrs.get('positive', 'down').lower() == 'down':
-            z_src = -z_src
-        z_src.attrs = attrs
-        z_src.attrs['units'] = 'm'
-        z_src.attrs['positive'] = 'up'
-        return z_src
-
-    @staticmethod
     def _vert_interp(da, src_coord, z_dst):
         """
         Perform vertical interpolation on a DataArray.
@@ -175,3 +160,57 @@ class VerticalInterpolator:
             kwargs={'fill_value': 'extrapolate'},
         )
         return da_interp
+
+
+def fix_src_z_coord(ds, z_coord, z_bnds):
+    """
+    Invert the coordinate and convert to meters if necessary.
+
+    Parameters
+    ----------
+    ds : xarray.Dataset
+        The dataset containing the vertical coordinates.
+
+    z_coord : str
+        The name of the vertical coordinate variable.
+
+    z_bnds : str
+        The name of the vertical coordinate bounds variable.
+
+    Returns
+    -------
+    z_src : xarray.DataArray
+        The source vertical coordinate from the dataset, corrected to be
+        positive up if needed.
+
+    z_bnds_src : xarray.DataArray
+        The source vertical coordinate bounds from the dataset, corrected to be
+        positive up if needed.
+    """
+    z_src = ds[z_coord].copy()
+    z_bnds_src = ds[z_bnds].copy()
+    attrs = z_src.attrs
+    z_units = attrs.get('units', 'm').lower()
+    z_positive = attrs.get('positive', 'down').lower()
+    bnds_attrs = z_bnds_src.attrs
+    bnds_units = bnds_attrs.get('units', z_units).lower()
+    bnds_positive = bnds_attrs.get('positive', z_positive).lower()
+
+    if z_units in ['cm', 'centimeters']:
+        z_src = 1e-2 * z_src
+    if bnds_units in ['cm', 'centimeters']:
+        z_bnds_src = 1e-2 * z_bnds_src
+
+    if z_positive == 'down':
+        z_src = -z_src
+    if bnds_positive == 'down':
+        z_bnds_src = -z_bnds_src
+
+    z_src.attrs = attrs
+    z_src.attrs['units'] = 'm'
+    z_src.attrs['positive'] = 'up'
+
+    # bounds don't need attributes
+    z_bnds_src.attrs = {}
+
+    return z_src, z_bnds_src

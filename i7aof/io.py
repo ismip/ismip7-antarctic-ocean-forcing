@@ -64,6 +64,9 @@ def write_netcdf(
     if 'time' in ds.dims:
         # make sure the time dimension is unlimited
         ds.encoding['unlimited_dims'] = {'time'}
+    else:
+        # make sure there are no unlimited dimensions
+        ds.encoding['unlimited_dims'] = set()
 
     # for performance, we have to handle this as a special case
     convert = format == 'NETCDF3_64BIT_DATA'
