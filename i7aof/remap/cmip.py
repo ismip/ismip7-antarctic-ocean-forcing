@@ -28,7 +28,16 @@ def remap_cmip(
     user_config_filename=None,
 ):
     """
-    Remap CMIP data both vertically and horizontally to the ISMIP grid.
+    Remap CMIP data to the ISMIP grid with two stages:
+    1) vertical interpolation to ISMIP z_extrap levels, then
+    2) horizontal remapping to the ISMIP lat/lon grid.
+
+    This function orchestrates the basic flow per input file:
+    - Prepare output dirs and ensure the ISMIP grid exists.
+    - For each monthly file:
+      * Vertical pipeline (see _vert_mask_interp_norm):
+        mask invalid source points -> interpolate in z -> normalize.
+      * Horizontal remap of the vertically processed data to ISMIP grid.
 
     Parameters
     ----------
@@ -106,6 +115,7 @@ def remap_cmip(
         in_files.append(in_filename)
         out_files.append(out_filename)
 
+    # Ensure the destination ISMIP grid files exist (used by both steps)
     write_ismip_grid(config)
 
     for index, (in_filename, out_filename) in enumerate(
@@ -115,21 +125,28 @@ def remap_cmip(
             print(f'Remapped file exists, skipping: {out_filename}')
             continue
 
+        # Per-file tmp dirs for clarity and clean-up
+        # Vertical stage tmp directory (mask -> interp -> normalize)
         vert_tmpdir = os.path.join(
             outdir, f'tmp_vert_interp_{variable}_{index}'
         )
         os.makedirs(vert_tmpdir, exist_ok=True)
 
+        # Horizontal stage tmp directory (time-chunked remap + masks)
         horiz_tmpdir = os.path.join(
             outdir, f'tmp_horiz_remap_{variable}_{index}'
         )
         os.makedirs(horiz_tmpdir, exist_ok=True)
 
+        # 1) Vertical pipeline: masking -> vertical interpolation -> normalize
         vert_interp_filenames = _vert_mask_interp_norm(
             config, in_filename, outdir, variable, vert_tmpdir
         )
 
         with LoggingContext(__name__) as logger:
+            # 2) Horizontal remap to ISMIP lat/lon grid
+            # Requires a logger to capture output from ncremap calls (we use
+            # stdout and stderr, rather than a log file here)
             _remap_horiz(
                 config,
                 vert_interp_filenames,
@@ -140,6 +157,7 @@ def remap_cmip(
                 logger,
             )
 
+        # Always clean up tmp dirs for this input file
         shutil.rmtree(vert_tmpdir)
         shutil.rmtree(horiz_tmpdir)
 
