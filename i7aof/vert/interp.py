@@ -191,8 +191,16 @@ def fix_src_z_coord(ds, z_coord, z_bnds):
     z_bnds_src = ds[z_bnds].copy()
     attrs = z_src.attrs
     z_units = attrs.get('units', 'm').lower()
-    z_positive = attrs.get('positive', 'down').lower()
+    if 'positive' in attrs:
+        z_positive = attrs['positive'].lower()
+    else:
+        # we have to figure it out
+        z_positive = 'down' if z_src.values[-1] > z_src.values[0] else 'up'
+
     bnds_attrs = z_bnds_src.attrs
+    # typically, bnds have the same attributes as z itself but that isn't true
+    # for the CESM2-WACCM units so we will only assume this as a fallback if
+    # the attributes are missing
     bnds_units = bnds_attrs.get('units', z_units).lower()
     bnds_positive = bnds_attrs.get('positive', z_positive).lower()
 
