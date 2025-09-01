@@ -229,6 +229,9 @@ def main():
     )
 
 
+## helper functions for vertical interpolation
+
+
 def _vert_mask(
     interpolator,
     src_filename,
@@ -238,7 +241,22 @@ def _vert_mask(
     lev,
     lev_bnds,
 ):
-    """Mask the dataset before vertical interpolation"""
+    """
+    Mask the dataset before vertical interpolation.
+
+    Why a mask?
+    - Construct a boolean mask of valid source values on the native 3D grid
+      (lev × lat × lon). It is used to:
+      1) zero-out invalid data in all 3D variables prior to interpolation;
+      2) be vertically interpolated to ISMIP z_extrap levels along with
+         the data, yielding a valid fraction on the ISMIP grid (written
+         later as 'src_frac_interp');
+      3) normalize the vertically interpolated fields using that fraction.
+
+    This step writes an intermediate file containing the masked variable,
+    standardized vertical coordinates ('lev', 'lev_bnds'), and the
+    'src_valid' mask needed by later stages.
+    """
 
     ds = xr.open_dataset(src_filename, decode_times=False)
     ds = ds.chunk({'time': time_chunk})
@@ -304,7 +322,26 @@ def _vert_normalize(
     normalize_filename,
     variable,
 ):
-    """Normalize the dataset following vertical interpolation"""
+    """
+    Normalize the dataset following vertical interpolation.
+
+    Why normalization?
+    - Intensive fields like temperature and salinity should not be reduced
+      just because only a fraction of the destination cell is valid on the
+      source grid. Without renormalization, values near bathymetry or
+      partially sampled columns would be biased low.
+    - We use the vertically interpolated validity (written as
+      'src_frac_interp') to renormalize the field after interpolation:
+        * where the valid fraction is sufficiently large, divide by that
+          fraction to restore the correct magnitude;
+        * where the fraction is too small to be reliable, set the result to
+          a mask/missing value rather than amplify noise.
+
+    Inputs/Outputs
+    - Reads the vertically interpolated file from the previous step.
+    - Writes the normalized variable and carries through 'src_frac_interp'
+      and 'z_extrap_bnds'.
+    """
     # open it again to get a clean dataset
     ds = xr.open_dataset(interp_filename, decode_times=False)
     ds = ds.chunk({'time': time_chunk})
@@ -327,10 +364,33 @@ def _vert_normalize(
 def _vert_mask_interp_norm(config, in_filename, outdir, variable, tmpdir):
     """Mask, vertically interpolate and normalize the dataset"""
 
+    # Overview of the vertical pipeline for a single input file:
+    # 1) Prepare per-stage temporary filenames under tmpdir.
+    # 2) Fast-path return if the final normalized file already exists.
+    # 3) Open the ISMIP grid (needed for z_extrap and its bounds).
+    # 4) Open the source dataset and standardize the vertical coordinate:
+    #    - fix_src_z_coord() enforces a monotonic 'lev' and valid 'lev_bnds',
+    #      returning sanitized arrays we re-attach to the dataset.
+    # 5) Build a source-validity mask from the first time slice to mark ocean
+    #    points with valid data (shape: lev x lat x lon). The time dimension is
+    #    dropped so the mask can be reused across time.
+    # 6) Read configuration for time chunking during vertical steps (memory
+    #    management) and construct a VerticalInterpolator that carries the
+    #    validity mask and target vertical coordinate ('z_extrap').
+    # 7) Run the three stages:
+    #    a) _vert_mask: apply mask/sorting on the source vertical coordinate.
+    #    b) _vert_interp: interpolate masked profiles to z_extrap; writes
+    #       'src_frac_interp' (fraction of valid source levels used).
+    #    c) _vert_normalize: normalize interpolated profiles for consistency.
+    # 8) Return the path to the normalized per-file output for downstream
+    #    horizontal remapping.
+
+    # 1) Temporary file paths for each vertical stage output
     mask_filename = os.path.join(tmpdir, f'{variable}_masked.nc')
     interp_filename = os.path.join(tmpdir, f'{variable}_interp.nc')
     normalized_filename = os.path.join(tmpdir, f'{variable}_normalized.nc')
 
+    # 2) Skip computation if the final vertical product already exists
     if os.path.exists(normalized_filename):
         print(
             f'Vertically interpolated file exists, skipping: '
@@ -338,19 +398,25 @@ def _vert_mask_interp_norm(config, in_filename, outdir, variable, tmpdir):
         )
         return normalized_filename
 
+    # 3) ISMIP grid contains 'z_extrap' and 'z_extrap_bnds' needed later
     ds_ismip = xr.open_dataset(get_ismip_grid_filename(config))
 
+    # 4) Open the source dataset and ensure a clean, monotonic vertical axis
     with xr.open_dataset(in_filename, decode_times=False) as ds:
+        # Standardize the source vertical coordinate and bounds
         lev, lev_bnds = fix_src_z_coord(ds, 'lev', 'lev_bnds')
         ds = ds.assign_coords({'lev': ('lev', lev.data)})
         ds['lev'].attrs = lev.attrs
         ds['lev_bnds'] = lev_bnds
 
+        # 5) Compute validity mask from the first time sample; drop time dim
         src_valid = ds[variable].isel(time=0).notnull()
         src_valid = src_valid.drop_vars(['time'])
 
+    # 6) Chunk size for vertical operations (memory/performance control)
     time_chunk = config.getint('remap_cmip', 'vert_time_chunk')
 
+    # Create the interpolator that will perform masking/interp/normalization
     interpolator = VerticalInterpolator(
         src_valid=src_valid,
         src_coord='lev',
@@ -358,6 +424,7 @@ def _vert_mask_interp_norm(config, in_filename, outdir, variable, tmpdir):
         config=config,
     )
 
+    # 7a) Mask/sort the source data on the vertical axis and write output
     _vert_mask(
         interpolator,
         in_filename,
@@ -368,6 +435,7 @@ def _vert_mask_interp_norm(config, in_filename, outdir, variable, tmpdir):
         lev_bnds,
     )
 
+    # 7b) Interpolate masked data to z_extrap levels; writes src_frac_interp
     _vert_interp(
         interpolator,
         ds_ismip,
@@ -377,6 +445,7 @@ def _vert_mask_interp_norm(config, in_filename, outdir, variable, tmpdir):
         variable,
     )
 
+    # 7c) Normalize the interpolated profiles and finalize vertical product
     _vert_normalize(
         interpolator,
         ds_ismip,
@@ -391,7 +460,11 @@ def _vert_mask_interp_norm(config, in_filename, outdir, variable, tmpdir):
         f"'{normalized_filename}'."
     )
 
+    # 8) Hand back the normalized file for horizontal remapping
     return normalized_filename
+
+
+## helper functions for horizontal interpolation
 
 
 def _remap_horiz(
@@ -403,7 +476,58 @@ def _remap_horiz(
     tmpdir,
     logger,
 ):
-    """Horizontally remap the dataset"""
+    """
+    Horizontally remap the vertically processed dataset to the ISMIP grid.
+
+    Workflow
+    - Input is the single-file output of the vertical pipeline (already masked,
+      vertically interpolated and normalized). We map it to the ISMIP lat/lon
+      grid and write the final product.
+    - Steps:
+      1) Open the source dataset lazily; if ``method == 'bilinear'``, add a
+         periodic longitude column to avoid a seam at the dateline.
+      2) Build a lightweight, time-invariant "mask" dataset by dropping the
+         main variable and time coordinates, and remap it once without
+         renormalization. This carries ancillary variables (notably
+         ``src_frac_interp`` from the vertical stage) onto the ISMIP grid. The
+         remapped mask is reused for all time chunks and broadcast in time.
+      3) Remap the data in time chunks of size
+         ``[remap_cmip] horiz_time_chunk`` for memory efficiency. Each chunk is
+         written to a temporary file and remapped with
+         ``renormalize = [remap] threshold`` so horizontal cell-coverage
+         fractions are handled consistently.
+      4) Concatenate remapped chunks along time, attach the horizontally
+         remapped ``src_frac_interp`` from the mask (time-invariant), and write
+         the final output file.
+
+    Horizontal renormalization vs. vertical normalization
+    - Vertical normalization (already applied) corrects for partial coverage in
+      the water column using the vertically interpolated validity fraction
+      (``src_frac_interp``) per column.
+    - Horizontal renormalization (this step) corrects for partial horizontal
+      coverage of source cells contributing to a destination ISMIP cell. If the
+      covered fraction exceeds ``[remap] threshold``, values are scaled by that
+      fraction; otherwise the destination cell is masked to avoid inflating
+      noise.
+
+    Parameters
+    ----------
+    config : MpasConfigParser
+        Configuration with remapping options (method, thresholds, grid
+        metadata, chunk sizes).
+    in_filename : str
+        Path to the per-file output from the vertical pipeline.
+    out_filename : str
+        Path where the horizontally remapped file will be written.
+    variable : str
+        Name of the data variable to remap.
+    model_prefix : str
+        Short identifier for the source grid used in map-file names/metadata.
+    tmpdir : str
+        Directory for temporary mask and chunk files.
+    logger : logging.Logger
+        Logger used to capture remapping tool output.
+    """
 
     method = config.get('remap', 'method')
     renorm_threshold = config.getfloat('remap', 'threshold')
