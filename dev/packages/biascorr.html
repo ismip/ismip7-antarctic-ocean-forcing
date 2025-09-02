@@ -180,7 +180,7 @@
           <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
         </button>
       </div>
-      <label class="toc-overlay-icon toc-header-icon no-toc" for="__toc">
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
         <div class="visually-hidden">Toggle table of contents sidebar</div>
         <i class="icon"><svg><use href="#svg-toc"></use></svg></i>
       </label>
@@ -229,6 +229,7 @@
 </ul>
 </li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../../api/index.html">API Reference</a><input class="toctree-checkbox" id="toctree-checkbox-4" name="toctree-checkbox-4" role="switch" type="checkbox"/><label for="toctree-checkbox-4"><div class="visually-hidden">Toggle navigation of API Reference</div><i class="icon"><svg><use href="#svg-arrow-right"></use></svg></i></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../api/i7aof.biascorr.html">i7aof.biascorr</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../api/i7aof.grid.html">i7aof.grid</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../api/i7aof.imbie.html">i7aof.imbie</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../api/i7aof.io.html">i7aof.io</a></li>
@@ -273,7 +274,7 @@
               <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
             </button>
           </div>
-          <label class="toc-overlay-icon toc-content-icon no-toc" for="__toc">
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
             <div class="visually-hidden">Toggle table of contents sidebar</div>
             <i class="icon"><svg><use href="#svg-toc"></use></svg></i>
           </label>
@@ -281,14 +282,223 @@
         <article role="main" id="furo-main-content">
           <section id="i7aof-biascorr">
 <h1>i7aof.biascorr<a class="headerlink" href="#i7aof-biascorr" title="Link to this heading">¶</a></h1>
-<p>Purpose: Bias-correction methods (time-slice, projection) to align CMIP outputs with observational climatologies.</p>
+<p>Purpose: Bias-correction methods (time-slice statistics and projection
+workflows) to align model fields with a reference climatology, producing
+corrected temperature (<code class="docutils literal notranslate"><span class="pre">thetao</span></code>) and salinity (<code class="docutils literal notranslate"><span class="pre">so</span></code>) on the ISMIP grid.</p>
+<section id="public-python-api-by-module">
+<h2>Public Python API (by module)<a class="headerlink" href="#public-python-api-by-module" title="Link to this heading">¶</a></h2>
+<p>Import paths and brief descriptions by module:</p>
 <ul class="simple">
-<li><p>Key modules: <code class="docutils literal notranslate"><span class="pre">timeslice</span></code>, <code class="docutils literal notranslate"><span class="pre">projection</span></code></p></li>
-<li><p>Responsibilities: compute climatologies, apply corrections, manage masks/extrapolation order.</p></li>
-<li><p>Inputs: CMIP fields, observational climatologies, grid/mask metadata.</p></li>
-<li><p>Outputs: bias-corrected fields on ISMIP grids.</p></li>
+<li><p>Module: <a class="reference internal" href="../../api/i7aof.biascorr.html#module-i7aof.biascorr.timeslice" title="i7aof.biascorr.timeslice"><code class="xref py py-mod docutils literal notranslate"><span class="pre">i7aof.biascorr.timeslice</span></code></a></p>
+<ul>
+<li><p><a class="reference internal" href="../../api/i7aof.biascorr.html#i7aof.biascorr.timeslice.Timeslice" title="i7aof.biascorr.timeslice.Timeslice"><code class="xref py py-class docutils literal notranslate"><span class="pre">Timeslice</span></code></a>: A container
+and helper for extracting per-year (or mean) gridded T and S, computing
+3D volume, binning volume in T–S space by basin, and building per-basin
+bias anomalies relative to a model reference period.</p>
+<ul>
+<li><p>Key methods:</p>
+<ul>
+<li><p><code class="xref py py-meth docutils literal notranslate"><span class="pre">get_all_data()</span></code> — convenience to call T/S extraction,
+volume, and binning.</p></li>
+<li><p><code class="xref py py-meth docutils literal notranslate"><span class="pre">get_T_and_S()</span></code> — load <code class="docutils literal notranslate"><span class="pre">thetao</span></code> and <code class="docutils literal notranslate"><span class="pre">so</span></code> for a given time index
+or the first time.</p></li>
+<li><p><code class="xref py py-meth docutils literal notranslate"><span class="pre">get_volume()</span></code> — compute grid-cell volume from uniform <code class="docutils literal notranslate"><span class="pre">dx</span></code>,
+<code class="docutils literal notranslate"><span class="pre">dy</span></code>, <code class="docutils literal notranslate"><span class="pre">dz</span></code> based on the first differences of <code class="docutils literal notranslate"><span class="pre">x</span></code>, <code class="docutils literal notranslate"><span class="pre">y</span></code>, <code class="docutils literal notranslate"><span class="pre">z</span></code>.</p></li>
+<li><p><code class="xref py py-meth docutils literal notranslate"><span class="pre">get_bins()</span></code> — compute per-basin 2D histograms in (S, T)
+space: <code class="docutils literal notranslate"><span class="pre">Vb</span></code>, with edges <code class="docutils literal notranslate"><span class="pre">Sb</span></code>, <code class="docutils literal notranslate"><span class="pre">Tb</span></code>.</p></li>
+<li><p><code class="xref py py-meth docutils literal notranslate"><span class="pre">compute_delta(modref)()</span></code> — compute filled per-basin anomalies
+<code class="docutils literal notranslate"><span class="pre">deltaSf</span></code>, <code class="docutils literal notranslate"><span class="pre">deltaTf</span></code> on the model-ref bins.</p></li>
+<li><p><code class="xref py py-meth docutils literal notranslate"><span class="pre">apply_anomaly(base)()</span></code> — map filled anomalies back to 3D to
+produce <code class="docutils literal notranslate"><span class="pre">S_corrected</span></code>, <code class="docutils literal notranslate"><span class="pre">T_corrected</span></code> using the “base” fields.</p></li>
 </ul>
-<p>TBD: Algorithms, configuration options, and worked examples.</p>
+</li>
+<li><p>Notable attributes: <code class="docutils literal notranslate"><span class="pre">T</span></code>, <code class="docutils literal notranslate"><span class="pre">S</span></code>, <code class="docutils literal notranslate"><span class="pre">V</span></code>, <code class="docutils literal notranslate"><span class="pre">Vb</span></code>, <code class="docutils literal notranslate"><span class="pre">Sb</span></code>, <code class="docutils literal notranslate"><span class="pre">Tb</span></code>, <code class="docutils literal notranslate"><span class="pre">deltaSf</span></code>,
+<code class="docutils literal notranslate"><span class="pre">deltaTf</span></code>, <code class="docutils literal notranslate"><span class="pre">S_corrected</span></code>, <code class="docutils literal notranslate"><span class="pre">T_corrected</span></code>, <code class="docutils literal notranslate"><span class="pre">Nbins</span></code>, <code class="docutils literal notranslate"><span class="pre">Nbasins</span></code>.</p></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p>Module: <a class="reference internal" href="../../api/i7aof.biascorr.html#module-i7aof.biascorr.projection" title="i7aof.biascorr.projection"><code class="xref py py-mod docutils literal notranslate"><span class="pre">i7aof.biascorr.projection</span></code></a></p>
+<ul>
+<li><p><a class="reference internal" href="../../api/i7aof.biascorr.html#i7aof.biascorr.projection.Projection" title="i7aof.biascorr.projection.Projection"><code class="xref py py-class docutils literal notranslate"><span class="pre">Projection</span></code></a>: Orchestrates
+the bias-correction workflow across reference, model-reference, base
+(extrapolated), and future model periods; constructs continental-shelf
+basin masks; loops over years to write corrected outputs.</p>
+<ul>
+<li><p>Key methods:</p>
+<ul>
+<li><p><code class="xref py py-meth docutils literal notranslate"><span class="pre">read_reference()</span></code> — build <code class="docutils literal notranslate"><span class="pre">Timeslice</span></code> for reference (<code class="docutils literal notranslate"><span class="pre">ref</span></code>),
+model reference (<code class="docutils literal notranslate"><span class="pre">modref</span></code>), and base (<code class="docutils literal notranslate"><span class="pre">base</span></code>) and compute their data.</p></li>
+<li><p><code class="xref py py-meth docutils literal notranslate"><span class="pre">compute_bias()</span></code> — compute salinity and temperature bin bias
+corrections (<code class="docutils literal notranslate"><span class="pre">Sc</span></code>, <code class="docutils literal notranslate"><span class="pre">Tc</span></code>) on the model reference bins.</p></li>
+<li><p><code class="xref py py-meth docutils literal notranslate"><span class="pre">read_model()</span></code> — iterate over all model files in the future
+period, apply anomalies per time index, and write corrected outputs.</p></li>
+<li><p><code class="xref py py-meth docutils literal notranslate"><span class="pre">read_model_timeslice()</span></code> — one-year helper used by
+<code class="docutils literal notranslate"><span class="pre">read_model()</span></code>.</p></li>
+<li><p><code class="xref py py-meth docutils literal notranslate"><span class="pre">create_basin_masks()</span></code> — construct per-basin masks over the
+continental shelf using topography and IMBIE basins.</p></li>
+<li><p><code class="xref py py-meth docutils literal notranslate"><span class="pre">plot_TS_diagrams(filename)()</span></code> — quick-look T–S histograms per
+basin for ref/modref/bias-corrected bins.</p></li>
+</ul>
+</li>
+<li><p>Important attributes: <code class="docutils literal notranslate"><span class="pre">ref</span></code>, <code class="docutils literal notranslate"><span class="pre">modref</span></code>, <code class="docutils literal notranslate"><span class="pre">base</span></code>, <code class="docutils literal notranslate"><span class="pre">basinNumber</span></code>,
+<code class="docutils literal notranslate"><span class="pre">basinmask</span></code>, <code class="docutils literal notranslate"><span class="pre">basinmask_extrap</span></code>, <code class="docutils literal notranslate"><span class="pre">Nbins</span></code>, input filename patterns.</p></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</section>
+<section id="required-config-options">
+<h2>Required config options<a class="headerlink" href="#required-config-options" title="Link to this heading">¶</a></h2>
+<p>Section <code class="docutils literal notranslate"><span class="pre">[biascorr]</span></code> is required. Keys used by the workflow:</p>
+<ul class="simple">
+<li><p>Input datasets (NetCDF files or glob patterns):</p>
+<ul>
+<li><p><code class="docutils literal notranslate"><span class="pre">thetao_ref</span></code>, <code class="docutils literal notranslate"><span class="pre">so_ref</span></code> — reference dataset over the reference period
+(observational or reanalysis), on the ISMIP grid.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">thetao_modref</span></code>, <code class="docutils literal notranslate"><span class="pre">so_modref</span></code> — model over the reference period (non-
+extrapolated). Used to build model reference bins and anomalies.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">thetao_base</span></code>, <code class="docutils literal notranslate"><span class="pre">so_base</span></code> — model over the reference period with
+extrapolated fields, used as the base to which anomalies are applied.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">thetao_mod</span></code>, <code class="docutils literal notranslate"><span class="pre">so_mod</span></code> — model over the target/future period to be
+corrected (glob patterns; yearly or chunked files expected).</p></li>
+</ul>
+</li>
+<li><p>Ancillary inputs and parameters:</p>
+<ul>
+<li><p><code class="docutils literal notranslate"><span class="pre">filename_topo</span></code> — ISMIP topography file (output of <a class="reference internal" href="topo.html"><span class="doc">i7aof.topo</span></a>); used to
+mask out deep ocean and non-shelf regions.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">filename_imbie</span></code> — IMBIE basin mask file (output of <a class="reference internal" href="imbie.html"><span class="doc">i7aof.imbie</span></a>), with
+variable <code class="docutils literal notranslate"><span class="pre">basinNumber</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">z_shelf</span></code> (float, meters) — maximum bed elevation for “continental shelf”
+mask (e.g., -1500 m).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Nbins</span></code> (int) — number of equally spaced bins for both S and T per basin.</p></li>
+</ul>
+</li>
+</ul>
+<p>Assumptions:</p>
+<ul class="simple">
+<li><p>Input variables are named <code class="docutils literal notranslate"><span class="pre">thetao</span></code> and <code class="docutils literal notranslate"><span class="pre">so</span></code>, with dims <code class="docutils literal notranslate"><span class="pre">(time,</span> <span class="pre">z,</span> <span class="pre">y,</span> <span class="pre">x)</span></code>.</p></li>
+<li><p>Horizontal and vertical spacing are uniform and read from <code class="docutils literal notranslate"><span class="pre">x</span></code>, <code class="docutils literal notranslate"><span class="pre">y</span></code>, <code class="docutils literal notranslate"><span class="pre">z</span></code>
+coords. Volume currently ignores partial cell fractions (see Internals).</p></li>
+</ul>
+</section>
+<section id="outputs">
+<h2>Outputs<a class="headerlink" href="#outputs" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p>Corrected NetCDF files written by <code class="xref py py-meth docutils literal notranslate"><span class="pre">Projection.read_model()</span></code> in the
+current working directory, one pair per input chunk:</p>
+<ul>
+<li><p><code class="docutils literal notranslate"><span class="pre">thetao_corrected_{startYear}_{endYear}.nc</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">so_corrected_{startYear}_{endYear}.nc</span></code></p></li>
+</ul>
+</li>
+<li><p>Optional: T–S diagram figure from
+<code class="xref py py-meth docutils literal notranslate"><span class="pre">Projection.plot_TS_diagrams(filename)()</span></code>.</p></li>
+</ul>
+</section>
+<section id="data-model">
+<h2>Data model<a class="headerlink" href="#data-model" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p>Gridded variables: <code class="docutils literal notranslate"><span class="pre">T(thetao)</span></code>, <code class="docutils literal notranslate"><span class="pre">S(so)</span></code>, 3D volume <code class="docutils literal notranslate"><span class="pre">V(z,y,x)</span></code>.</p></li>
+<li><p>Per-basin T–S histograms: <code class="docutils literal notranslate"><span class="pre">Vb(Nbasins,Nbins,Nbins)</span></code> with bin edges
+<code class="docutils literal notranslate"><span class="pre">Sb(Nbasins,Nbins+1)</span></code>, <code class="docutils literal notranslate"><span class="pre">Tb(Nbasins,Nbins+1)</span></code>.</p></li>
+<li><p>Filled per-basin anomalies on model-ref bins: <code class="docutils literal notranslate"><span class="pre">deltaSf</span></code>, <code class="docutils literal notranslate"><span class="pre">deltaTf</span></code>.</p></li>
+<li><p>Corrected gridded fields: <code class="docutils literal notranslate"><span class="pre">S_corrected(z,y,x)</span></code>, <code class="docutils literal notranslate"><span class="pre">T_corrected(z,y,x)</span></code>.</p></li>
+<li><p>Basin metadata: <code class="docutils literal notranslate"><span class="pre">basinNumber(y,x)</span></code>, masks <code class="docutils literal notranslate"><span class="pre">basinmask(Nbasins,y,x)</span></code> and
+<code class="docutils literal notranslate"><span class="pre">basinmask_extrap(Nbasins,y,x)</span></code>.</p></li>
+</ul>
+</section>
+<section id="runtime-and-external-requirements">
+<h2>Runtime and external requirements<a class="headerlink" href="#runtime-and-external-requirements" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p>Core: <code class="docutils literal notranslate"><span class="pre">numpy</span></code>, <code class="docutils literal notranslate"><span class="pre">xarray</span></code>, <code class="docutils literal notranslate"><span class="pre">tqdm</span></code>, <code class="docutils literal notranslate"><span class="pre">matplotlib</span></code> (for plotting).</p></li>
+<li><p>Inputs are expected on the ISMIP grid; see <a class="reference internal" href="grid.html"><span class="doc">i7aof.grid</span></a>, <a class="reference internal" href="topo.html"><span class="doc">i7aof.topo</span></a>, and
+<a class="reference internal" href="imbie.html"><span class="doc">i7aof.imbie</span></a> for producing required ancillary files.</p></li>
+<li><p>For the authoritative conda-forge environment, see <code class="docutils literal notranslate"><span class="pre">dev-spec.txt</span></code> (note
+<code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code> lists a PyPI-only subset).</p></li>
+</ul>
+</section>
+<section id="usage">
+<h2>Usage<a class="headerlink" href="#usage" title="Link to this heading">¶</a></h2>
+<p>High-level workflow to bias-correct a model period:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">i7aof.biascorr.projection</span><span class="w"> </span><span class="kn">import</span> <span class="n">Projection</span>
+
+<span class="n">proj</span> <span class="o">=</span> <span class="n">Projection</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">logger</span><span class="p">)</span>
+<span class="n">proj</span><span class="o">.</span><span class="n">read_reference</span><span class="p">()</span>   <span class="c1"># loads ref, modref, base and computes bins/volumes</span>
+<span class="n">proj</span><span class="o">.</span><span class="n">compute_bias</span><span class="p">()</span>     <span class="c1"># derives per-basin Sc and Tc on model-ref bins</span>
+<span class="n">proj</span><span class="o">.</span><span class="n">read_model</span><span class="p">()</span>       <span class="c1"># loops over future files; writes corrected outputs</span>
+
+<span class="c1"># Optional quick-look TS plots</span>
+<span class="n">proj</span><span class="o">.</span><span class="n">plot_TS_diagrams</span><span class="p">(</span><span class="s1">&#39;ts_diagrams.png&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Notes:</p>
+<ul class="simple">
+<li><p>Ensure <code class="docutils literal notranslate"><span class="pre">filename_topo</span></code> and <code class="docutils literal notranslate"><span class="pre">filename_imbie</span></code> point to files on the same
+ISMIP grid as the inputs.</p></li>
+<li><p>Use sensible <code class="docutils literal notranslate"><span class="pre">z_shelf</span></code> so shelf basins contain finite volume.</p></li>
+</ul>
+</section>
+<section id="internals-for-maintainers">
+<h2>Internals (for maintainers)<a class="headerlink" href="#internals-for-maintainers" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p>Timeslice volume and histograms:</p>
+<ul>
+<li><p>Volume assumes uniform <code class="docutils literal notranslate"><span class="pre">dx,</span> <span class="pre">dy,</span> <span class="pre">dz</span></code> computed from the first grid steps; a
+TODO notes applying cell fractions in the future.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_bins()</span></code> builds 2D histograms in (S, T) per basin, weighting by grid
+cell volume masked by <code class="docutils literal notranslate"><span class="pre">basinmask</span></code>.</p></li>
+</ul>
+</li>
+<li><p>Anomaly computation and filling:</p>
+<ul>
+<li><p><code class="docutils literal notranslate"><span class="pre">compute_delta(modref)</span></code> forms volume-weighted anomalies on the model-ref
+bins and fills missing bins iteratively by averaging neighbor bins until
+full coverage.</p></li>
+</ul>
+</li>
+<li><p>Bias curves (Sc, Tc):</p>
+<ul>
+<li><p>Salinity: per-basin search over scalings in [0.5, 1.5) to best match the
+reference S PDF while anchoring the chosen percentile (<code class="docutils literal notranslate"><span class="pre">perc=99</span></code> by
+default).</p></li>
+<li><p>Temperature: scale the (T - Tmin) distribution so the <code class="docutils literal notranslate"><span class="pre">perc</span></code> percentile
+matches reference; anchor at Tmin.</p></li>
+</ul>
+</li>
+<li><p>Apply to 3D fields: anomalies are looked up by bin indices derived from the
+base fields per basin and added to produce corrected fields.</p></li>
+<li><p>Basin masks: <code class="docutils literal notranslate"><span class="pre">create_basin_masks()</span></code> reads topography and IMBIE basins; the
+shelf mask uses <code class="docutils literal notranslate"><span class="pre">bed</span> <span class="pre">&gt;</span> <span class="pre">z_shelf</span></code> to exclude deep ocean; an “extrapolated” mask
+includes full basins for applying anomalies to base fields.</p></li>
+</ul>
+</section>
+<section id="edge-cases-validations">
+<h2>Edge cases / validations<a class="headerlink" href="#edge-cases-validations" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p>File pairing: <code class="docutils literal notranslate"><span class="pre">read_model()</span></code> assumes each <code class="docutils literal notranslate"><span class="pre">thetao</span></code> file has a matching <code class="docutils literal notranslate"><span class="pre">so</span></code>
+file via name replacement. An assertion will fail otherwise.</p></li>
+<li><p>Dimensions and names: variables must be named <code class="docutils literal notranslate"><span class="pre">thetao</span></code> and <code class="docutils literal notranslate"><span class="pre">so</span></code> and share the
+same time coordinate and (x,y,z) grids. The code uses <code class="docutils literal notranslate"><span class="pre">xr.testing.assert_equal</span></code>
+on <code class="docutils literal notranslate"><span class="pre">time</span></code> to enforce matching time axes.</p></li>
+<li><p>Uniform spacing: volume assumes uniform spacing; highly nonuniform grids
+aren’t supported in the current implementation.</p></li>
+<li><p>Binning robustness: empty bins lead to NaNs which are then filled
+iteratively; extreme cases could require tuning <code class="docutils literal notranslate"><span class="pre">Nbins</span></code>.</p></li>
+</ul>
+</section>
+<section id="extension-points">
+<h2>Extension points<a class="headerlink" href="#extension-points" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p>Allow custom output paths/filenames for corrected fields instead of the
+current hard-coded names.</p></li>
+<li><p>Incorporate partial-cell fractions and exact grid metrics in volume.</p></li>
+<li><p>Support alternative binning strategies, percentiles, and scaling ranges.</p></li>
+<li><p>Generalize variable names/dimension names or pass them via config.</p></li>
+</ul>
+</section>
 </section>
 
         </article>
@@ -334,8 +544,35 @@
         
       </footer>
     </div>
-    <aside class="toc-drawer no-toc">
+    <aside class="toc-drawer">
       
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">i7aof.biascorr</a><ul>
+<li><a class="reference internal" href="#public-python-api-by-module">Public Python API (by module)</a></li>
+<li><a class="reference internal" href="#required-config-options">Required config options</a></li>
+<li><a class="reference internal" href="#outputs">Outputs</a></li>
+<li><a class="reference internal" href="#data-model">Data model</a></li>
+<li><a class="reference internal" href="#runtime-and-external-requirements">Runtime and external requirements</a></li>
+<li><a class="reference internal" href="#usage">Usage</a></li>
+<li><a class="reference internal" href="#internals-for-maintainers">Internals (for maintainers)</a></li>
+<li><a class="reference internal" href="#edge-cases-validations">Edge cases / validations</a></li>
+<li><a class="reference internal" href="#extension-points">Extension points</a></li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      </div>
       
       
     </aside>

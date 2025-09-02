@@ -14,3 +14,11 @@ remap
 topo
 vert
 ```
+
+```{note}
+Maintainers, when adding new packages, please keep them alphabetically listed
+above.  Each page should follow a common structure:
+Purpose → Public Python API → Required config options → Outputs → Data model →
+Runtime and external requirements → Usage → Internals → Edge cases →
+Extension points.
+```

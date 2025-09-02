@@ -6,7 +6,7 @@
 <link rel="index" title="Index" href="../genindex.html" /><link rel="search" title="Search" href="../search.html" /><link rel="next" title="i7aof.grid" href="i7aof.grid.html" /><link rel="prev" title="API Reference" href="index.html" />
 
     <!-- Generated with Sphinx 8.3.0 and Furo 2024.08.06 -->
-        <title>&lt;no title&gt; - i7aof 0.1.0</title>
+        <title>i7aof.biascorr - i7aof 0.1.0</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=354aac6f" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
@@ -180,7 +180,7 @@
           <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
         </button>
       </div>
-      <label class="toc-overlay-icon toc-header-icon no-toc" for="__toc">
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
         <div class="visually-hidden">Toggle table of contents sidebar</div>
         <i class="icon"><svg><use href="#svg-toc"></use></svg></i>
       </label>
@@ -200,7 +200,7 @@
   <input type="hidden" name="area" value="default">
 </form>
 <div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
-  <ul>
+  <ul class="current">
 <li class="toctree-l1 has-children"><a class="reference internal" href="../user/index.html">User Guide</a><input class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><div class="visually-hidden">Toggle navigation of User Guide</div><i class="icon"><svg><use href="#svg-arrow-right"></use></svg></i></label><ul>
 <li class="toctree-l2"><a class="reference internal" href="../user/install.html">Installation</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../user/quickstart.html">Quickstart</a></li>
@@ -228,7 +228,8 @@
 <li class="toctree-l2"><a class="reference internal" href="../dev/releasing.html">Releasing</a></li>
 </ul>
 </li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="index.html">API Reference</a><input class="toctree-checkbox" id="toctree-checkbox-4" name="toctree-checkbox-4" role="switch" type="checkbox"/><label for="toctree-checkbox-4"><div class="visually-hidden">Toggle navigation of API Reference</div><i class="icon"><svg><use href="#svg-arrow-right"></use></svg></i></label><ul>
+<li class="toctree-l1 current has-children"><a class="reference internal" href="index.html">API Reference</a><input checked="" class="toctree-checkbox" id="toctree-checkbox-4" name="toctree-checkbox-4" role="switch" type="checkbox"/><label for="toctree-checkbox-4"><div class="visually-hidden">Toggle navigation of API Reference</div><i class="icon"><svg><use href="#svg-arrow-right"></use></svg></i></label><ul class="current">
+<li class="toctree-l2 current current-page"><a class="current reference internal" href="#">i7aof.biascorr</a></li>
 <li class="toctree-l2"><a class="reference internal" href="i7aof.grid.html">i7aof.grid</a></li>
 <li class="toctree-l2"><a class="reference internal" href="i7aof.imbie.html">i7aof.imbie</a></li>
 <li class="toctree-l2"><a class="reference internal" href="i7aof.io.html">i7aof.io</a></li>
@@ -273,13 +274,460 @@
               <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
             </button>
           </div>
-          <label class="toc-overlay-icon toc-content-icon no-toc" for="__toc">
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
             <div class="visually-hidden">Toggle table of contents sidebar</div>
             <i class="icon"><svg><use href="#svg-toc"></use></svg></i>
           </label>
         </div>
         <article role="main" id="furo-main-content">
-          
+          <section id="i7aof-biascorr">
+<h1>i7aof.biascorr<a class="headerlink" href="#i7aof-biascorr" title="Link to this heading">¶</a></h1>
+<p>Bias-correction utilities and workflows. See <a class="reference internal" href="../dev/packages/biascorr.html"><span class="doc">i7aof.biascorr</span></a> for developer details.</p>
+<dl class="py class" id="module-i7aof.biascorr.timeslice">
+<dt class="sig sig-object py" id="i7aof.biascorr.timeslice.Timeslice">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">i7aof.biascorr.timeslice.</span></span><span class="sig-name descname"><span class="pre">Timeslice</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">thetao</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">so</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">basinmask</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">basinNumber</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">yidx</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#i7aof.biascorr.timeslice.Timeslice" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>A class for a time slice containing T and S</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="i7aof.biascorr.timeslice.Timeslice.config">
+<span class="sig-name descname"><span class="pre">config</span></span><a class="headerlink" href="#i7aof.biascorr.timeslice.Timeslice.config" title="Link to this definition">¶</a></dt>
+<dd><p>Configuration options.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>mpas_tools.config.MpasConfigParser</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="i7aof.biascorr.timeslice.Timeslice.thetao">
+<span class="sig-name descname"><span class="pre">thetao</span></span><a class="headerlink" href="#i7aof.biascorr.timeslice.Timeslice.thetao" title="Link to this definition">¶</a></dt>
+<dd><p>name of file containing thetao</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="i7aof.biascorr.timeslice.Timeslice.so">
+<span class="sig-name descname"><span class="pre">so</span></span><a class="headerlink" href="#i7aof.biascorr.timeslice.Timeslice.so" title="Link to this definition">¶</a></dt>
+<dd><p>name of file containing so</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="i7aof.biascorr.timeslice.Timeslice.Public">
+<span class="sig-name descname"><span class="pre">Public</span></span><a class="headerlink" href="#i7aof.biascorr.timeslice.Timeslice.Public" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">------</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="i7aof.biascorr.timeslice.Timeslice.V">
+<span class="sig-name descname"><span class="pre">V</span></span><a class="headerlink" href="#i7aof.biascorr.timeslice.Timeslice.V" title="Link to this definition">¶</a></dt>
+<dd><p>gridded volume in 3D space</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>float([nz, ny, nx])</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="i7aof.biascorr.timeslice.Timeslice.T">
+<span class="sig-name descname"><span class="pre">T</span></span><a class="headerlink" href="#i7aof.biascorr.timeslice.Timeslice.T" title="Link to this definition">¶</a></dt>
+<dd><p>gridded temperature in 3D space</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>float([nz, ny, nx])</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="i7aof.biascorr.timeslice.Timeslice.S">
+<span class="sig-name descname"><span class="pre">S</span></span><a class="headerlink" href="#i7aof.biascorr.timeslice.Timeslice.S" title="Link to this definition">¶</a></dt>
+<dd><p>gridded salinity in 3D space</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>float([nz, ny, nx])</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="i7aof.biascorr.timeslice.Timeslice.Vb">
+<span class="sig-name descname"><span class="pre">Vb</span></span><a class="headerlink" href="#i7aof.biascorr.timeslice.Timeslice.Vb" title="Link to this definition">¶</a></dt>
+<dd><p>binned volume in S, T space per basin</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>float([Nbasins, Nbins, Nbins])</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="i7aof.biascorr.timeslice.Timeslice.Sb">
+<span class="sig-name descname"><span class="pre">Sb</span></span><a class="headerlink" href="#i7aof.biascorr.timeslice.Timeslice.Sb" title="Link to this definition">¶</a></dt>
+<dd><p>Evenly spaced salinity bins per basin</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>float([Nbasins, Nbins + 1])</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="i7aof.biascorr.timeslice.Timeslice.Tb">
+<span class="sig-name descname"><span class="pre">Tb</span></span><a class="headerlink" href="#i7aof.biascorr.timeslice.Timeslice.Tb" title="Link to this definition">¶</a></dt>
+<dd><p>Evenly spaced temperature bins per basin</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>float([Nbasins, Nbins + 1])</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="i7aof.biascorr.timeslice.Timeslice.deltaSf">
+<span class="sig-name descname"><span class="pre">deltaSf</span></span><a class="headerlink" href="#i7aof.biascorr.timeslice.Timeslice.deltaSf" title="Link to this definition">¶</a></dt>
+<dd><p>Filled delta S between this time slice and
+the model reference, in S, T space per basin</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>float([Nbasins, Nbins, Nbins))</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="i7aof.biascorr.timeslice.Timeslice.deltaTf">
+<span class="sig-name descname"><span class="pre">deltaTf</span></span><a class="headerlink" href="#i7aof.biascorr.timeslice.Timeslice.deltaTf" title="Link to this definition">¶</a></dt>
+<dd><p>Filled delta T between this time slice and
+the model reference, in S, T space per basin</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>float([Nbasins, Nbins, Nbins))</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="i7aof.biascorr.timeslice.Timeslice.S_corrected">
+<span class="sig-name descname"><span class="pre">S_corrected</span></span><a class="headerlink" href="#i7aof.biascorr.timeslice.Timeslice.S_corrected" title="Link to this definition">¶</a></dt>
+<dd><p>Bias-corrected salinity in 3D space</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>float([nz, ny, nx])</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="i7aof.biascorr.timeslice.Timeslice.T_corrected">
+<span class="sig-name descname"><span class="pre">T_corrected</span></span><a class="headerlink" href="#i7aof.biascorr.timeslice.Timeslice.T_corrected" title="Link to this definition">¶</a></dt>
+<dd><p>Bias-corrected temperature in 3D space</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>float([nz, ny, nx])</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="i7aof.biascorr.timeslice.Timeslice.Sperc">
+<span class="sig-name descname"><span class="pre">Sperc</span></span><a class="headerlink" href="#i7aof.biascorr.timeslice.Timeslice.Sperc" title="Link to this definition">¶</a></dt>
+<dd><p>Requested percentile of salinity, usually 99th</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>float([Nbasins])</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="i7aof.biascorr.timeslice.Timeslice.Tperc">
+<span class="sig-name descname"><span class="pre">Tperc</span></span><a class="headerlink" href="#i7aof.biascorr.timeslice.Timeslice.Tperc" title="Link to this definition">¶</a></dt>
+<dd><p>Requested percentile of temperature, usually 99th</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>float([Nbasins])</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="i7aof.biascorr.timeslice.Timeslice.Sscaling">
+<span class="sig-name descname"><span class="pre">Sscaling</span></span><a class="headerlink" href="#i7aof.biascorr.timeslice.Timeslice.Sscaling" title="Link to this definition">¶</a></dt>
+<dd><p>Scaling factor of salinity, effectively stretching
+or compressing the model salinity distribution to
+best fit the reference distribution whilst fixing
+Sperc. Only values between 0.5 and 1.5 are allowed.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>float([Nbasins])</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="i7aof.biascorr.timeslice.Timeslice.Tscaling">
+<span class="sig-name descname"><span class="pre">Tscaling</span></span><a class="headerlink" href="#i7aof.biascorr.timeslice.Timeslice.Tscaling" title="Link to this definition">¶</a></dt>
+<dd><p>Scaling factor of temperature, effectively stretching
+or compressing the model temperature distribution to
+best fit the reference distribution whilst fixing
+the minimum temperature value (usually freezing point).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>float([Nbasins])</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="i7aof.biascorr.timeslice.Timeslice.apply_anomaly">
+<span class="sig-name descname"><span class="pre">apply_anomaly</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">base</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#i7aof.biascorr.timeslice.Timeslice.apply_anomaly" title="Link to this definition">¶</a></dt>
+<dd><p>Determine model anomaly with respect to reference period
+and apply anomaly to the base T and S to get the corrected
+values</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>base</strong> (<a class="reference internal" href="#i7aof.biascorr.timeslice.Timeslice" title="i7aof.biascorr.timeslice.Timeslice"><em>Timeslice</em></a>) – base timeslice on which to add T- and S-anomalies.
+This should usually be the timeslice of the same model
+over the reference period (same as modref), but with
+the extrapolated fields, so that T_corrected and
+S_corrected are also extrapolated over the full domain</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="i7aof.biascorr.timeslice.Timeslice.compute_delta">
+<span class="sig-name descname"><span class="pre">compute_delta</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">modref</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#i7aof.biascorr.timeslice.Timeslice.compute_delta" title="Link to this definition">¶</a></dt>
+<dd><p>Compute difference between timeslice and modref,
+binned on the modelref bins</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>modref</strong> (<a class="reference internal" href="#i7aof.biascorr.timeslice.Timeslice" title="i7aof.biascorr.timeslice.Timeslice"><em>Timeslice</em></a>) – Timeslice of the same model as this Timeslice
+over the reference period.
+This should usually be the non-extrapolated fields</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="i7aof.biascorr.timeslice.Timeslice.fill_delta">
+<span class="sig-name descname"><span class="pre">fill_delta</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">deltavar</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#i7aof.biascorr.timeslice.Timeslice.fill_delta" title="Link to this definition">¶</a></dt>
+<dd><p>Fill deltavar (either deltaT or deltaS)
+in full normalised T,S space</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>deltavar</strong> (<em>array</em><em>(</em><em>[</em><em>Nbins</em><em>, </em><em>Nbins</em><em>]</em><em>)</em>) – deltaT or deltaS in S,T space</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="i7aof.biascorr.timeslice.Timeslice.get_T_and_S">
+<span class="sig-name descname"><span class="pre">get_T_and_S</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#i7aof.biascorr.timeslice.Timeslice.get_T_and_S" title="Link to this definition">¶</a></dt>
+<dd><p>Extract T and S data</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="i7aof.biascorr.timeslice.Timeslice.get_all_data">
+<span class="sig-name descname"><span class="pre">get_all_data</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#i7aof.biascorr.timeslice.Timeslice.get_all_data" title="Link to this definition">¶</a></dt>
+<dd><p>Extract all data from time slice</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="i7aof.biascorr.timeslice.Timeslice.get_bins">
+<span class="sig-name descname"><span class="pre">get_bins</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#i7aof.biascorr.timeslice.Timeslice.get_bins" title="Link to this definition">¶</a></dt>
+<dd><p>Get 2D histogram of volume Vb
+as a function of binned salinity (Sb) and temperature (Tb)</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="i7aof.biascorr.timeslice.Timeslice.get_volume">
+<span class="sig-name descname"><span class="pre">get_volume</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#i7aof.biascorr.timeslice.Timeslice.get_volume" title="Link to this definition">¶</a></dt>
+<dd><p>Extract volume per grid cell</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class" id="module-i7aof.biascorr.projection">
+<dt class="sig sig-object py" id="i7aof.biascorr.projection.Projection">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">i7aof.biascorr.projection.</span></span><span class="sig-name descname"><span class="pre">Projection</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">logger</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#i7aof.biascorr.projection.Projection" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>A main class for projections</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="i7aof.biascorr.projection.Projection.config">
+<span class="sig-name descname"><span class="pre">config</span></span><a class="headerlink" href="#i7aof.biascorr.projection.Projection.config" title="Link to this definition">¶</a></dt>
+<dd><p>Configuration options.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>mpas_tools.config.MpasConfigParser</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="i7aof.biascorr.projection.Projection.logger">
+<span class="sig-name descname"><span class="pre">logger</span></span><a class="headerlink" href="#i7aof.biascorr.projection.Projection.logger" title="Link to this definition">¶</a></dt>
+<dd><p>Logger for the class.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>logging.Logger</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="i7aof.biascorr.projection.Projection.Public">
+<span class="sig-name descname"><span class="pre">Public</span></span><a class="headerlink" href="#i7aof.biascorr.projection.Projection.Public" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">------</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="i7aof.biascorr.projection.Projection.ref">
+<span class="sig-name descname"><span class="pre">ref</span></span><a class="headerlink" href="#i7aof.biascorr.projection.Projection.ref" title="Link to this definition">¶</a></dt>
+<dd><p>Reference timeslice to which a model will be bias-corrected.
+This should usually be an observational dataset</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="#i7aof.biascorr.timeslice.Timeslice" title="i7aof.biascorr.timeslice.Timeslice">Timeslice</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="i7aof.biascorr.projection.Projection.modref">
+<span class="sig-name descname"><span class="pre">modref</span></span><a class="headerlink" href="#i7aof.biascorr.projection.Projection.modref" title="Link to this definition">¶</a></dt>
+<dd><p>Model reference timeslice. This should be a model Timeslice
+averaged over the reference period. The input fields (T,S)
+should not be extrapolated, to prevent biases in the volume
+of certain water masses.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="#i7aof.biascorr.timeslice.Timeslice" title="i7aof.biascorr.timeslice.Timeslice">Timeslice</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="i7aof.biascorr.projection.Projection.base">
+<span class="sig-name descname"><span class="pre">base</span></span><a class="headerlink" href="#i7aof.biascorr.projection.Projection.base" title="Link to this definition">¶</a></dt>
+<dd><p>Base timeslice to which anomalies are added. This should be
+a model Timeslice over the reference period, similar to modref.
+Usually, the base Timeslice should contain extrapolated T, S
+fields though, to ensure the output bias-corrected fields are
+also extrapolated.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="#i7aof.biascorr.timeslice.Timeslice" title="i7aof.biascorr.timeslice.Timeslice">Timeslice</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="i7aof.biascorr.projection.Projection.basinNumber">
+<span class="sig-name descname"><span class="pre">basinNumber</span></span><a class="headerlink" href="#i7aof.biascorr.projection.Projection.basinNumber" title="Link to this definition">¶</a></dt>
+<dd><p>Gridded product denoting the individual basins by integer values
+Usually, this should be the 16 IMBIE basins, though a modification
+of these is required to ensure each contains a finite volume over
+the continental shelf. This same modification is required for the
+basic extrapolation of T and S.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>int([ny, nx])</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="i7aof.biascorr.projection.Projection.basinmask">
+<span class="sig-name descname"><span class="pre">basinmask</span></span><a class="headerlink" href="#i7aof.biascorr.projection.Projection.basinmask" title="Link to this definition">¶</a></dt>
+<dd><p>Mask containing 0s and 1s, denoting which horizontal grid cell
+is part of which basin. 1: True, 0: False</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>int([Nbasins, ny, nx])</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="i7aof.biascorr.projection.Projection.compute_S_bias">
+<span class="sig-name descname"><span class="pre">compute_S_bias</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#i7aof.biascorr.projection.Projection.compute_S_bias" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="i7aof.biascorr.projection.Projection.compute_T_bias">
+<span class="sig-name descname"><span class="pre">compute_T_bias</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#i7aof.biascorr.projection.Projection.compute_T_bias" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="i7aof.biascorr.projection.Projection.compute_bias">
+<span class="sig-name descname"><span class="pre">compute_bias</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#i7aof.biascorr.projection.Projection.compute_bias" title="Link to this definition">¶</a></dt>
+<dd><p>Compute the bias of the model T and S
+with respect to the reference.
+This will create corrected T and S bins (Tc and Sc)</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="i7aof.biascorr.projection.Projection.create_basin_masks">
+<span class="sig-name descname"><span class="pre">create_basin_masks</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#i7aof.biascorr.projection.Projection.create_basin_masks" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="i7aof.biascorr.projection.Projection.get_model_info">
+<span class="sig-name descname"><span class="pre">get_model_info</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#i7aof.biascorr.projection.Projection.get_model_info" title="Link to this definition">¶</a></dt>
+<dd><p>Extract model info from config file</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="i7aof.biascorr.projection.Projection.plot_TS_diagrams">
+<span class="sig-name descname"><span class="pre">plot_TS_diagrams</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#i7aof.biascorr.projection.Projection.plot_TS_diagrams" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="i7aof.biascorr.projection.Projection.read_model">
+<span class="sig-name descname"><span class="pre">read_model</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#i7aof.biascorr.projection.Projection.read_model" title="Link to this definition">¶</a></dt>
+<dd><p>Read whole model period</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="i7aof.biascorr.projection.Projection.read_model_timeslice">
+<span class="sig-name descname"><span class="pre">read_model_timeslice</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">thetao_file</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">so_file</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">yidx</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#i7aof.biascorr.projection.Projection.read_model_timeslice" title="Link to this definition">¶</a></dt>
+<dd><p>Read a timeslice from the future period</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="i7aof.biascorr.projection.Projection.read_reference">
+<span class="sig-name descname"><span class="pre">read_reference</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#i7aof.biascorr.projection.Projection.read_reference" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="i7aof.biascorr.projection.status">
+<span class="sig-prename descclassname"><span class="pre">i7aof.biascorr.projection.</span></span><span class="sig-name descname"><span class="pre">status</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">process_name</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#i7aof.biascorr.projection.status" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</section>
+
         </article>
       </div>
       <footer>
@@ -323,8 +771,75 @@
         
       </footer>
     </div>
-    <aside class="toc-drawer no-toc">
+    <aside class="toc-drawer">
       
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">i7aof.biascorr</a><ul>
+<li><a class="reference internal" href="#i7aof.biascorr.timeslice.Timeslice"><code class="docutils literal notranslate"><span class="pre">Timeslice</span></code></a><ul>
+<li><a class="reference internal" href="#i7aof.biascorr.timeslice.Timeslice.config"><code class="docutils literal notranslate"><span class="pre">Timeslice.config</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.timeslice.Timeslice.thetao"><code class="docutils literal notranslate"><span class="pre">Timeslice.thetao</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.timeslice.Timeslice.so"><code class="docutils literal notranslate"><span class="pre">Timeslice.so</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.timeslice.Timeslice.Public"><code class="docutils literal notranslate"><span class="pre">Timeslice.Public</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.timeslice.Timeslice.V"><code class="docutils literal notranslate"><span class="pre">Timeslice.V</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.timeslice.Timeslice.T"><code class="docutils literal notranslate"><span class="pre">Timeslice.T</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.timeslice.Timeslice.S"><code class="docutils literal notranslate"><span class="pre">Timeslice.S</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.timeslice.Timeslice.Vb"><code class="docutils literal notranslate"><span class="pre">Timeslice.Vb</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.timeslice.Timeslice.Sb"><code class="docutils literal notranslate"><span class="pre">Timeslice.Sb</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.timeslice.Timeslice.Tb"><code class="docutils literal notranslate"><span class="pre">Timeslice.Tb</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.timeslice.Timeslice.deltaSf"><code class="docutils literal notranslate"><span class="pre">Timeslice.deltaSf</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.timeslice.Timeslice.deltaTf"><code class="docutils literal notranslate"><span class="pre">Timeslice.deltaTf</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.timeslice.Timeslice.S_corrected"><code class="docutils literal notranslate"><span class="pre">Timeslice.S_corrected</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.timeslice.Timeslice.T_corrected"><code class="docutils literal notranslate"><span class="pre">Timeslice.T_corrected</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.timeslice.Timeslice.Sperc"><code class="docutils literal notranslate"><span class="pre">Timeslice.Sperc</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.timeslice.Timeslice.Tperc"><code class="docutils literal notranslate"><span class="pre">Timeslice.Tperc</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.timeslice.Timeslice.Sscaling"><code class="docutils literal notranslate"><span class="pre">Timeslice.Sscaling</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.timeslice.Timeslice.Tscaling"><code class="docutils literal notranslate"><span class="pre">Timeslice.Tscaling</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.timeslice.Timeslice.apply_anomaly"><code class="docutils literal notranslate"><span class="pre">Timeslice.apply_anomaly()</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.timeslice.Timeslice.compute_delta"><code class="docutils literal notranslate"><span class="pre">Timeslice.compute_delta()</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.timeslice.Timeslice.fill_delta"><code class="docutils literal notranslate"><span class="pre">Timeslice.fill_delta()</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.timeslice.Timeslice.get_T_and_S"><code class="docutils literal notranslate"><span class="pre">Timeslice.get_T_and_S()</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.timeslice.Timeslice.get_all_data"><code class="docutils literal notranslate"><span class="pre">Timeslice.get_all_data()</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.timeslice.Timeslice.get_bins"><code class="docutils literal notranslate"><span class="pre">Timeslice.get_bins()</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.timeslice.Timeslice.get_volume"><code class="docutils literal notranslate"><span class="pre">Timeslice.get_volume()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#i7aof.biascorr.projection.Projection"><code class="docutils literal notranslate"><span class="pre">Projection</span></code></a><ul>
+<li><a class="reference internal" href="#i7aof.biascorr.projection.Projection.config"><code class="docutils literal notranslate"><span class="pre">Projection.config</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.projection.Projection.logger"><code class="docutils literal notranslate"><span class="pre">Projection.logger</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.projection.Projection.Public"><code class="docutils literal notranslate"><span class="pre">Projection.Public</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.projection.Projection.ref"><code class="docutils literal notranslate"><span class="pre">Projection.ref</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.projection.Projection.modref"><code class="docutils literal notranslate"><span class="pre">Projection.modref</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.projection.Projection.base"><code class="docutils literal notranslate"><span class="pre">Projection.base</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.projection.Projection.basinNumber"><code class="docutils literal notranslate"><span class="pre">Projection.basinNumber</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.projection.Projection.basinmask"><code class="docutils literal notranslate"><span class="pre">Projection.basinmask</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.projection.Projection.compute_S_bias"><code class="docutils literal notranslate"><span class="pre">Projection.compute_S_bias()</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.projection.Projection.compute_T_bias"><code class="docutils literal notranslate"><span class="pre">Projection.compute_T_bias()</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.projection.Projection.compute_bias"><code class="docutils literal notranslate"><span class="pre">Projection.compute_bias()</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.projection.Projection.create_basin_masks"><code class="docutils literal notranslate"><span class="pre">Projection.create_basin_masks()</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.projection.Projection.get_model_info"><code class="docutils literal notranslate"><span class="pre">Projection.get_model_info()</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.projection.Projection.plot_TS_diagrams"><code class="docutils literal notranslate"><span class="pre">Projection.plot_TS_diagrams()</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.projection.Projection.read_model"><code class="docutils literal notranslate"><span class="pre">Projection.read_model()</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.projection.Projection.read_model_timeslice"><code class="docutils literal notranslate"><span class="pre">Projection.read_model_timeslice()</span></code></a></li>
+<li><a class="reference internal" href="#i7aof.biascorr.projection.Projection.read_reference"><code class="docutils literal notranslate"><span class="pre">Projection.read_reference()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#i7aof.biascorr.projection.status"><code class="docutils literal notranslate"><span class="pre">status()</span></code></a></li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      </div>
       
       
     </aside>

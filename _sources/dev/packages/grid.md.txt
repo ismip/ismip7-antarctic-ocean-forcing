@@ -3,13 +3,6 @@
 Purpose: define the ISMIP grid and helpers for writing grid NetCDF files and
 for computing resolution strings used elsewhere.
 
-```{note}
-This page follows a structure you can reuse in documenting other packages:
-Purpose → Public Python API → Required config options → Outputs → Data model →
-Runtime and external requirements → Usage → Internals → Edge cases →
-Extension points.
-```
-
 ## Public Python API (by module)
 
 Import paths and brief descriptions by module:

@@ -3,13 +3,6 @@
 Purpose: Utilities and workflows to remap source data (e.g., CMIP) to the
 ISMIP grid with vertical interpolation/normalization and horizontal remapping.
 
-```{note}
-This page follows the shared structure:
-Purpose → Public Python API → Required config options → Outputs → Data model →
-Runtime and external requirements → Usage → Internals → Edge cases →
-Extension points.
-```
-
 ## Public Python API (by module)
 
 Import paths and brief descriptions by module:
