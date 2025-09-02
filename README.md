@@ -72,3 +72,15 @@ conda install -y --file dev-spec.txt
 ```
 This is okay to do but typically takes just about as long as starting fresh
 and can occasionally lead to messier dependencies.
+
+## Documentation
+
+Built with Sphinx and MyST. Theme: Furo.
+
+Build locally with conda-forge packages:
+
+```bash
+conda activate ismip7_dev
+sphinx-build -b html docs docs/_build/html
+```
+Open `docs/_build/html/index.html` in your favorite browser.

@@ -34,6 +34,17 @@ dependencies = [
     "xarray"
 ]
 
+[project.optional-dependencies]
+# dependencies for building the documentation
+docs = [
+    "furo>=2024.0.0",
+    "linkify-it-py>=2.0",
+    "myst-parser>=2.0",
+    "sphinx>=7.0",
+    "sphinx-copybutton>=0.5",
+    "sphinx-design>=0.6",
+]
+
 [tool.setuptools.packages.find]
 include = ["i7aof*"]
 
