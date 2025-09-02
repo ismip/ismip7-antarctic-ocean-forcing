@@ -29,14 +29,20 @@ def remap_cmip(
 ):
     """
     Remap CMIP data to the ISMIP grid with two stages:
+
     1) vertical interpolation to ISMIP z_extrap levels, then
+
     2) horizontal remapping to the ISMIP lat/lon grid.
 
     This function orchestrates the basic flow per input file:
+
     - Prepare output dirs and ensure the ISMIP grid exists.
+
     - For each monthly file:
+
       * Vertical pipeline (see _vert_mask_interp_norm):
         mask invalid source points -> interpolate in z -> normalize.
+
       * Horizontal remap of the vertically processed data to ISMIP grid.
 
     Parameters
