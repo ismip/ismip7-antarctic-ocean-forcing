@@ -43,6 +43,17 @@ Constraints and behavior:
 - If `dx`, `dy`, `dz`, or `dz_extrap` are missing, a KeyError/Config error will
   be raised by the caller or during access.
 
+
+```{note}
+The `z` coordinate is used for the final version of the datasets provided to
+ice-sheet modelers.  It is typically coarser (60 m spacing by default) than
+the extrapolation coordinate (`z_extrap` has 20 m spacing by default).  The
+higher resolution for `z_extrap` helps ensure that bed topography is
+represented more accurately during extrapolation. At higher resolution,
+troughs can allow water masses to enter ice-shelf cavities or sills can block
+them in ways that would be missed at coarser vertical resolution.
+```
+
 ## Outputs
 
 - Path: `ismip/ismip_{hres}_{vres}_grid.nc` (created if missing)
