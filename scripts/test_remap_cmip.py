@@ -9,7 +9,6 @@ config_filename = os.path.join(this_dir, 'test_remap_cmip.cfg')
 
 remap_cmip(
     model='CESM2-WACCM',
-    variable='thetao',
     scenario='historical',
     user_config_filename=config_filename,
 )
