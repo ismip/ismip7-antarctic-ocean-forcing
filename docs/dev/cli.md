@@ -13,6 +13,5 @@ Each command supports `--help` for usage details. See the User Guide for end-to-
 
 - `i7aof.__main__.main` — implementation behind `ismip7-antarctic-ocean-forcing`.
 - `i7aof.remap.cmip.main` — implementation behind `ismip7-antarctic-remap-cmip`.
-- Bias correction drivers: `i7aof.biascorr.timeslice`, `i7aof.biascorr.projection`.
 
 More detailed API documentation (via autodoc/autosummary) will be added as interfaces stabilize.
