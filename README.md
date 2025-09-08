@@ -3,6 +3,12 @@
 A package for generating Antarctic ocean forcing for the
 [ISMIP7]() activity
 
+## Documentation
+
+Full documentation, including user and developer guides, is available at the
+project website:
+[ismip7-antarctic-ocean-forcing documentation](https://ismip.github.io/ismip7-antarctic-ocean-forcing/).
+
 ## Required conda environment
 
 To generate the ocean forcing data, you need the `conda` package manager. If
@@ -73,7 +79,7 @@ conda install -y --file dev-spec.txt
 This is okay to do but typically takes just about as long as starting fresh
 and can occasionally lead to messier dependencies.
 
-## Documentation
+## Building the Documentation
 
 Built with Sphinx and MyST. Theme: Furo.
 
