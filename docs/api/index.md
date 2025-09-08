@@ -7,6 +7,7 @@ The API is evolving. Autodoc stubs will land as modules stabilize.
 :caption: Modules
 
 i7aof.biascorr
+i7aof.convert
 i7aof.grid
 i7aof.imbie
 i7aof.io

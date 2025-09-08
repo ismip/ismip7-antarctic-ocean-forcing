@@ -2,6 +2,8 @@
 
 Purpose: Utilities and workflows to remap source data (e.g., CMIP) to the
 ISMIP grid with vertical interpolation/normalization and horizontal remapping.
+For CMIP workflows, inputs are expected to be pre-converted ct/sa native-grid
+files produced by {py:mod}`i7aof.convert.cmip`.
 
 ## Public Python API (by module)
 
@@ -16,7 +18,9 @@ Import paths and brief descriptions by module:
       periodic longitude column when needed (avoid dateline seam).
 
 - Module: {py:mod}`i7aof.remap.cmip`
-  - {py:func}`remap_cmip() <i7aof.remap.cmip.remap_cmip>`: Orchestrate per-file vertical interpolation/normalization and horizontal remapping of CMIP monthly data to the ISMIP grid.
+  - {py:func}`remap_cmip() <i7aof.remap.cmip.remap_cmip>`: Orchestrate per-file
+    vertical interpolation/normalization and horizontal remapping of CMIP ct/sa
+    monthly data to the ISMIP grid.
 
 ## Required config options
 
@@ -36,7 +40,8 @@ overrides are typical:
   - `horiz_time_chunk`: int; time chunk for horizontal remap
   - `lon_var`, `lat_var`, `lon_dim`: variable/dimension names on input
 - `[historical_files]`, `[ssp585_files]`, ... (by scenario)
-  - `<variable>`: expression expanding to relative file paths
+  - `thetao`, `so`: expressions expanding to relative file paths (used to
+    derive ct/sa native-grid filenames consumed by remap)
 
 ## Outputs
 
@@ -61,15 +66,14 @@ overrides are typical:
 
 ## Usage
 
-Remap a single variable and scenario (using default package configs plus a
-user config for input/work dirs):
+Remap a model and scenario (using default package configs plus a user config
+for workdir). Conversion must be run first to generate ct/sa inputs.
 
 ```python
 from i7aof.remap.cmip import remap_cmip
 
 remap_cmip(
   model='CESM2-WACCM',
-  variable='thetao',
   scenario='historical',
   user_config_filename='my-config.cfg',
 )
