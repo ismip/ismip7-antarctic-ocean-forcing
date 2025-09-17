@@ -5,6 +5,10 @@ extrapolation of CMIP data on the ISMIP6 grid. They are intentionally kept
 simple and currently remain outside the Python package build on PyPI. Conda
 builds (or manual builds) can produce the executables.
 
+## License
+
+These files are covered by both `LICENSE` and `fortran/LICENSE-extrap`.
+
 ## Building with CMake
 
 ```bash

@@ -67,7 +67,9 @@ tests:
 about:
   summary: Antarctic ocean forcing tools (ISMIP7) with Fortran extrapolation executables.
   license: MIT
-  license_file: LICENSE
+  license_file:
+    - LICENSE
+    - fortran/LICENSE-extrap
   homepage: https://github.com/ismip/ismip7-antarctic-ocean-forcing
   documentation: https://github.com/ismip/ismip7-antarctic-ocean-forcing
 
