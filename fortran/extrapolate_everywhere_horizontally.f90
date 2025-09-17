@@ -13,6 +13,11 @@ INTEGER :: fidA, status, dimID_x, dimID_y, dimID_z, dimID_time, mx, my, mz, mtim
 CHARACTER(LEN=15) :: varnam
 
 CHARACTER(LEN=150) :: file_in, file_out, file_basin, file_topo, cal, uni, his
+CHARACTER(LEN=256) :: namelist_file
+
+INTEGER :: ios, narg
+
+NAMELIST /horizontal_extrapolation/ file_in, file_out, file_basin, file_topo, varnam
 
 REAL*4 :: miss
 
@@ -38,13 +43,61 @@ INTEGER,ALLOCATABLE,DIMENSION(:,:) :: mskba
 INTEGER,ALLOCATABLE,DIMENSION(:) :: Niter
 
 !----------------------------------------------------------------
+! Namelist-driven configuration
+! Provide clearly invalid defaults so the user must supply a namelist.
+file_in     = '__REQUIRED__'
+file_out    = '__REQUIRED__'
+file_basin  = '__REQUIRED__'
+file_topo   = '__REQUIRED__'
+varnam      = '__REQUIRED__'
 
-file_in  = '<file_in>'
-file_out = 'tmp_hor.nc'
-file_basin = '/data/njourdain/DATA_ISMIP6/imbie2_basin_numbers_8km_v2.nc'
-file_topo  = '/data/njourdain/DATA_ISMIP6/BedMachineAntarctica_2020-07-15_v02_8km.nc'
+! Determine namelist file name: first command line argument if present,
+! otherwise fallback to a conventional filename.
+narg = COMMAND_ARGUMENT_COUNT()
+if ( narg >= 1 ) then
+  call GET_COMMAND_ARGUMENT(1, namelist_file, status=ios)
+  if ( ios /= 0 ) then
+    write(*,*) 'ERROR retrieving command argument for namelist file.'
+    stop 1
+  end if
+  if ( LEN_TRIM(namelist_file) == 0 ) namelist_file = 'extrapolate_horizontal.nml'
+else
+  namelist_file = 'extrapolate_horizontal.nml'
+end if
 
-varnam = '<var_name>'
+open(unit=21, file=TRIM(namelist_file), status='old', action='read', iostat=ios)
+if ( ios /= 0 ) then
+  write(*,*) 'ERROR: cannot open namelist file: ', TRIM(namelist_file)
+  stop 1
+end if
+
+read(21, nml=horizontal_extrapolation, iostat=ios)
+if ( ios /= 0 ) then
+  write(*,*) 'ERROR: reading namelist "horizontal_extrapolation" from file: ', TRIM(namelist_file)
+  stop 1
+end if
+close(21)
+
+if ( TRIM(file_in)    == '__REQUIRED__' .or. &
+    TRIM(file_out)   == '__REQUIRED__' .or. &
+    TRIM(file_basin) == '__REQUIRED__' .or. &
+    TRIM(file_topo)  == '__REQUIRED__' .or. &
+    TRIM(varnam)     == '__REQUIRED__' ) then
+  write(*,*) 'ERROR: One or more required namelist entries were not provided.'
+  write(*,*) '       file_in     = ', TRIM(file_in)
+  write(*,*) '       file_out    = ', TRIM(file_out)
+  write(*,*) '       file_basin  = ', TRIM(file_basin)
+  write(*,*) '       file_topo   = ', TRIM(file_topo)
+  write(*,*) '       varnam      = ', TRIM(varnam)
+  stop 1
+end if
+
+write(*,*) 'Using namelist: ', TRIM(namelist_file)
+write(*,*) '  file_in    = ', TRIM(file_in)
+write(*,*) '  file_out   = ', TRIM(file_out)
+write(*,*) '  file_basin = ', TRIM(file_basin)
+write(*,*) '  file_topo  = ', TRIM(file_topo)
+write(*,*) '  varnam     = ', TRIM(varnam)
 
 !----------------------------------------------------------------
 ! Read CMIP6 data (previously interpolated to the ISMIP6 grid) :

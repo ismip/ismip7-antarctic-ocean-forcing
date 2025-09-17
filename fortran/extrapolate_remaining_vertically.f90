@@ -10,6 +10,11 @@ INTEGER :: fidA, status, dimID_x, dimID_y, dimID_z, dimID_time, mx, my, mz, mtim
 CHARACTER(LEN=10) :: varnam
 
 CHARACTER(LEN=150) :: file_in, file_out, cal, uni, his
+CHARACTER(LEN=256) :: namelist_file
+
+INTEGER :: ios, narg
+
+NAMELIST /vertical_extrapolation/ file_in, file_out, varnam
 
 REAL*4,ALLOCATABLE,DIMENSION(:) :: z, y, x
 
@@ -18,10 +23,50 @@ REAL*8,ALLOCATABLE,DIMENSION(:) :: time
 REAL*4,ALLOCATABLE,DIMENSION(:,:,:) :: var_in
 
 !---------------------------------------
-file_in  = 'tmp_hor.nc'
-file_out = '<file_out>'
+! Namelist-driven configuration with invalid defaults to force user input
+file_in  = '__REQUIRED__'
+file_out = '__REQUIRED__'
+varnam   = '__REQUIRED__'
 
-varnam = '<var_name>'
+! Determine namelist file (first command-line argument or default name)
+narg = COMMAND_ARGUMENT_COUNT()
+if ( narg >= 1 ) then
+  call GET_COMMAND_ARGUMENT(1, namelist_file, status=ios)
+  if ( ios /= 0 ) then
+    write(*,*) 'ERROR retrieving command argument for namelist file.'
+    stop 1
+  end if
+  if ( LEN_TRIM(namelist_file) == 0 ) namelist_file = 'extrapolate_vertical.nml'
+else
+  namelist_file = 'extrapolate_vertical.nml'
+end if
+
+open(unit=31, file=TRIM(namelist_file), status='old', action='read', iostat=ios)
+if ( ios /= 0 ) then
+  write(*,*) 'ERROR: cannot open namelist file: ', TRIM(namelist_file)
+  stop 1
+end if
+read(31, nml=vertical_extrapolation, iostat=ios)
+if ( ios /= 0 ) then
+  write(*,*) 'ERROR: reading namelist "vertical_extrapolation" from file: ', TRIM(namelist_file)
+  stop 1
+end if
+close(31)
+
+if ( TRIM(file_in)  == '__REQUIRED__' .or. &
+    TRIM(file_out) == '__REQUIRED__' .or. &
+    TRIM(varnam)   == '__REQUIRED__' ) then
+  write(*,*) 'ERROR: One or more required namelist entries missing.'
+  write(*,*) '       file_in  = ', TRIM(file_in)
+  write(*,*) '       file_out = ', TRIM(file_out)
+  write(*,*) '       varnam   = ', TRIM(varnam)
+  stop 1
+end if
+
+write(*,*) 'Using namelist: ', TRIM(namelist_file)
+write(*,*) '  file_in  = ', TRIM(file_in)
+write(*,*) '  file_out = ', TRIM(file_out)
+write(*,*) '  varnam   = ', TRIM(varnam)
 
 !---------------------------------------
 ! Read netcdf input file :
