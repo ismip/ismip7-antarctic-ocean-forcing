@@ -129,6 +129,22 @@ status = NF90_INQ_VARID(fidA,"y",y_ID); call erreur(status,.TRUE.,"inq_y_ID")
 status = NF90_INQ_VARID(fidA,"x",x_ID); call erreur(status,.TRUE.,"inq_x_ID")
 status = NF90_INQ_VARID(fidA,TRIM(varnam),varin_ID); call erreur(status,.TRUE.,"inq_var_ID")
 
+! Determine missing value from input variable attributes. Prefer _FillValue, fall back to missing_value,
+! otherwise use legacy default (-1.e6). Do this BEFORE creating the output file so we can propagate the
+! exact value to the new variable's attributes.
+status = NF90_GET_ATT(fidA,varin_ID,"_FillValue",miss)
+if ( status /= NF90_NOERR ) then
+  status = NF90_GET_ATT(fidA,varin_ID,"missing_value",miss)
+  if ( status /= NF90_NOERR ) then
+    miss = -1.e6
+    write(*,*) 'Input variable has no _FillValue or missing_value attribute; using fallback miss = ', miss
+  else
+    write(*,*) 'Using input variable missing_value attribute: miss = ', miss
+  end if
+else
+  write(*,*) 'Using input variable _FillValue attribute: miss = ', miss
+end if
+
 status = NF90_GET_ATT(fidA,time_ID,'calendar',cal)     ; call erreur(status,.TRUE.,"get_att1")
 status = NF90_GET_ATT(fidA,time_ID,'units',uni)        ; call erreur(status,.TRUE.,"get_att2")
 status = NF90_GET_ATT(fidA,NF90_GLOBAL,'history',his)  ; call erreur(status,.TRUE.,"get_att3")
@@ -205,7 +221,7 @@ status = NF90_PUT_ATT(fidM,y_ID,"units","m"); call erreur(status,.TRUE.,"put_att
 status = NF90_PUT_ATT(fidM,x_ID,"long_name","x coordinate"); call erreur(status,.TRUE.,"put_att_x_ID")
 status = NF90_PUT_ATT(fidM,x_ID,"units","m"); call erreur(status,.TRUE.,"put_att_x_ID")
 
-status = NF90_PUT_ATT(fidM,varout_ID,"missing_value",miss); call erreur(status,.TRUE.,"put_att_var_ID")
+status = NF90_PUT_ATT(fidM,varout_ID,"_FillValue",miss); call erreur(status,.TRUE.,"put_att_var__FillValue")
 
 status = NF90_PUT_ATT(fidM,NF90_GLOBAL,"project","EU-H2020-PROTECT"); call erreur(status,.TRUE.,"att_GLO1")
 status = NF90_PUT_ATT(fidM,NF90_GLOBAL,"history",TRIM(his)); call erreur(status,.TRUE.,"att_GLO2")
@@ -225,7 +241,7 @@ write(*,*) 'Number of IMBIE2 basins : ', Nbasin
 ! number of iteration to fill the ice shelves in each basin:
 ALLOCATE( Niter(Nbasin) )
 
-miss=-1.e6 ! temporary missing value
+! 'miss' already defined from input file attributes (or fallback). Ensure any NaNs are replaced by this value.
 
 DO kz=1,mz
   !write(*,*) '     kz ', kz
@@ -256,7 +272,7 @@ DO kz=1,mz
 
     do ki=1,mx
     do kj=1,my
-      if ( abs(var(ki,kj,1,1)) .lt. 1.e3 .and. bed(ki,kj) .lt. z(kz) .and. basinNumber(ki,kj) .eq. kbasin-1 ) then
+  if ( var(ki,kj,1,1) /= miss .and. bed(ki,kj) .lt. z(kz) .and. basinNumber(ki,kj) .eq. kbasin-1 ) then
               mskba(ki,kj) = 1
       else
               mskba(ki,kj) = 0
@@ -267,8 +283,8 @@ DO kz=1,mz
     do ki=1,mx
     do kj=1,my
       ! open ocean or ice shelf point with missing data and connected to ocean neighbours
-      if ( abs(var(ki,kj,1,1)) .ge. 1.e3 .and. bed(ki,kj) .lt. z(kz) .and. basinNumber(ki,kj) .eq. kbasin-1 &
-      &    .and. ( mask(ki,kj) .gt. 0.01 .or. mask_ocean(ki,kj) .gt. 0.01 ) ) then
+  if ( var(ki,kj,1,1) == miss .and. bed(ki,kj) .lt. z(kz) .and. basinNumber(ki,kj) .eq. kbasin-1 &
+  &    .and. ( mask(ki,kj) .gt. 0.01 .or. mask_ocean(ki,kj) .gt. 0.01 ) ) then
 
            ! Gaussian (sigma=24km) extrapolation to contiguous neighbours (needs continuous connection to (ki,kj) ) :
 
@@ -361,7 +377,7 @@ DO kz=1,mz
 
     do ki=1,mx
     do kj=1,my
-      if ( abs(var(ki,kj,1,1)) .lt. 1.e3 .and. bed(ki,kj) .lt. z(kz) .and. basinNumber(ki,kj) .eq. kbasin-1 ) then
+  if ( var(ki,kj,1,1) /= miss .and. bed(ki,kj) .lt. z(kz) .and. basinNumber(ki,kj) .eq. kbasin-1 ) then
               mskba(ki,kj) = 1
       else
               mskba(ki,kj) = 0
@@ -372,7 +388,7 @@ DO kz=1,mz
     do ki=1,mx
     do kj=1,my
       ! open ocean or ice shelf point with missing data and connected to ocean neighbours
-      if ( abs(var(ki,kj,1,1)) .ge. 1.e3 .and. bed(ki,kj) .lt. z(kz) .and. basinNumber(ki,kj) .eq. kbasin-1 ) then
+  if ( var(ki,kj,1,1) == miss .and. bed(ki,kj) .lt. z(kz) .and. basinNumber(ki,kj) .eq. kbasin-1 ) then
 
            ! Gaussian (sigma=24km) extrapolation to contiguous neighbours (needs continuous connection to (ki,kj) ) :
 
@@ -465,7 +481,7 @@ DO kz=1,mz
 
       do ki=1,mx
       do kj=1,my
-        if ( abs(var(ki,kj,1,1)) .lt. 1.e3 ) then
+  if ( var(ki,kj,1,1) /= miss ) then
                 mskba(ki,kj) = 1
         else
                 mskba(ki,kj) = 0
@@ -476,7 +492,7 @@ DO kz=1,mz
       do ki=1,mx
       do kj=1,my
         ! open ocean or ice shelf point with missing data and connected to ocean neighbours
-        if ( abs(var(ki,kj,1,1)) .ge. 1.e3 ) then
+  if ( var(ki,kj,1,1) == miss ) then
 
              ! Gaussian (sigma=24km) extrapolation to contiguous neighbours (needs continuous connection to (ki,kj) ) :
 

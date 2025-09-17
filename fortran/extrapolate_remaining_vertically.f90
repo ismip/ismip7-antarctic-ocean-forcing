@@ -21,6 +21,7 @@ REAL*4,ALLOCATABLE,DIMENSION(:) :: z, y, x
 REAL*8,ALLOCATABLE,DIMENSION(:) :: time
 
 REAL*4,ALLOCATABLE,DIMENSION(:,:,:) :: var_in
+REAL*4 :: miss
 
 !---------------------------------------
 ! Namelist-driven configuration with invalid defaults to force user input
@@ -97,6 +98,20 @@ status = NF90_INQ_VARID(fidA,"y",y_ID); call erreur(status,.TRUE.,"inq_y_ID")
 status = NF90_INQ_VARID(fidA,"x",x_ID); call erreur(status,.TRUE.,"inq_x_ID")
 status = NF90_INQ_VARID(fidA,TRIM(varnam),var_in_ID); call erreur(status,.TRUE.,"inq_var_ID")
 
+! Determine missing value from input variable; prefer _FillValue then missing_value; fallback if absent
+status = NF90_GET_ATT(fidA,var_in_ID,"_FillValue",miss)
+if ( status /= NF90_NOERR ) then
+  status = NF90_GET_ATT(fidA,var_in_ID,"missing_value",miss)
+  if ( status /= NF90_NOERR ) then
+    miss = -1.e6
+    write(*,*) 'Input variable has no _FillValue or missing_value; using fallback miss = ', miss
+  else
+    write(*,*) 'Using input variable missing_value attribute: miss = ', miss
+  end if
+else
+  write(*,*) 'Using input variable _FillValue attribute: miss = ', miss
+end if
+
 status = NF90_GET_ATT(fidA,time_ID,'calendar',cal)     ; call erreur(status,.TRUE.,"get_att1")
 status = NF90_GET_ATT(fidA,time_ID,'units',uni)        ; call erreur(status,.TRUE.,"get_att2")
 status = NF90_GET_ATT(fidA,NF90_GLOBAL,'history',his)  ; call erreur(status,.TRUE.,"get_att3")
@@ -136,6 +151,8 @@ status = NF90_PUT_ATT(fidM,y_ID,"units","m"); call erreur(status,.TRUE.,"put_att
 status = NF90_PUT_ATT(fidM,x_ID,"long_name","x coordinate"); call erreur(status,.TRUE.,"put_att_x_ID")
 status = NF90_PUT_ATT(fidM,x_ID,"units","m"); call erreur(status,.TRUE.,"put_att_x_ID")
 
+status = NF90_PUT_ATT(fidM,var_out_ID,"_FillValue",miss); call erreur(status,.TRUE.,"put_att_var__FillValue")
+
 status = NF90_PUT_ATT(fidM,NF90_GLOBAL,"project","EU-H2020-PROTECT"); call erreur(status,.TRUE.,"att_GLO1")
 status = NF90_PUT_ATT(fidM,NF90_GLOBAL,"history",TRIM(his)); call erreur(status,.TRUE.,"att_GLO2")
 status = NF90_PUT_ATT(fidM,NF90_GLOBAL,"method","see https://github.com/nicojourdain/CMIP6_data_to_ISMIP6_grid"); call erreur(status,.TRUE.,"att_GLO3")
@@ -155,9 +172,19 @@ DO kt=1,mtime
   status = NF90_GET_VAR(fidA,var_in_ID,var_in,start=(/1,1,1,kt/),count=(/mx,my,mz,1/))
   call erreur(status,.TRUE.,"getvar_in")
 
+  ! Replace any NaNs with miss first (defensive; should be rare if upstream used fill values)
   do ki=1,mx
   do kj=1,my
-    if ( abs(var_in(ki,kj,1)) .gt. 1.e3 .and. abs(var_in(ki,kj,2)) .lt. 1.e3 ) then
+    do kz=1,mz
+      if ( ISNAN(var_in(ki,kj,kz)) ) var_in(ki,kj,kz) = miss
+    enddo
+  enddo
+  enddo
+
+  ! Fill surface (k=1) from k=2 where k=1 is missing and k=2 valid
+  do ki=1,mx
+  do kj=1,my
+    if ( var_in(ki,kj,1) == miss .and. var_in(ki,kj,2) /= miss ) then
        var_in(ki,kj,1) = var_in(ki,kj,2)
     endif
   enddo
@@ -166,7 +193,7 @@ DO kt=1,mtime
   DO kz=3,mz
     do ki=1,mx
     do kj=1,my
-      if ( abs(var_in(ki,kj,kz)) .gt. 1.e3 .and. abs(var_in(ki,kj,kz-1)) .lt. 1.e3 ) then
+      if ( var_in(ki,kj,kz) == miss .and. var_in(ki,kj,kz-1) /= miss ) then
          var_in(ki,kj,kz) = var_in(ki,kj,kz-1)
       endif
     enddo
