@@ -1,0 +1,76 @@
+schema_version: 1
+
+context:
+  # Keep this in sync with i7aof/version.py (__version__)
+  version: "0.1.0"
+  python_min: "3.10"
+
+package:
+  name: ismip7-antarctic-ocean-forcing
+  version: ${{ version }}
+
+source:
+  path: ..
+
+build:
+  number: 0
+  skip: win
+
+requirements:
+  build:
+    - ${{ compiler('c') }}
+    - ${{ compiler('fortran') }}
+    - cmake
+    - make
+    - pkg-config
+  host:
+    - python ${{ python_min }}.*
+    - pip
+    - setuptools
+    - netcdf-fortran
+    - libnetcdf
+  run:
+    - python >=${{ python_min }},<3.14
+    - cmocean
+    - esmf
+    - gsw
+    - inpoly
+    - mpas_tools >=1.3.1,<2.0.0
+    - matplotlib
+    - nco
+    - netcdf4
+    - numpy
+    - requests
+    - progressbar2
+    - pyproj
+    - pyremap >=2.0.0,<3.0.0
+    - pyshp
+    - scikit-fmm
+    - scipy
+    - shapely
+    - tqdm
+    - xarray
+
+tests:
+  - python:
+      pip_check: true
+      python_version: ${{ python_min }}.*
+      imports:
+        - i7aof
+  - script: |
+      # Confirm template import works and contains expected group name
+      python -c "import i7aof.extrap as ex; t=ex.load_template_text(); assert 'horizontal_extrapolation' in t"
+      # Verify executables were installed
+      test -x $PREFIX/bin/i7aof_extrap_horizontal
+      test -x $PREFIX/bin/i7aof_extrap_vertical
+
+about:
+  summary: Antarctic ocean forcing tools (ISMIP7) with Fortran extrapolation executables.
+  license: MIT
+  license_file: LICENSE
+  homepage: https://github.com/ismip/ismip7-antarctic-ocean-forcing
+  documentation: https://github.com/ismip/ismip7-antarctic-ocean-forcing
+
+extra:
+  recipe-maintainers:
+    - xylar
