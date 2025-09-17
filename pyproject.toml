@@ -49,7 +49,7 @@ docs = [
 include = ["i7aof*"]
 
 [tool.setuptools.package-data]
-i7aof = ["*.cfg", "**/*.cfg"]
+i7aof = ["*.cfg", "**/*.cfg", "**/*.nml.j2"]
 
 [project.scripts]
 ismip7-antarctic-ocean-forcing = "i7aof.__main__:main"
