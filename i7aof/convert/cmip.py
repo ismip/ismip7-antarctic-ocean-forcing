@@ -1,10 +1,13 @@
 #!/usr/bin/env python
 import argparse
 import os
+import shutil
+import uuid
 
 import numpy as np
 import xarray as xr
 from mpas_tools.config import MpasConfigParser
+from tqdm import tqdm
 
 from i7aof.cmip import get_model_prefix
 from i7aof.convert.paths import get_ct_sa_output_paths
@@ -132,31 +135,92 @@ def convert_cmip(
 
         print(f'Converting to CT/SA: {os.path.basename(out_abs)}')
 
-        ds_thetao = xr.open_dataset(
-            th_abs, decode_times=False, chunks={'time': time_chunk}
-        )
-        ds_so = xr.open_dataset(
-            so_abs, decode_times=False, chunks={'time': time_chunk}
-        )
+        ds_thetao = xr.open_dataset(th_abs, decode_times=False)
+        ds_so = xr.open_dataset(so_abs, decode_times=False)
 
-        # strict alignment to catch mismatched time/lev
+        # strict alignment to catch mismatched coords/dims
         ds_thetao, ds_so = xr.align(ds_thetao, ds_so, join='exact')
 
-        ds_ctsa = convert_dataset_to_ct_sa(
-            ds_thetao,
-            ds_so,
-            thetao_var='thetao',
-            so_var='so',
-            lat_var=lat_var,
-            lon_var=lon_var,
-            depth_var=depth_var,
+        # Determine time chunking strategy
+        if 'time' not in ds_thetao.dims:
+            # No time dimension; process in a single step
+            time_indices = [(0, 0)]
+            nt = 0
+        else:
+            nt = ds_thetao.sizes['time']
+            if time_chunk is None or time_chunk <= 0:
+                chunk_size = nt
+            else:
+                chunk_size = min(time_chunk, nt)
+            time_indices = [
+                (start, min(start + chunk_size, nt))
+                for start in range(0, nt, chunk_size)
+            ]
+
+        # Create a unique temporary directory next to the target output
+        out_base = os.path.splitext(os.path.basename(out_abs))[0]
+        tmp_dir = os.path.join(
+            os.path.dirname(out_abs), f'.tmp_{out_base}_{uuid.uuid4().hex}'
         )
+        os.makedirs(tmp_dir, exist_ok=True)
 
-        # ensure float32 types for compact storage
-        ds_ctsa['ct'] = ds_ctsa['ct'].astype(np.float32)
-        ds_ctsa['sa'] = ds_ctsa['sa'].astype(np.float32)
+        chunk_files: list[str] = []
 
-        write_netcdf(ds_ctsa, out_abs, progress_bar=True)
+        try:
+            for _i, (t0, t1) in enumerate(
+                tqdm(time_indices, desc='time chunks', unit='chunk')
+            ):
+                if 'time' in ds_thetao.dims:
+                    ds_th_chunk = ds_thetao.isel(time=slice(t0, t1))
+                    ds_so_chunk = ds_so.isel(time=slice(t0, t1))
+                else:
+                    # no time dim; use full datasets once
+                    ds_th_chunk = ds_thetao
+                    ds_so_chunk = ds_so
+
+                # Convert the chunk
+                ds_ctsa = convert_dataset_to_ct_sa(
+                    ds_th_chunk,
+                    ds_so_chunk,
+                    thetao_var='thetao',
+                    so_var='so',
+                    lat_var=lat_var,
+                    lon_var=lon_var,
+                    depth_var=depth_var,
+                )
+
+                # ensure float32 types for compact storage
+                ds_ctsa['ct'] = ds_ctsa['ct'].astype(np.float32)
+                ds_ctsa['sa'] = ds_ctsa['sa'].astype(np.float32)
+
+                # Write chunk to temp file
+                if 'time' in ds_thetao.dims:
+                    chunk_name = f'{out_base}_part-{t0:06d}-{t1:06d}.nc'
+                else:
+                    chunk_name = f'{out_base}_part-static.nc'
+                chunk_path = os.path.join(tmp_dir, chunk_name)
+                write_netcdf(ds_ctsa, chunk_path, progress_bar=False)
+                chunk_files.append(chunk_path)
+
+            # Combine chunk files along time and write final output
+            if len(chunk_files) == 1:
+                # Single chunk; move/copy to final output
+                ds_final = xr.open_dataset(chunk_files[0], decode_times=False)
+            else:
+                ds_final = xr.open_mfdataset(
+                    chunk_files,
+                    combine='nested',
+                    concat_dim='time',
+                    decode_times=False,
+                )
+
+            write_netcdf(ds_final, out_abs, progress_bar=True)
+            ds_final.close()
+        finally:
+            # Ensure datasets are closed and temp directory is removed
+            ds_thetao.close()
+            ds_so.close()
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def main():
