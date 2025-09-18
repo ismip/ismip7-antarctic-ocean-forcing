@@ -303,18 +303,27 @@ def _depth_to_z(
         if positive is not None:
             positive = positive.lower()
     units = depth.attrs.get('units', '').lower()
-    # Basic units sanity check (assume meters if unit-less)
-    if units not in ('m', 'meter', 'meters', ''):
+    # Handle units and convert to meters if necessary (assume meters if
+    # unit-less)
+    if units in ('cm', 'centimeter', 'centimeters'):
+        scale_to_m = 1.0e-2
+    elif units in ('m', 'meter', 'meters', ''):
+        scale_to_m = 1.0
+    else:
         raise ValueError(
-            f"Unsupported depth units '{units}'. Expected meters."
+            f"Unsupported depth units '{units}'. Expected meters or "
+            f'centimeters.'
         )
+
+    # convert to meters first
+    depth_m = depth * scale_to_m
 
     if positive == 'up':
         # depth increases upward -> uncommon, treat as altitude
-        z = depth
+        z = depth_m
     else:
         # Common case: depth positive downward -> z is negative
-        z = -xr.apply_ufunc(np.asarray, depth)
+        z = -xr.apply_ufunc(np.asarray, depth_m)
 
     z = z.assign_attrs(
         units='m',
