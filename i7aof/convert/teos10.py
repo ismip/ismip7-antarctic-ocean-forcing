@@ -131,6 +131,8 @@ def compute_sa(
         dims=sp.dims,
         coords=sp.coords,
     ).assign_attrs(units='g kg-1', long_name='Absolute Salinity')
+    # Ensure missing SP propagates to SA explicitly
+    sa_da = sa_da.where(np.isfinite(sp))
     return sa_da
 
 
@@ -178,6 +180,8 @@ def compute_ct(pt: xr.DataArray, sa: xr.DataArray) -> xr.DataArray:
         dims=pt.dims,
         coords=pt.coords,
     ).assign_attrs(units='degC', long_name='Conservative Temperature')
+    # Ensure missing PT or SA propagates to CT explicitly
+    ct_da = ct_da.where(np.isfinite(pt) & np.isfinite(sa))
     return ct_da
 
 
