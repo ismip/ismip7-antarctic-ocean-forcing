@@ -7,11 +7,23 @@ This module is I/O-free and operates on xarray DataArray/Dataset, keeping
 variable and dimension names flexible.
 """
 
+import os
+import time
 from typing import Tuple
 
 import gsw
 import numpy as np
 import xarray as xr
+
+
+def _debug_enabled() -> bool:
+    val = os.environ.get('I7AOF_DEBUG_TEOS10', '0')
+    return str(val).lower() not in ('0', 'false', 'no', '')
+
+
+def _dbg(*args):
+    if _debug_enabled():
+        print('[TEOS10]', *args, flush=True)
 
 
 def compute_sa(
@@ -48,14 +60,30 @@ def compute_sa(
     if normalize_lon:
         lon = _normalize_lon(lon)
 
-    # Broadcast lon/lat to SP grid
-    lon_b, lat_b = xr.broadcast(lon, lat)
-    sp_b, lon_b, lat_b = xr.broadcast(sp, lon_b, lat_b)
+    # Prepare lon/lat arrays for broadcasting: ensure 2D (Y,X)
+    lon_arr = lon.values
+    lat_arr = lat.values
+    if lon_arr.ndim == 1 and lat_arr.ndim == 1:
+        # Create 2D grids from 1D coords
+        lon_arr, lat_arr = np.meshgrid(lon_arr, lat_arr, indexing='xy')
+
+    # Log shapes; rely on NumPy broadcasting inside gsw
+    _dbg(
+        'SA inputs shapes:',
+        'sp',
+        tuple(sp.shape),
+        'lon',
+        tuple(lon_arr.shape),
+        'lat',
+        tuple(lat_arr.shape),
+    )
 
     if is_pressure:
-        p = z_or_p
-        # Broadcast pressure to SP grid
-        p = xr.broadcast(sp_b, p)[1]
+        # Use provided pressure (dbar)
+        p = z_or_p.values
+        # If pressure provided as 1D (Z,), reshape to (Z,1,1) for broadcasting
+        if p.ndim == 1:
+            p = p[:, None, None]
     else:
         # Ensure z is TEOS-10 z (negative downward)
         z = z_or_p
@@ -65,33 +93,45 @@ def compute_sa(
         ):
             z = -z
         # Broadcast z and lat to 3D then compute pressure
-        z_b = xr.broadcast(sp_b, z)[1]
-        lat_b2 = xr.broadcast(sp_b, lat)[1]
-        p = xr.apply_ufunc(
-            gsw.p_from_z,
-            z_b,
-            lat_b2,
-            dask='parallelized',
-            input_core_dims=[[], []],
-            output_core_dims=[[]],
-            vectorize=True,
-            output_dtypes=[sp.dtype],
+        t1 = time.perf_counter()
+        # Compute pressure using NumPy broadcasting; z as (Z,1,1),
+        # lat as (Y,X) -> p becomes (Z,Y,X)
+        z_arr = z.values
+        if z_arr.ndim == 1:
+            z_arr = z_arr[:, None, None]
+        p = gsw.p_from_z(z_arr, lat_arr)
+        _dbg(
+            'p_from_z: z',
+            tuple(z_arr.shape),
+            'lat',
+            tuple(lat_arr.shape),
+            '->',
+            tuple(np.asarray(p).shape),
         )
+        _dbg(f'p_from_z time: {time.perf_counter() - t1:.3f}s')
 
-    sa = xr.apply_ufunc(
-        gsw.SA_from_SP,
-        sp_b,
-        p,
-        lon_b,
-        lat_b,
-        dask='parallelized',
-        input_core_dims=[[], [], [], []],
-        output_core_dims=[[]],
-        vectorize=True,
-        output_dtypes=[sp.dtype],
+    t2 = time.perf_counter()
+    sa_np = gsw.SA_from_SP(sp.values, np.asarray(p), lon_arr, lat_arr)
+    _dbg(
+        'SA_from_SP: shapes',
+        'SP',
+        tuple(sp.shape),
+        'p',
+        tuple(np.asarray(p).shape),
+        'lon',
+        tuple(lon_arr.shape),
+        'lat',
+        tuple(lat_arr.shape),
+        '->',
+        tuple(np.asarray(sa_np).shape),
     )
-    sa = sa.assign_attrs(units='g kg-1', long_name='Absolute Salinity')
-    return sa
+    _dbg(f'SA_from_SP time: {time.perf_counter() - t2:.3f}s')
+    sa_da = xr.DataArray(
+        np.asarray(sa_np).astype(sp.dtype, copy=False),
+        dims=sp.dims,
+        coords=sp.coords,
+    ).assign_attrs(units='g kg-1', long_name='Absolute Salinity')
+    return sa_da
 
 
 def compute_ct(pt: xr.DataArray, sa: xr.DataArray) -> xr.DataArray:
@@ -110,19 +150,35 @@ def compute_ct(pt: xr.DataArray, sa: xr.DataArray) -> xr.DataArray:
         Conservative Temperature (degC) broadcast to the common grid and
         with attributes ``units`` and ``long_name`` set.
     """
+    t0 = time.perf_counter()
     pt_b, sa_b = xr.broadcast(pt, sa)
-    ct = xr.apply_ufunc(
-        gsw.CT_from_pt,
-        sa_b,
-        pt_b,
-        dask='parallelized',
-        input_core_dims=[[], []],
-        output_core_dims=[[]],
-        vectorize=True,
-        output_dtypes=[pt.dtype],
+    _dbg(
+        'broadcast CT: pt',
+        tuple(pt.shape),
+        'sa',
+        tuple(sa.shape),
+        '->',
+        tuple(pt_b.shape),
     )
-    ct = ct.assign_attrs(units='degC', long_name='Conservative Temperature')
-    return ct
+    _dbg(f'broadcast CT time: {time.perf_counter() - t0:.3f}s')
+    t1 = time.perf_counter()
+    ct_np = gsw.CT_from_pt(sa.values, pt.values)
+    _dbg(
+        'CT_from_pt: shapes',
+        'SA',
+        tuple(sa.shape),
+        'PT',
+        tuple(pt.shape),
+        '->',
+        tuple(np.asarray(ct_np).shape),
+    )
+    _dbg(f'CT_from_pt time: {time.perf_counter() - t1:.3f}s')
+    ct_da = xr.DataArray(
+        np.asarray(ct_np).astype(pt.dtype, copy=False),
+        dims=pt.dims,
+        coords=pt.coords,
+    ).assign_attrs(units='degC', long_name='Conservative Temperature')
+    return ct_da
 
 
 def compute_ct_sa(
@@ -160,6 +216,7 @@ def compute_ct_sa(
         ``ct`` is Conservative Temperature (degC), both broadcast to the
         common grid and with standard attributes set.
     """
+    t0 = time.perf_counter()
     sa = compute_sa(
         sp,
         z_or_p,
@@ -168,7 +225,10 @@ def compute_ct_sa(
         is_pressure=is_pressure,
         normalize_lon=normalize_lon,
     )
+    _dbg(f'compute_sa total: {time.perf_counter() - t0:.3f}s')
+    t1 = time.perf_counter()
     ct = compute_ct(pt, sa)
+    _dbg(f'compute_ct total: {time.perf_counter() - t1:.3f}s')
     return sa, ct
 
 
@@ -213,6 +273,7 @@ def convert_dataset_to_ct_sa(
         Common coordinates (time, depth_var, lat_var, lon_var) are attached
         when present in inputs. Basic provenance comments are set.
     """
+    _dbg('convert_dataset_to_ct_sa: start')
     # Pull arrays
     if isinstance(ds_thetao, xr.Dataset):
         pt = ds_thetao[thetao_var]
@@ -231,19 +292,37 @@ def convert_dataset_to_ct_sa(
     else:
         sp = ds_so
 
+    t_all = time.perf_counter()
     # Align (exact) and broadcast
     pt, sp = xr.align(pt, sp, join='exact')
+    _dbg('aligned shapes:', 'pt', tuple(pt.shape), 'sp', tuple(sp.shape))
     # Ensure depth is TEOS-10 z (negative downward)
     z = _depth_to_z(z, positive=depth_positive)
+    _dbg('z converted')
 
     # Performance: eagerly load inputs for this chunk to avoid large dask
     # graphs and scheduler overhead during TEOS-10 transformations.
     # (Safe because caller processes small per-time chunks.)
+    t_load = time.perf_counter()
     pt = pt.load()
     sp = sp.load()
     z = z.load()
     lon = lon.load()
     lat = lat.load()
+    _dbg(
+        'loaded inputs:',
+        'pt',
+        tuple(pt.shape),
+        'sp',
+        tuple(sp.shape),
+        'z',
+        tuple(z.shape),
+        'lon',
+        tuple(lon.shape),
+        'lat',
+        tuple(lat.shape),
+    )
+    _dbg(f'load time: {time.perf_counter() - t_load:.3f}s')
 
     sa, ct = compute_ct_sa(sp=sp, pt=pt, z_or_p=z, lon=lon, lat=lat)
 
@@ -260,6 +339,10 @@ def convert_dataset_to_ct_sa(
     )
     ds_out['sa'].attrs['comment'] = (
         'Computed with TEOS-10 (gsw) from so, depth, lon, lat.'
+    )
+    _dbg(
+        'convert_dataset_to_ct_sa total:',
+        f'{time.perf_counter() - t_all:.3f}s',
     )
     return ds_out
 
