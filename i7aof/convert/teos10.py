@@ -236,6 +236,15 @@ def convert_dataset_to_ct_sa(
     # Ensure depth is TEOS-10 z (negative downward)
     z = _depth_to_z(z, positive=depth_positive)
 
+    # Performance: eagerly load inputs for this chunk to avoid large dask
+    # graphs and scheduler overhead during TEOS-10 transformations.
+    # (Safe because caller processes small per-time chunks.)
+    pt = pt.load()
+    sp = sp.load()
+    z = z.load()
+    lon = lon.load()
+    lat = lat.load()
+
     sa, ct = compute_ct_sa(sp=sp, pt=pt, z_or_p=z, lon=lon, lat=lat)
 
     ds_out = xr.Dataset({'ct': ct, 'sa': sa})
