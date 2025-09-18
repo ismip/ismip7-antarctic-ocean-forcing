@@ -69,15 +69,27 @@ ismip7-antarctic-convert-cmip \
 
 ## Internals (for maintainers)
 
-- All TEOS-10 transforms use xarray.apply_ufunc with dask='parallelized'.
-- Longitudes optionally normalized to [0, 360).
+- TEOS-10 now uses direct NumPy calls to GSW (gsw) for speed and simplicity,
+  with explicit broadcasting:
+  - Pressure: `p = gsw.p_from_z(z, lat)` with shapes (Z,1,1) and (Y,X)
+  - Salinity: `SA = gsw.SA_from_SP(SP, p, lon, lat)`
+  - Temperature: `CT = gsw.CT_from_pt(SA, PT)`
+  Inputs are eagerly `.load()`ed per time chunk to avoid large dask graphs.
+- Longitudes can be normalized to [0, 360).
 - Depth to TEOS-10 z conversion handled by `_depth_to_z` with CF-compliant
-  attribute detection.
+  attribute detection; meters and centimeters are supported.
+- Conversion runs in a manual time-chunk loop; each chunk is written to a
+  unique temporary NetCDF file (adjacent to the final output), then combined
+  via `xarray.open_mfdataset` and the temp directory is removed. A tqdm
+  progress bar reports chunk progress.
 - Conversion keeps ct and sa together; types are cast to float32 for size.
 - Output path derivation centralized in `i7aof.convert.paths`.
+- Optional debugging: set environment variable `I7AOF_DEBUG_TEOS10=1` to
+  print timings and shapes around the heavy TEOS-10 computations.
 
 ## Edge cases / validations
 
 - thetao and so list lengths must match; otherwise a ValueError is raised.
 - Inputs must align exactly in time and depth; strict alignment is enforced.
-- Non-meter depth units raise a ValueError (assumed meters if unit-less).
+- Depth units in meters or centimeters are supported (assumed meters if
+  unit-less); other units raise a ValueError.
