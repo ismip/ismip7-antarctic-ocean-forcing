@@ -445,9 +445,9 @@ def _remap_horiz(
 
     method = config.get('remap', 'method')
     renorm_threshold = config.getfloat('remap', 'threshold')
-    lat_var = config.get('remap_cmip', 'lat_var')
-    lon_var = config.get('remap_cmip', 'lon_var')
-    lon_dim = config.get('remap_cmip', 'lon_dim')
+    lat_var = config.get('cmip_dataset', 'lat_var')
+    lon_var = config.get('cmip_dataset', 'lon_var')
+    lon_dim = config.get('cmip_dataset', 'lon_dim')
     in_grid_name = model_prefix
 
     # Open dataset (but do not load into memory)

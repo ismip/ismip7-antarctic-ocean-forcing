@@ -85,16 +85,18 @@ def convert_cmip(
     outdir = os.path.join(workdir, 'convert', model, scenario, 'Omon', 'ct_sa')
     os.makedirs(outdir, exist_ok=True)
 
-    lat_var = config.get('remap_cmip', 'lat_var')
-    lon_var = config.get('remap_cmip', 'lon_var')
+    lat_var = config.get('cmip_dataset', 'lat_var')
+    lon_var = config.get('cmip_dataset', 'lon_var')
     # allow override from [convert_cmip]
-    time_chunk_override = None
-    if config.has_option('convert_cmip', 'time_chunk'):
-        time_chunk_override = config.get('convert_cmip', 'time_chunk')
-    if time_chunk_override in (None, '', 'None', 'none'):
-        time_chunk = config.getint('remap_cmip', 'vert_time_chunk')
+    time_chunk_str = (
+        config.get('convert_cmip', 'time_chunk')
+        if config.has_option('convert_cmip', 'time_chunk')
+        else 'None'
+    )
+    if time_chunk_str in ('', 'None', 'none'):
+        time_chunk = None
     else:
-        time_chunk = int(time_chunk_override)
+        time_chunk = int(time_chunk_str)
     depth_var = (
         config.get('convert_cmip', 'depth_var')
         if config.has_option('convert_cmip', 'depth_var')

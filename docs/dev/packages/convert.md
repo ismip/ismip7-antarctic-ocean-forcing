@@ -31,10 +31,11 @@ source grid.
 
 - `[workdir] base_dir` — required unless ``workdir`` arg is provided.
 - `[inputdir] base_dir` — required unless ``inputdir`` arg is provided.
+- `[cmip_dataset]`
+  - `lon_var`, `lat_var`: variable/dimension names on input
 - `[convert_cmip]` (optional overrides)
   - `depth_var`: name of source depth coordinate (default 'lev').
-  - `time_chunk`: integer or None; conversion time chunk size; defaults to
-    `[remap_cmip] vert_time_chunk` if unset.
+  - `time_chunk`: integer or None; conversion time chunk size.
 - Scenario sections, e.g. `[historical_files]`, `[ssp585_files]` must define:
   - `thetao`, `so`: expressions expanding to lists of relative input paths.
 

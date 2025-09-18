@@ -35,10 +35,11 @@ overrides are typical:
   - `tool`: backend ('esmf' or 'moab')
   - `esmf_path`, `moab_path`, `parallel_exec`: paths/exec or 'None'
   - `threshold`: float; horizontal renormalization threshold
+- `[cmip_dataset]`
+  - `lon_var`, `lat_var`, `lon_dim`: variable/dimension names on input
 - `[remap_cmip]`
   - `vert_time_chunk`: int; time chunk for vertical steps
   - `horiz_time_chunk`: int; time chunk for horizontal remap
-  - `lon_var`, `lat_var`, `lon_dim`: variable/dimension names on input
 - `[historical_files]`, `[ssp585_files]`, ... (by scenario)
   - `thetao`, `so`: expressions expanding to relative file paths (used to
     derive ct/sa native-grid filenames consumed by remap)
