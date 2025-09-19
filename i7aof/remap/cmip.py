@@ -238,25 +238,24 @@ def _process_one(
     horiz_tmpdir = os.path.join(outdir, f'tmp_horiz_remap_ct_sa_{index}')
     os.makedirs(horiz_tmpdir, exist_ok=True)
 
-    try:
-        in_filename = pair_or_file
-        vert_interp_filenames = _vert_mask_interp_norm_multi(
-            config, in_filename, outdir, ['ct', 'sa'], vert_tmpdir
+    in_filename = pair_or_file
+    vert_interp_filenames = _vert_mask_interp_norm_multi(
+        config, in_filename, outdir, ['ct', 'sa'], vert_tmpdir
+    )
+
+    with LoggingContext(__name__) as logger:
+        _remap_horiz(
+            config,
+            vert_interp_filenames,
+            out_filename,
+            model_prefix,
+            horiz_tmpdir,
+            logger,
         )
 
-        with LoggingContext(__name__) as logger:
-            _remap_horiz(
-                config,
-                vert_interp_filenames,
-                out_filename,
-                model_prefix,
-                horiz_tmpdir,
-                logger,
-            )
-    finally:
-        # Always clean up tmp dirs for this input file
-        shutil.rmtree(vert_tmpdir)
-        shutil.rmtree(horiz_tmpdir)
+    # Always clean up tmp dirs for this input file
+    shutil.rmtree(vert_tmpdir)
+    shutil.rmtree(horiz_tmpdir)
 
 
 def _vert_mask_interp_norm_multi(
