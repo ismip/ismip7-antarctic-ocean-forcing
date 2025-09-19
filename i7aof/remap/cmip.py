@@ -539,8 +539,22 @@ def _remap_horiz(
         )
         remapped_chunks.append(remapped_chunk)
 
-    # Concatenate all remapped chunks along time
-    ds_final = xr.concat(remapped_chunks, dim='time')
+    # Sanity: ensure all chunks carry identical, unique z_extrap
+    z0 = remapped_chunks[0]['z_extrap'].values
+    if len(np.unique(z0)) != len(z0):
+        raise ValueError(
+            'First chunk has duplicate z_extrap values — aborting.'
+        )
+    for i, ds_chk in enumerate(remapped_chunks[1:], start=1):
+        z = ds_chk['z_extrap'].values
+        if z.shape != z0.shape or not np.allclose(z, z0):
+            raise ValueError(
+                f'Inconsistent z_extrap in chunk {i}: shape/values mismatch; '
+                'possible corruption.'
+            )
+
+    # Make future behavior explicit
+    ds_final = xr.concat(remapped_chunks, dim='time', join='exact')
     ds_final['src_frac_interp'] = ds_mask['src_frac_interp']
 
     # Save final output
