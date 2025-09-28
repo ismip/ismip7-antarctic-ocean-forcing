@@ -425,7 +425,9 @@ def _process_task(
 
     # Prepare input with x/y coordinates if missing
     prepared_input = os.path.join(task.tmp_dir, 'input_prepared.nc')
-    _prepare_input_with_coords(task.in_path, grid_file, prepared_input)
+    _prepare_input_with_coords(
+        task.in_path, grid_file, prepared_input, task.variable
+    )
 
     # Temporary vertical output; we'll copy grid variables after Fortran runs
     vertical_tmp = os.path.join(task.tmp_dir, 'vertical_tmp.nc')
@@ -470,6 +472,7 @@ def _process_task(
                 vertical_tmp,
                 grid_file,
                 task.out_path,
+                task.variable,
                 logger,
             )
 
@@ -519,6 +522,7 @@ def _prepare_input_with_coords(
     in_path: str,
     grid_path: str,
     out_prepared_path: str,
+    var_name: str,
 ) -> None:
     """Ensure input has x/y coordinates; add from ISMIP grid if missing.
 
@@ -547,19 +551,41 @@ def _prepare_input_with_coords(
     if to_add:
         ds_in = ds_in.assign(to_add)
 
-    write_netcdf(ds_in, out_prepared_path, progress_bar=True)
+    # Keep only variables needed by the Fortran tools: the target variable
+    # and essential coordinate variables (time, x, y, z or z_extrap)
+    keep_vars = {var_name, 'time', 'x', 'y'}
+    if 'z_extrap' in ds_in.variables:
+        keep_vars.add('z_extrap')
+    elif 'z' in ds_in.variables:
+        keep_vars.add('z')
+
+    drop_list = [v for v in ds_in.variables if v not in keep_vars]
+    if drop_list:
+        ds_in = ds_in.drop_vars(drop_list, errors='ignore')
+
+    # Ensure the target variable gets a fill value; others do not
+    write_netcdf(
+        ds_in,
+        out_prepared_path,
+        has_fill_values=lambda name, var: name == var_name,
+        progress_bar=True,
+    )
 
 
 def _finalize_output_with_grid(
     tmp_out_path: str,
     grid_path: str,
     final_out_path: str,
+    variable: str,
     logger,
 ) -> None:
     """Copy/overwrite grid variables and coords from ISMIP grid into output.
 
     We overwrite x, y, x_bnds, y_bnds, lat, lon, lat_bnds, lon_bnds, crs
     using definitions from the grid file, preserving their attributes.
+
+    When writing the final file, ensure only the extrapolated data variable
+    (``variable``) gets a fill value and coordinates/other variables do not.
     """
     ds_out = xr.open_dataset(tmp_out_path, chunks={'time': 1})
     ds_grid = xr.open_dataset(grid_path)
@@ -594,4 +620,9 @@ def _finalize_output_with_grid(
         logger.info(f'Overwriting grid variables in output: {names}')
         ds_out = ds_out.assign(to_add_vars)
 
-    write_netcdf(ds_out, final_out_path, progress_bar=True)
+    write_netcdf(
+        ds_out,
+        final_out_path,
+        has_fill_values=lambda name, var: name == variable,
+        progress_bar=True,
+    )
