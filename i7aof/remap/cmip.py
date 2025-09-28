@@ -557,5 +557,36 @@ def _remap_horiz(
     ds_final = xr.concat(remapped_chunks, dim='time', join='exact')
     ds_final['src_frac_interp'] = ds_mask['src_frac_interp']
 
+    # Ensure x/y projection coordinates are present from the ISMIP grid
+    try:
+        ds_ismip = xr.open_dataset(get_ismip_grid_filename(config))
+        # Only attach if dims and sizes match expected ISMIP grid
+        if (
+            'y' in ds_final.dims
+            and 'x' in ds_final.dims
+            and ds_final.sizes.get('y') == ds_ismip.sizes.get('y')
+            and ds_final.sizes.get('x') == ds_ismip.sizes.get('x')
+        ):
+            # Add x/y as coordinates and copy attrs; include bounds if present
+            ds_final = ds_final.assign_coords(
+                {
+                    'x': ('x', ds_ismip['x'].values),
+                    'y': ('y', ds_ismip['y'].values),
+                }
+            )
+            ds_final['x'].attrs = ds_ismip['x'].attrs
+            ds_final['y'].attrs = ds_ismip['y'].attrs
+            if 'x_bnds' in ds_ismip and 'x_bnds' not in ds_final:
+                ds_final['x_bnds'] = ds_ismip['x_bnds']
+            if 'y_bnds' in ds_ismip and 'y_bnds' not in ds_final:
+                ds_final['y_bnds'] = ds_ismip['y_bnds']
+        else:
+            print(
+                'Warning: Could not attach x/y from ISMIP grid because '
+                'dimensions do not match expected (y, x).'
+            )
+    except Exception as exc:
+        print(f'Warning: failed to attach x/y from ISMIP grid: {exc}')
+
     # Save final output
     write_netcdf(ds_final, out_filename, progress_bar=True)
