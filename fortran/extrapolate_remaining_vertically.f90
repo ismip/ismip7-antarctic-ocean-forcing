@@ -7,10 +7,10 @@ IMPLICIT NONE
 INTEGER :: fidA, status, dimID_x, dimID_y, dimID_z, dimID_time, mx, my, mz, mtime, time_ID, &
 &          z_ID, y_ID, x_ID, var_in_ID, var_out_ID, fidM, ki, kj, kz, kt
 
-CHARACTER(LEN=10) :: varnam
+CHARACTER(LEN=15) :: varnam
 
-CHARACTER(LEN=150) :: file_in, file_out, cal, uni, his
-CHARACTER(LEN=256) :: namelist_file
+CHARACTER(LEN=2048) :: file_in, file_out, cal, uni, his
+CHARACTER(LEN=2048) :: namelist_file
 
 INTEGER :: ios, narg
 

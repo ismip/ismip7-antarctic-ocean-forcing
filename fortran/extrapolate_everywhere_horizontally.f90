@@ -12,8 +12,8 @@ INTEGER :: fidA, status, dimID_x, dimID_y, dimID_z, dimID_time, mx, my, mz, mtim
 
 CHARACTER(LEN=15) :: varnam
 
-CHARACTER(LEN=150) :: file_in, file_out, file_basin, file_topo, cal, uni, his
-CHARACTER(LEN=256) :: namelist_file
+CHARACTER(LEN=2048) :: file_in, file_out, file_basin, file_topo, cal, uni, his
+CHARACTER(LEN=2048) :: namelist_file
 
 INTEGER :: ios, narg
 
@@ -25,8 +25,6 @@ REAL*4 :: aa, bb, bbim1jjj, bbip1jjj, bbiiijm1, bbiiijp1, bbim2jjj, bbip2jjj, bb
 &                 bbim1jm1, bbim1jp1, bbip1jm1, bbip1jp1, bbim2jp1, bbim2jm1, bbip2jp1, bbip2jm1, &
 &                 bbim1jp2, bbip1jp2, bbim1jm2, bbip1jm2, bbim2jm2, bbim2jp2, bbip2jm2, bbip2jp2, &
 &                 bbim3jjj, bbip3jjj, bbiiijm3, bbiiijp3
-
-REAL*4,DIMENSION(30) :: depth
 
 REAL*4,ALLOCATABLE,DIMENSION(:) :: z, y, x
 
