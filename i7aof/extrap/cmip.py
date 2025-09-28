@@ -74,7 +74,6 @@ class FileTask:
 
     in_path: str
     out_path: str  # final vertical output
-    horizontal_tmp: str  # horizontal intermediate
     namelist_path: str  # combined rendered namelist
     variable: str  # e.g. 'ct' or 'sa'
     tmp_dir: str  # directory for all intermediates for this file
@@ -87,7 +86,6 @@ def extrap_cmip(
     user_config_filename: str | None = None,
     variables: Sequence[str] = ('ct', 'sa'),
     keep_intermediate: bool = False,
-    dry_run: bool = False,
 ) -> None:
     """
     Extrapolate remapped CMIP ``ct``/``sa`` fields horizontally and vertically.
@@ -139,8 +137,6 @@ def extrap_cmip(
         Variable names to extrapolate (default: ``ct`` and ``sa``).
     keep_intermediate : bool, optional
         Keep horizontal temp and namelist files if True.
-    dry_run : bool, optional
-        If True, list planned actions only.
     """
 
     (
@@ -174,12 +170,10 @@ def extrap_cmip(
             out_path = os.path.join(out_dir, out_base)
             stem = os.path.splitext(os.path.basename(out_path))[0]
             tmp_dir = os.path.join(os.path.dirname(out_path), f'{stem}_tmp')
-            horizontal_tmp = os.path.join(tmp_dir, 'horizontal_tmp.nc')
             namelist_path = os.path.join(tmp_dir, f'{var}.nml')
             task = FileTask(
                 in_path=in_file,
                 out_path=out_path,
-                horizontal_tmp=horizontal_tmp,
                 namelist_path=namelist_path,
                 variable=var,
                 tmp_dir=tmp_dir,
@@ -190,7 +184,6 @@ def extrap_cmip(
                 grid_file=grid_file,
                 topo_file=topo_file,
                 keep_intermediate=keep_intermediate,
-                dry_run=dry_run,
             )
 
 
@@ -241,11 +234,6 @@ def main() -> None:
         action='store_true',
         help='Keep horizontal intermediate NetCDF and namelist files.',
     )
-    parser.add_argument(
-        '--dry-run',
-        action='store_true',
-        help='Show planned actions without running executables.',
-    )
     args = parser.parse_args()
 
     extrap_cmip(
@@ -255,7 +243,6 @@ def main() -> None:
         user_config_filename=args.config,
         variables=args.variables,
         keep_intermediate=args.keep_intermediate,
-        dry_run=args.dry_run,
     )
 
 
@@ -415,7 +402,6 @@ def _process_task(
     grid_file: str,
     topo_file: str,
     keep_intermediate: bool,
-    dry_run: bool,
 ) -> None:
     if os.path.exists(task.out_path):
         print(f'Extrapolated file exists, skipping: {task.out_path}')
@@ -431,10 +417,12 @@ def _process_task(
 
     # Temporary vertical output; we'll copy grid variables after Fortran runs
     vertical_tmp = os.path.join(task.tmp_dir, 'vertical_tmp.nc')
+    # Horizontal intermediate lives alongside
+    horizontal_tmp = os.path.join(task.tmp_dir, 'horizontal_tmp.nc')
 
     namelist_contents = _render_namelist(
         file_in=prepared_input,
-        horizontal_out=task.horizontal_tmp,
+        horizontal_out=horizontal_tmp,
         vertical_out=vertical_tmp,
         basin_file=basin_file,
         topo_file=topo_file,
@@ -450,31 +438,32 @@ def _process_task(
             f'(variable={task.variable})'
         )
         logger.info(f'  Namelist: {task.namelist_path}')
-        logger.info(f'  Horizontal tmp: {task.horizontal_tmp}')
+        logger.info(f'  Horizontal tmp: {horizontal_tmp}')
         logger.info(f'  Final output: {task.out_path}')
 
         horiz_exec = 'i7aof_extrap_horizontal'
         vert_exec = 'i7aof_extrap_vertical'
+        # Verify required executables exist once
         for exe in (horiz_exec, vert_exec):
             if shutil.which(exe) is None:
                 raise FileNotFoundError(
                     f"Required executable '{exe}' not found on PATH."
                 )
 
-        if dry_run:
-            logger.info('Dry-run mode: skipping Fortran execution.')
-        else:
+        # Run horizontal and vertical phases if their outputs are missing
+        if not os.path.exists(horizontal_tmp):
             _run_exe(horiz_exec, task.namelist_path, logger, 'horizontal')
+        if not os.path.exists(vertical_tmp):
             _run_exe(vert_exec, task.namelist_path, logger, 'vertical')
 
-            # Finalize: add grid lat/lon/crs to final output
-            _finalize_output_with_grid(
-                vertical_tmp,
-                grid_file,
-                task.out_path,
-                task.variable,
-                logger,
-            )
+        # Finalize: add grid lat/lon/crs to final output
+        _finalize_output_with_grid(
+            vertical_tmp,
+            grid_file,
+            task.out_path,
+            task.variable,
+            logger,
+        )
 
         if not keep_intermediate:
             _cleanup_intermediate(task, logger)
@@ -528,6 +517,12 @@ def _prepare_input_with_coords(
 
     Always writes a prepared copy to out_prepared_path.
     """
+    if os.path.exists(out_prepared_path):
+        print(
+            f'Prepared input file exists, not rewriting: {out_prepared_path}'
+        )
+        return
+
     ds_in = xr.open_dataset(in_path, chunks={'time': 1})
     ds_grid = xr.open_dataset(grid_path)
 
