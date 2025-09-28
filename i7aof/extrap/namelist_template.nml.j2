@@ -9,6 +9,8 @@
   file_topo  = '{{ file_topo | default("__REQUIRED__") }}'
   ! REQUIRED: variable name to extrapolate (e.g. thetao, so)
   varnam     = '{{ var_name | default("__REQUIRED__") }}'
+  ! OPTIONAL: name of vertical dimension/coordinate variable
+  z_name     = '{{ z_name | default("z") }}'
 /
 
 &vertical_extrapolation
@@ -17,4 +19,6 @@
   ! REQUIRED: final vertically extrapolated output file
   file_out = '{{ vertical_out | default("__REQUIRED__") }}'
   varnam   = '{{ var_name | default("__REQUIRED__") }}'
+  ! OPTIONAL: name of vertical dimension/coordinate variable
+  z_name   = '{{ z_name | default("z") }}'
 /

@@ -14,10 +14,11 @@ CHARACTER(LEN=15) :: varnam
 
 CHARACTER(LEN=2048) :: file_in, file_out, file_basin, file_topo, cal, uni, his
 CHARACTER(LEN=2048) :: namelist_file
+CHARACTER(LEN=32)   :: z_name
 
 INTEGER :: ios, narg
 
-NAMELIST /horizontal_extrapolation/ file_in, file_out, file_basin, file_topo, varnam
+NAMELIST /horizontal_extrapolation/ file_in, file_out, file_basin, file_topo, varnam, z_name
 
 REAL*4 :: miss
 
@@ -48,6 +49,7 @@ file_out    = '__REQUIRED__'
 file_basin  = '__REQUIRED__'
 file_topo   = '__REQUIRED__'
 varnam      = '__REQUIRED__'
+z_name      = 'z'
 
 ! Determine namelist file name: first command line argument if present,
 ! otherwise fallback to a conventional filename.
@@ -106,7 +108,7 @@ status = NF90_OPEN(TRIM(file_in),0,fidA); call erreur(status,.TRUE.,"read")
 
 status = NF90_INQ_DIMID(fidA,"x",dimID_x); call erreur(status,.TRUE.,"inq_dimID_x")
 status = NF90_INQ_DIMID(fidA,"y",dimID_y); call erreur(status,.TRUE.,"inq_dimID_y")
-status = NF90_INQ_DIMID(fidA,"z",dimID_z); call erreur(status,.TRUE.,"inq_dimID_z")
+status = NF90_INQ_DIMID(fidA,TRIM(z_name),dimID_z); call erreur(status,.TRUE.,"inq_dimID_z")
 status = NF90_INQ_DIMID(fidA,"time",dimID_time); call erreur(status,.TRUE.,"inq_dimID_time")
 
 status = NF90_INQUIRE_DIMENSION(fidA,dimID_x,len=mx); call erreur(status,.TRUE.,"inq_dim_x")
@@ -122,7 +124,7 @@ ALLOCATE(  var(mx,my,1,mtime)  )
 ALLOCATE(  var_new(mx,my,1,mtime)  )
 
 status = NF90_INQ_VARID(fidA,"time",time_ID); call erreur(status,.TRUE.,"inq_time_ID")
-status = NF90_INQ_VARID(fidA,"z",z_ID); call erreur(status,.TRUE.,"inq_z_ID")
+status = NF90_INQ_VARID(fidA,TRIM(z_name),z_ID); call erreur(status,.TRUE.,"inq_z_ID")
 status = NF90_INQ_VARID(fidA,"y",y_ID); call erreur(status,.TRUE.,"inq_y_ID")
 status = NF90_INQ_VARID(fidA,"x",x_ID); call erreur(status,.TRUE.,"inq_x_ID")
 status = NF90_INQ_VARID(fidA,TRIM(varnam),varin_ID); call erreur(status,.TRUE.,"inq_var_ID")
@@ -199,11 +201,11 @@ status = NF90_CREATE(TRIM(file_out),NF90_NOCLOBBER,fidM); call erreur(status,.TR
 
 status = NF90_DEF_DIM(fidM,"x",mx,dimID_x); call erreur(status,.TRUE.,"def_dimID_x")
 status = NF90_DEF_DIM(fidM,"y",my,dimID_y); call erreur(status,.TRUE.,"def_dimID_y")
-status = NF90_DEF_DIM(fidM,"z",mz,dimID_z); call erreur(status,.TRUE.,"def_dimID_z")
+status = NF90_DEF_DIM(fidM,TRIM(z_name),mz,dimID_z); call erreur(status,.TRUE.,"def_dimID_z")
 status = NF90_DEF_DIM(fidM,"time",NF90_UNLIMITED,dimID_time); call erreur(status,.TRUE.,"def_dimID_time")
 
 status = NF90_DEF_VAR(fidM,"time",NF90_DOUBLE,(/dimID_time/),time_ID); call erreur(status,.TRUE.,"def_var_time_ID")
-status = NF90_DEF_VAR(fidM,"z",NF90_FLOAT,(/dimID_z/),z_ID); call erreur(status,.TRUE.,"def_var_z_ID")
+status = NF90_DEF_VAR(fidM,TRIM(z_name),NF90_FLOAT,(/dimID_z/),z_ID); call erreur(status,.TRUE.,"def_var_z_ID")
 status = NF90_DEF_VAR(fidM,"y",NF90_FLOAT,(/dimID_y/),y_ID); call erreur(status,.TRUE.,"def_var_y_ID")
 status = NF90_DEF_VAR(fidM,"x",NF90_FLOAT,(/dimID_x/),x_ID); call erreur(status,.TRUE.,"def_var_x_ID")
 status = NF90_DEF_VAR(fidM,TRIM(varnam),NF90_FLOAT,(/dimID_x,dimID_y,dimID_z,dimID_time/),varout_ID); call erreur(status,.TRUE.,"def_var_var_ID")

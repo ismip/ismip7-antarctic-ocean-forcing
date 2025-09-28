@@ -375,6 +375,7 @@ def _render_namelist(
         file_basin=basin_file,
         file_topo=topo_file,
         var_name=variable,
+        z_name='z_extrap',
     )
 
 
