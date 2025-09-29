@@ -180,6 +180,7 @@ def extrap_cmip(
             )
             _process_task(
                 task,
+                config=config,
                 basin_file=basin_file,
                 grid_file=grid_file,
                 topo_file=topo_file,
@@ -398,6 +399,7 @@ def _render_namelist(
 
 def _process_task(
     task: FileTask,
+    config: MpasConfigParser,
     basin_file: str,
     grid_file: str,
     topo_file: str,
@@ -409,37 +411,20 @@ def _process_task(
     os.makedirs(os.path.dirname(task.out_path), exist_ok=True)
     os.makedirs(task.tmp_dir, exist_ok=True)
 
-    # Prepare input with x/y coordinates if missing
-    prepared_input = os.path.join(task.tmp_dir, 'input_prepared.nc')
-    _prepare_input_with_coords(
-        task.in_path, grid_file, prepared_input, task.variable
-    )
-
-    # Temporary vertical output; we'll copy grid variables after Fortran runs
-    vertical_tmp = os.path.join(task.tmp_dir, 'vertical_tmp.nc')
-    # Horizontal intermediate lives alongside
-    horizontal_tmp = os.path.join(task.tmp_dir, 'horizontal_tmp.nc')
-
-    namelist_contents = _render_namelist(
-        file_in=prepared_input,
-        horizontal_out=horizontal_tmp,
-        vertical_out=vertical_tmp,
-        basin_file=basin_file,
-        topo_file=topo_file,
-        variable=task.variable,
-    )
-    with open(task.namelist_path, 'w', encoding='utf-8') as f:
-        f.write(namelist_contents)
+    # We'll preprocess per time chunk to keep memory and file sizes in check
+    # Determine chunking in time (default 120 months)
+    try:
+        time_chunk = config.getint('extrap_cmip', 'time_chunk')
+    except Exception:
+        # Fallback safety: default to 120 if section/option is missing
+        time_chunk = 120
 
     with LoggingContext(__name__):
         logger = logging.getLogger(__name__)
         logger.info(
-            f'Starting extrapolation: {task.in_path} '
-            f'(variable={task.variable})'
+            f'Starting extrapolation (chunked): {task.in_path} '
+            f'(variable={task.variable}, chunk={time_chunk})'
         )
-        logger.info(f'  Namelist: {task.namelist_path}')
-        logger.info(f'  Horizontal tmp: {horizontal_tmp}')
-        logger.info(f'  Final output: {task.out_path}')
 
         horiz_exec = 'i7aof_extrap_horizontal'
         vert_exec = 'i7aof_extrap_vertical'
@@ -450,15 +435,95 @@ def _process_task(
                     f"Required executable '{exe}' not found on PATH."
                 )
 
-        # Run horizontal and vertical phases if their outputs are missing
-        if not os.path.exists(horizontal_tmp):
-            _run_exe(horiz_exec, task.namelist_path, logger, 'horizontal')
-        if not os.path.exists(vertical_tmp):
-            _run_exe(vert_exec, task.namelist_path, logger, 'vertical')
+        # Open source input lazily to compute chunk indices
+        ds_meta = xr.open_dataset(task.in_path, decode_times=False)
+        if 'time' not in ds_meta.dims:
+            # No time dimension; process as a single synthetic chunk
+            time_indices = [(0, 1)]
+        else:
+            n_time = ds_meta.sizes['time']
+            time_indices = [
+                (i0, min(i0 + time_chunk, n_time))
+                for i0 in range(0, n_time, time_chunk)
+            ]
 
-        # Finalize: add grid lat/lon/crs to final output
-        _finalize_output_with_grid(
-            vertical_tmp,
+        vertical_chunks: List[str] = []
+
+        for i0, i1 in time_indices:
+            # Prepare per-chunk input file
+            if i1 == 0:
+                # Empty time dimension; nothing to do
+                continue
+            input_chunk = os.path.join(task.tmp_dir, f'input_{i0}_{i1}.nc')
+            if not os.path.exists(input_chunk):
+                # Preprocess only this time slice with grid coordinates
+                _prepare_input_with_coords(
+                    task.in_path,
+                    grid_file,
+                    input_chunk,
+                    task.variable,
+                    time_slice=(i0, i1) if 'time' in ds_meta.dims else None,
+                )
+
+            horizontal_tmp = os.path.join(
+                task.tmp_dir, f'horizontal_{i0}_{i1}.nc'
+            )
+            vertical_tmp = os.path.join(task.tmp_dir, f'vertical_{i0}_{i1}.nc')
+
+            # Render a per-chunk namelist
+            namelist_contents = _render_namelist(
+                file_in=input_chunk,
+                horizontal_out=horizontal_tmp,
+                vertical_out=vertical_tmp,
+                basin_file=basin_file,
+                topo_file=topo_file,
+                variable=task.variable,
+            )
+            namelist_path = os.path.join(
+                task.tmp_dir, f'{task.variable}_{i0}_{i1}.nml'
+            )
+            with open(namelist_path, 'w', encoding='utf-8') as f:
+                f.write(namelist_contents)
+
+            logger.info(
+                '  Chunk %d:%d -> horiz %s, vert %s',
+                i0,
+                i1,
+                os.path.basename(horizontal_tmp),
+                os.path.basename(vertical_tmp),
+            )
+
+            # Run horizontal and vertical phases if outputs are missing
+            if not os.path.exists(horizontal_tmp):
+                _run_exe(horiz_exec, namelist_path, logger, 'horizontal')
+            if not os.path.exists(vertical_tmp):
+                _run_exe(vert_exec, namelist_path, logger, 'vertical')
+
+            if not os.path.exists(vertical_tmp):
+                raise FileNotFoundError(
+                    f'Expected vertical output missing: {vertical_tmp}'
+                )
+            vertical_chunks.append(vertical_tmp)
+
+        if not vertical_chunks:
+            raise RuntimeError(
+                'No vertical output chunks were produced; aborting.'
+            )
+
+        # Concatenate chunks along time in-memory (lazy) and finalize once
+        if len(vertical_chunks) == 1:
+            ds_final_in = xr.open_dataset(
+                vertical_chunks[0], decode_times=False
+            )
+        else:
+            ds_list = [
+                xr.open_dataset(path, decode_times=False)
+                for path in vertical_chunks
+            ]
+            ds_final_in = xr.concat(ds_list, dim='time', join='exact')
+
+        _finalize_output_with_grid_ds(
+            ds_final_in,
             grid_file,
             task.out_path,
             task.variable,
@@ -468,7 +533,7 @@ def _process_task(
         if not keep_intermediate:
             _cleanup_intermediate(task, logger)
         else:
-            logger.info('Keeping intermediate horizontal file and namelist.')
+            logger.info('Keeping intermediate files and namelists.')
 
 
 def _run_exe(exe: str, namelist: str, logger, phase: str) -> None:
@@ -512,6 +577,7 @@ def _prepare_input_with_coords(
     grid_path: str,
     out_prepared_path: str,
     var_name: str,
+    time_slice: tuple[int, int] | None = None,
 ) -> None:
     """Ensure input has x/y coordinates; add from ISMIP grid if missing.
 
@@ -523,8 +589,11 @@ def _prepare_input_with_coords(
         )
         return
 
-    ds_in = xr.open_dataset(in_path, chunks={'time': 1})
-    ds_grid = xr.open_dataset(grid_path)
+    ds_in = xr.open_dataset(in_path, chunks={'time': 1}, decode_times=False)
+    if time_slice is not None and 'time' in ds_in.dims:
+        i0, i1 = time_slice
+        ds_in = ds_in.isel(time=slice(i0, i1))
+    ds_grid = xr.open_dataset(grid_path, decode_times=False)
 
     to_add = {}
     # Ensure dims exist and match sizes
@@ -567,25 +636,21 @@ def _prepare_input_with_coords(
     )
 
 
-def _finalize_output_with_grid(
-    tmp_out_path: str,
+def _finalize_output_with_grid_ds(
+    ds_in: xr.Dataset,
     grid_path: str,
     final_out_path: str,
     variable: str,
     logger,
 ) -> None:
-    """Copy/overwrite grid variables and coords from ISMIP grid into output.
+    """Finalize from an xarray Dataset by injecting grid vars and writing.
 
-    We overwrite x, y, x_bnds, y_bnds, lat, lon, lat_bnds, lon_bnds, crs
-    using definitions from the grid file, preserving their attributes.
-
-    When writing the final file, ensure only the extrapolated data variable
-    (``variable``) gets a fill value and coordinates/other variables do not.
+    This variant avoids creating a large concatenated temporary file by
+    operating directly on a (possibly lazily concatenated) Dataset.
     """
-    ds_out = xr.open_dataset(tmp_out_path, chunks={'time': 1})
-    ds_grid = xr.open_dataset(grid_path)
+    ds_out = ds_in
+    ds_grid = xr.open_dataset(grid_path, decode_times=False)
 
-    # Variables/coords to enforce from grid
     coord_names = ['x', 'y']
     var_names = [
         'x_bnds',
@@ -597,7 +662,6 @@ def _finalize_output_with_grid(
         'crs',
     ]
 
-    # Drop any existing versions in output so we fully overwrite
     drop_list = [v for v in (coord_names + var_names) if v in ds_out.variables]
     if drop_list:
         ds_out = ds_out.drop_vars(drop_list, errors='ignore')
