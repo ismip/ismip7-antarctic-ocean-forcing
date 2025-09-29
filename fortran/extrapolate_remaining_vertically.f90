@@ -171,6 +171,10 @@ status = NF90_PUT_VAR(fidM,x_ID,x); call erreur(status,.TRUE.,"var_x_ID")
 !
 DO kt=1,mtime
 
+  if ( MOD(kt, 12) == 1 ) then
+    write(*,*) 'Vertical: processing time index kt = ', kt, ' of ', mtime
+  end if
+
   status = NF90_GET_VAR(fidA,var_in_ID,var_in,start=(/1,1,1,kt/),count=(/mx,my,mz,1/))
   call erreur(status,.TRUE.,"getvar_in")
 

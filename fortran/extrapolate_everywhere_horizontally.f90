@@ -242,6 +242,7 @@ status = NF90_PUT_VAR(fidM,x_ID,x); call erreur(status,.TRUE.,"putvar_x")
 !---------------------------------------------------------------------------------
 Nbasin=MAXVAL(basinNumber)+1
 write(*,*) 'Number of IMBIE2 basins : ', Nbasin
+write(*,*) 'Number of vertical levels : ', mz
 
 ! number of iteration to fill the ice shelves in each basin:
 ALLOCATE( Niter(Nbasin) )
@@ -270,6 +271,8 @@ DO kz=1,mz
   Niter(15) = 120 ! FRIS
 
   do kbasin=1,Nbasin
+
+  write(*,*) 'Step1: kz = ', kz, ', basin = ', kbasin, ' iterations = ', Niter(kbasin), ' START'
 
    do kiter=1,Niter(kbasin)
 
@@ -362,7 +365,9 @@ DO kz=1,mz
 
     var(:,:,:,:) = var_new(:,:,:,:)
 
-   enddo ! iterations
+    enddo ! iterations
+
+    write(*,*) 'Step1: kz = ', kz, ', basin = ', kbasin, ' DONE'
 
   enddo ! kbasin
 
@@ -375,6 +380,8 @@ DO kz=1,mz
   Niter(16) = 40
 
   do kbasin=1,Nbasin
+
+  write(*,*) 'Step2: kz = ', kz, ', basin = ', kbasin, ' iterations = ', Niter(kbasin), ' START'
 
    do kiter=1,Niter(kbasin)
 
@@ -466,7 +473,9 @@ DO kz=1,mz
 
     var(:,:,:,:) = var_new(:,:,:,:)
 
-   enddo ! iterations
+    enddo ! iterations
+
+    write(*,*) 'Step2: kz = ', kz, ', basin = ', kbasin, ' DONE'
 
   enddo ! kbasin
 
@@ -479,6 +488,8 @@ DO kz=1,mz
   else
     Niter2=5
   endif
+
+  write(*,*) 'Step3: kz = ', kz, ' iterations = ', Niter2, ' START'
 
   do kiter=1,Niter2
 
@@ -571,6 +582,8 @@ DO kz=1,mz
       var(:,:,:,:) = var_new(:,:,:,:)
 
   enddo ! iterations
+
+  write(*,*) 'Step3: kz = ', kz, ' DONE'
 
   !== write variable in netcdf
   status = NF90_PUT_VAR(fidM,varout_ID,var,start=(/1,1,kz,1/),count=(/mx,my,1,mtime/))
