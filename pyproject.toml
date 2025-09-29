@@ -20,6 +20,7 @@ classifiers = [
 # dependencies that are available on PyPI, a subset of those on conda-forge
 dependencies = [
     "cmocean",
+    "dask",
     "gsw",
     "inpoly",
     "jinja2",

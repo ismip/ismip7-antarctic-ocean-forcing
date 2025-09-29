@@ -32,6 +32,7 @@ requirements:
   run:
     - python >=${{ python_min }},<3.14
     - cmocean
+    - dask
     - esmf
     - gsw
     - inpoly
