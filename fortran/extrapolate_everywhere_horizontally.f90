@@ -6,7 +6,7 @@ IMPLICIT NONE
 
 INTEGER :: fidA, status, dimID_x, dimID_y, dimID_z, dimID_time, mx, my, mz, mtime, &
 &          time_ID, z_ID, y_ID, x_ID, varin_ID, fidM, fidB, fidT, basinNumber_ID,  &
-&          mask_ID, bed_ID, kiter, ki, kj, kz, kt, kbasin, Nbasin, mask_ocean_ID,  &
+&          bed_ID, kiter, ki, kj, kz, kt, kbasin, Nbasin, ocean_frac_ID,           &
 &          varout_ID, kim1, kip1, kjm1, kjp1, kim2, kip2, kjm2, kjp2, kim3, kip3,  &
 &          kjm3, kjp3, Niter2
 
@@ -33,7 +33,7 @@ REAL*8,ALLOCATABLE,DIMENSION(:) :: time
 
 INTEGER*8,ALLOCATABLE,DIMENSION(:,:) :: basinNumber
 
-REAL*4,ALLOCATABLE,DIMENSION(:,:) :: mask, bed, mask_ocean
+REAL*4,ALLOCATABLE,DIMENSION(:,:) :: bed, ocean_frac
 
 REAL*4,ALLOCATABLE,DIMENSION(:,:,:,:) :: var, var_new
 
@@ -172,23 +172,28 @@ status = NF90_CLOSE(fidB); call erreur(status,.TRUE.,"close_file")
 
 
 !----------------------------------------------------------------
-! Read ice shelf mask and bed topographie
+! Read ocean fraction (open ocean + ice-shelf cavities) and bed topography
 
 write(*,*) 'Reading ', TRIM(file_topo)
 
 status = NF90_OPEN(TRIM(file_topo),0,fidT); call erreur(status,.TRUE.,"read")
 
-ALLOCATE(  mask(mx,my)  )
 ALLOCATE(  bed(mx,my)  )
-ALLOCATE(  mask_ocean(mx,my)  )
+ALLOCATE(  ocean_frac(mx,my)  )
 
-status = NF90_INQ_VARID(fidT,"mask",mask_ID); call erreur(status,.TRUE.,"inq_mask_ID")
 status = NF90_INQ_VARID(fidT,"bed",bed_ID); call erreur(status,.TRUE.,"inq_bed_ID")
-status = NF90_INQ_VARID(fidT,"mask_ocean",mask_ocean_ID); call erreur(status,.TRUE.,"inq_mask_ocean_ID")
+! Prefer the standardized name 'ocean_frac'; fall back to legacy 'mask_ocean' if needed
+status = NF90_INQ_VARID(fidT,"ocean_frac",ocean_frac_ID)
+if ( status /= NF90_NOERR ) then
+  status = NF90_INQ_VARID(fidT,"mask_ocean",ocean_frac_ID)
+  if ( status /= NF90_NOERR ) then
+    status = NF90_INQ_VARID(fidT,"ocean_mask",ocean_frac_ID)
+  end if
+  call erreur(status,.TRUE.,"inq_ocean_frac_or_mask_ocean_or_ocean_mask_ID")
+endif
 
-status = NF90_GET_VAR(fidT,mask_ID,mask); call erreur(status,.TRUE.,"getvar_mask")
 status = NF90_GET_VAR(fidT,bed_ID,bed); call erreur(status,.TRUE.,"getvar_bed")
-status = NF90_GET_VAR(fidT,mask_ocean_ID,mask_ocean); call erreur(status,.TRUE.,"getvar_mask_ocean")
+status = NF90_GET_VAR(fidT,ocean_frac_ID,ocean_frac); call erreur(status,.TRUE.,"getvar_ocean_frac")
 
 status = NF90_CLOSE(fidT); call erreur(status,.TRUE.,"close_file")
 
@@ -282,9 +287,9 @@ DO kz=1,mz
 
     do ki=1,mx
     do kj=1,my
-      ! open ocean or ice shelf point with missing data and connected to ocean neighbours
+    ! ocean point (open ocean or under ice shelf) with missing data and connected to ocean neighbours
   if ( var(ki,kj,1,1) == miss .and. bed(ki,kj) .lt. z(kz) .and. basinNumber(ki,kj) .eq. kbasin-1 &
-  &    .and. ( mask(ki,kj) .gt. 0.01 .or. mask_ocean(ki,kj) .gt. 0.01 ) ) then
+  &    .and. ocean_frac(ki,kj) .gt. 0.01 ) then
 
            ! Gaussian (sigma=24km) extrapolation to contiguous neighbours (needs continuous connection to (ki,kj) ) :
 
