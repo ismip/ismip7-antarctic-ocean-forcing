@@ -386,7 +386,7 @@ def _render_namelist(
         lstrip_blocks=True,
     )
     template = env.from_string(template_txt)
-    return template.render(
+    rendered = template.render(
         file_in=file_in,
         horizontal_out=horizontal_out,
         vertical_out=vertical_out,
@@ -395,6 +395,11 @@ def _render_namelist(
         var_name=variable,
         z_name='z_extrap',
     )
+    # Some Fortran compilers are picky if a namelist file doesn't end with a
+    # newline; ensure one exists.
+    if not rendered.endswith('\n'):
+        rendered = rendered + '\n'
+    return rendered
 
 
 def _process_task(
