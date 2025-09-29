@@ -587,21 +587,23 @@ end program modif
 
 
 !=====================================================================================
-SUBROUTINE erreur(iret, lstop, chaine)
-  ! pour les messages d'erreur
+SUBROUTINE erreur(iret, lstop, context)
+  ! Error reporting helper: prints NetCDF error details.
+  ! If lstop is true, terminates the program with a non-zero exit code.
   USE netcdf
-  INTEGER, INTENT(in)                     :: iret
-  LOGICAL, INTENT(in)                     :: lstop
-  CHARACTER(LEN=*), INTENT(in)            :: chaine
-  !
-  CHARACTER(LEN=80)                       :: message
-  !
+  INTEGER, INTENT(in)                  :: iret
+  LOGICAL, INTENT(in)                  :: lstop
+  CHARACTER(LEN=*), INTENT(in)         :: context
+  CHARACTER(LEN=256)                   :: message
+
   IF ( iret .NE. 0 ) THEN
-    WRITE(*,*) 'ROUTINE: ', TRIM(chaine)
-    WRITE(*,*) 'ERREUR: ', iret
-    message=NF90_STRERROR(iret)
-    WRITE(*,*) 'CA VEUT DIRE:',TRIM(message)
-    IF ( lstop ) STOP
-  ENDIF
-  !
+    WRITE(*,*) 'ROUTINE: ', TRIM(context)
+    WRITE(*,*) 'ERROR code: ', iret
+    message = NF90_STRERROR(iret)
+    WRITE(*,*) 'NETCDF message: ', TRIM(message)
+    IF ( lstop ) THEN
+      STOP 1
+    END IF
+  END IF
+
 END SUBROUTINE erreur
