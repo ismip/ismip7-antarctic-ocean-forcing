@@ -2,12 +2,12 @@
 
 import os
 
-from i7aof.remap.cmip import remap_cmip
+from i7aof.convert.cmip import convert_cmip
 
 this_dir = os.path.dirname(os.path.abspath(__file__))
-config_filename = os.path.join(this_dir, 'test_remap_cmip.cfg')
+config_filename = os.path.join(this_dir, 'test_convert_cmip.cfg')
 
-remap_cmip(
+convert_cmip(
     model='CESM2-WACCM',
     scenario='historical',
     user_config_filename=config_filename,

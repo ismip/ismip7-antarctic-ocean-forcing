@@ -9,6 +9,7 @@ from mpas_tools.config import MpasConfigParser
 from mpas_tools.logging import LoggingContext
 
 from i7aof.cmip import get_model_prefix
+from i7aof.convert.paths import get_ct_sa_output_paths
 from i7aof.grid.ismip import (
     get_ismip_grid_filename,
     get_res_string,
@@ -21,156 +22,84 @@ from i7aof.vert.interp import VerticalInterpolator, fix_src_z_coord
 
 def remap_cmip(
     model,
-    variable,
     scenario,
-    inputdir=None,
     workdir=None,
     user_config_filename=None,
 ):
     """
-    Remap CMIP data to the ISMIP grid with two stages:
+    Remap pre-converted CMIP ct/sa to the ISMIP grid in two stages:
 
-    1) vertical interpolation to ISMIP z_extrap levels, then
-
+    1) vertical interpolation to ISMIP 'z_extrap' levels, then
     2) horizontal remapping to the ISMIP lat/lon grid.
 
+    Prerequisite
+    - Run the conversion step first so inputs contain variables 'ct' and
+      'sa' on the native grid. Use either:
+        * Python: i7aof.convert.cmip.convert_cmip
+        * CLI: ismip7-antarctic-convert-cmip
+      Then run the remap CLI: ismip7-antarctic-remap-cmip.
+
     This function orchestrates the basic flow per input file:
-
     - Prepare output dirs and ensure the ISMIP grid exists.
-
     - For each monthly file:
-
-      * Vertical pipeline (see _vert_mask_interp_norm):
-        mask invalid source points -> interpolate in z -> normalize.
-
+      * Vertical pipeline (see _vert_mask_interp_norm): mask invalid source
+        points -> interpolate in z -> normalize.
       * Horizontal remap of the vertically processed data to ISMIP grid.
 
     Parameters
     ----------
     model : str
         Name of the CMIP model to remap
-
-    variable : {'thetao', 'so'}
-        The name of the variable to remap
-
     scenario : str
         The name of the scenario ('historical', 'ssp585', etc.)
-
-    inputdir : str, optional
-        The base input directory where the CMIP monthly input files are
-        located
-
     workdir : str, optional
-        The base work directory within which the remapped files will be placed
-
+        The base work directory within which the remapped files will be
+        placed
     user_config_filename : str, optional
-        The path to a file with user config options that override the defaults
+        The path to a file with user config options that override the
+        defaults
     """
 
-    model_prefix = get_model_prefix(model)
+    (
+        config,
+        workdir,
+        outdir,
+        ismip_res_str,
+        model_prefix,
+    ) = _load_config_and_paths(
+        model=model,
+        workdir=workdir,
+        user_config_filename=user_config_filename,
+        scenario=scenario,
+    )
 
-    config = MpasConfigParser()
-    config.add_from_package('i7aof', 'default.cfg')
-    config.add_from_package('i7aof.cmip', f'{model_prefix}.cfg')
-    if user_config_filename is not None:
-        config.add_user_config(user_config_filename)
-
-    if workdir is None:
-        if config.has_option('workdir', 'base_dir'):
-            workdir = config.get('workdir', 'base_dir')
-        else:
-            raise ValueError(
-                'Missing configuration option: [workdir] base_dir. '
-                'Please supply a user config file that '
-                'defines this option.'
-            )
-
-    if inputdir is None:
-        if config.has_option('inputdir', 'base_dir'):
-            inputdir = config.get('inputdir', 'base_dir')
-        else:
-            raise ValueError(
-                'Missing configuration option: [inputdir] base_dir. '
-                'Please supply a user config file that '
-                'defines this option.'
-            )
-
-    outdir = os.path.join(workdir, 'remap', model, scenario, 'Omon', variable)
-    os.makedirs(outdir, exist_ok=True)
-
-    os.chdir(workdir)
-
-    ismip_res_str = get_res_string(config)
-
-    in_rel_paths = config.getexpression(f'{scenario}_files', variable)
-
-    in_files = []
-    out_files = []
-
-    for rel_filename in in_rel_paths:
-        base_filename = os.path.basename(rel_filename)
-        if 'gn' not in base_filename:
-            raise ValueError(
-                f'Expected input to be on native grid (gn): {base_filename}'
-            )
-
-        out_filename = base_filename.replace('gn', f'ismip{ismip_res_str}')
-        out_filename = os.path.join(outdir, out_filename)
-
-        in_filename = os.path.join(inputdir, rel_filename)
-        in_files.append(in_filename)
-        out_files.append(out_filename)
+    # Build input/output lists for ct/sa
+    in_files, out_files = _build_io_lists(
+        config=config,
+        scenario=scenario,
+        outdir=outdir,
+        ismip_res_str=ismip_res_str,
+        model=model,
+        workdir=workdir,
+    )
 
     # Ensure the destination ISMIP grid files exist (used by both steps)
     write_ismip_grid(config)
 
-    for index, (in_filename, out_filename) in enumerate(
-        zip(in_files, out_files, strict=True)
-    ):
-        if os.path.exists(out_filename):
-            print(f'Remapped file exists, skipping: {out_filename}')
-            continue
-
-        # Per-file tmp dirs for clarity and clean-up
-        # Vertical stage tmp directory (mask -> interp -> normalize)
-        vert_tmpdir = os.path.join(
-            outdir, f'tmp_vert_interp_{variable}_{index}'
+    for index, pair_or_file in enumerate(in_files):
+        _process_one(
+            index=index,
+            pair_or_file=pair_or_file,
+            out_filename=out_files[index],
+            outdir=outdir,
+            config=config,
+            model_prefix=model_prefix,
         )
-        os.makedirs(vert_tmpdir, exist_ok=True)
-
-        # Horizontal stage tmp directory (time-chunked remap + masks)
-        horiz_tmpdir = os.path.join(
-            outdir, f'tmp_horiz_remap_{variable}_{index}'
-        )
-        os.makedirs(horiz_tmpdir, exist_ok=True)
-
-        # 1) Vertical pipeline: masking -> vertical interpolation -> normalize
-        vert_interp_filenames = _vert_mask_interp_norm(
-            config, in_filename, outdir, variable, vert_tmpdir
-        )
-
-        with LoggingContext(__name__) as logger:
-            # 2) Horizontal remap to ISMIP lat/lon grid
-            # Requires a logger to capture output from ncremap calls (we use
-            # stdout and stderr, rather than a log file here)
-            _remap_horiz(
-                config,
-                vert_interp_filenames,
-                out_filename,
-                variable,
-                model_prefix,
-                horiz_tmpdir,
-                logger,
-            )
-
-        # Always clean up tmp dirs for this input file
-        shutil.rmtree(vert_tmpdir)
-        shutil.rmtree(horiz_tmpdir)
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Remap CMIP model data to ISMIP grid.'
+        description='Remap CT and SA fields from CMIP to ISMIP grid.'
     )
     parser.add_argument(
         '-m',
@@ -179,14 +108,6 @@ def main():
         type=str,
         required=True,
         help='Name of the CMIP model to remap (required).',
-    )
-    parser.add_argument(
-        '-v',
-        '--variable',
-        dest='variable',
-        type=str,
-        required=True,
-        help='Name of the variable to remap ("thetao" or "so": required).',
     )
     parser.add_argument(
         '-s',
@@ -198,14 +119,6 @@ def main():
             'Name of the scenario to remap ("historical", "ssp585", etc.: '
             'required).'
         ),
-    )
-    parser.add_argument(
-        '-i',
-        '--inputdir',
-        dest='inputdir',
-        type=str,
-        required=False,
-        help='Path to the base input directory (optional).',
     )
     parser.add_argument(
         '-w',
@@ -227,202 +140,177 @@ def main():
 
     remap_cmip(
         model=args.model,
-        variable=args.variable,
         scenario=args.scenario,
-        inputdir=args.inputdir,
         workdir=args.workdir,
         user_config_filename=args.config,
     )
 
 
-## helper functions for vertical interpolation
+# helper functions
 
 
-def _vert_mask(
-    interpolator,
-    src_filename,
-    mask_filename,
-    time_chunk,
-    variable,
-    lev,
-    lev_bnds,
+def _load_config_and_paths(
+    model,
+    workdir,
+    user_config_filename,
+    scenario,
 ):
+    model_prefix = get_model_prefix(model)
+
+    config = MpasConfigParser()
+    config.add_from_package('i7aof', 'default.cfg')
+    config.add_from_package('i7aof.cmip', f'{model_prefix}.cfg')
+    if user_config_filename is not None:
+        config.add_user_config(user_config_filename)
+
+    if workdir is None:
+        if config.has_option('workdir', 'base_dir'):
+            workdir = config.get('workdir', 'base_dir')
+        else:
+            raise ValueError(
+                'Missing configuration option: [workdir] base_dir. '
+                'Please supply a user config file that defines this option.'
+            )
+
+    outdir = os.path.join(workdir, 'remap', model, scenario, 'Omon', 'ct_sa')
+    os.makedirs(outdir, exist_ok=True)
+    os.chdir(workdir)
+
+    ismip_res_str = get_res_string(config)
+    return config, workdir, outdir, ismip_res_str, model_prefix
+
+
+def _build_io_lists(
+    config,
+    scenario,
+    outdir,
+    ismip_res_str,
+    model,
+    workdir,
+):
+    """Build lists of input and output files for ct/sa remapping.
+
+    Inputs are the pre-converted ct_sa files on the native grid, whose paths
+    are derived from the thetao/so config using a shared helper to ensure
+    consistent naming across convert and remap stages.
     """
-    Mask the dataset before vertical interpolation.
+    in_files = []
+    out_files = []
 
-    Why a mask?
-    - Construct a boolean mask of valid source values on the native 3D grid
-      (lev × lat × lon). It is used to:
-      1) zero-out invalid data in all 3D variables prior to interpolation;
-      2) be vertically interpolated to ISMIP z_extrap levels along with
-         the data, yielding a valid fraction on the ISMIP grid (written
-         later as 'src_frac_interp');
-      3) normalize the vertically interpolated fields using that fraction.
-
-    This step writes an intermediate file containing the masked variable,
-    standardized vertical coordinates ('lev', 'lev_bnds'), and the
-    'src_valid' mask needed by later stages.
-    """
-
-    ds = xr.open_dataset(src_filename, decode_times=False)
-    ds = ds.chunk({'time': time_chunk})
-
-    ds_out = xr.Dataset()
-
-    ds_out = ds_out.assign_coords(
-        {
-            'lev': ('lev', lev.data),
-            'lev_bnds': (('lev', 'd2'), lev_bnds.data),
-        }
+    # Derive absolute paths to ct_sa native-grid files under workdir/convert
+    ct_sa_abs_paths = get_ct_sa_output_paths(
+        config=config,
+        model=model,
+        scenario=scenario,
+        workdir=workdir,
     )
-    ds_out['lev'].attrs = lev.attrs
 
-    da = ds[variable]
+    for abs_filename in ct_sa_abs_paths:
+        base_filename = os.path.basename(abs_filename)
+        if 'gn' not in base_filename:
+            raise ValueError(
+                f'Expected input to be on native grid (gn): {base_filename}'
+            )
+        out_filename = base_filename.replace('gn', f'ismip{ismip_res_str}')
+        out_filename = os.path.join(outdir, out_filename)
+        in_files.append(abs_filename)
+        out_files.append(out_filename)
 
-    da_masked = interpolator.mask_and_sort(da)
-    ds_out[variable] = da_masked.astype(np.float32)
-
-    ds_out['src_valid'] = interpolator.src_valid.astype(np.float32)
-    for var in ['lat', 'lon', 'time']:
-        ds_out[var] = ds[var]
-        var_bnds = f'{var}_bnds'
-        ds_out[var_bnds] = ds[var_bnds]
-
-    write_netcdf(ds_out, mask_filename, progress_bar=True)
+    return in_files, out_files
 
 
-def _vert_interp(
-    interpolator,
-    ds_ismip,
-    time_chunk,
-    mask_filename,
-    interp_filename,
-    variable,
+def _process_one(
+    index,
+    pair_or_file,
+    out_filename,
+    outdir,
+    config,
+    model_prefix,
 ):
-    """Vertically interpolate the dataset"""
-    # open it again to get a clean dataset
-    ds = xr.open_dataset(mask_filename, decode_times=False)
-    ds = ds.chunk({'time': time_chunk})
-    da_masked = ds[variable]
+    if os.path.exists(out_filename):
+        print(f'Remapped file exists, skipping: {out_filename}')
+        return
 
-    da_interp = interpolator.interp(da_masked)
+    # Per-file tmp dirs for clarity and clean-up
+    vert_tmpdir = os.path.join(outdir, f'tmp_vert_interp_ct_sa_{index}')
+    os.makedirs(vert_tmpdir, exist_ok=True)
 
-    ds_out = xr.Dataset()
-    ds_out[variable] = da_interp.astype(np.float32)
-    ds_out['src_frac_interp'] = interpolator.src_frac_interp.astype(np.float32)
-    for var in ['lat', 'lon', 'time']:
-        ds_out[var] = ds[var]
-        var_bnds = f'{var}_bnds'
-        ds_out[var_bnds] = ds[var_bnds]
-    ds_out['z_extrap_bnds'] = ds_ismip['z_extrap_bnds']
-    ds_out = ds_out.drop_vars(['lev'])
+    horiz_tmpdir = os.path.join(outdir, f'tmp_horiz_remap_ct_sa_{index}')
+    os.makedirs(horiz_tmpdir, exist_ok=True)
 
-    write_netcdf(ds_out, interp_filename, progress_bar=True)
+    in_filename = pair_or_file
+    vert_interp_filenames = _vert_mask_interp_norm_multi(
+        config, in_filename, outdir, ['ct', 'sa'], vert_tmpdir
+    )
+
+    with LoggingContext(__name__) as logger:
+        _remap_horiz(
+            config,
+            vert_interp_filenames,
+            out_filename,
+            model_prefix,
+            horiz_tmpdir,
+            logger,
+        )
+
+    # Always clean up tmp dirs for this input file
+    shutil.rmtree(vert_tmpdir)
+    shutil.rmtree(horiz_tmpdir)
 
 
-def _vert_normalize(
-    interpolator,
-    ds_ismip,
-    time_chunk,
-    interp_filename,
-    normalize_filename,
-    variable,
+def _vert_mask_interp_norm_multi(
+    config, in_filename, outdir, variables, tmpdir
 ):
-    """
-    Normalize the dataset following vertical interpolation.
+    """Mask, vertically interpolate and normalize a multi-var dataset."""
 
-    Why normalization?
-    - Intensive fields like temperature and salinity should not be reduced
-      just because only a fraction of the destination cell is valid on the
-      source grid. Without renormalization, values near bathymetry or
-      partially sampled columns would be biased low.
-    - We use the vertically interpolated validity (written as
-      'src_frac_interp') to renormalize the field after interpolation:
-        * where the valid fraction is sufficiently large, divide by that
-          fraction to restore the correct magnitude;
-        * where the fraction is too small to be reliable, set the result to
-          a mask/missing value rather than amplify noise.
-
-    Inputs/Outputs
-    - Reads the vertically interpolated file from the previous step.
-    - Writes the normalized variable and carries through 'src_frac_interp'
-      and 'z_extrap_bnds'.
-    """
-    # open it again to get a clean dataset
-    ds = xr.open_dataset(interp_filename, decode_times=False)
-    ds = ds.chunk({'time': time_chunk})
-    da_interp = ds[variable]
-
-    da_normalized = interpolator.normalize(da_interp)
-
-    ds_out = xr.Dataset()
-    ds_out[variable] = da_normalized.astype(np.float32)
-    ds_out['src_frac_interp'] = interpolator.src_frac_interp.astype(np.float32)
-    for var in ['lat', 'lon', 'time']:
-        ds_out[var] = ds[var]
-        var_bnds = f'{var}_bnds'
-        ds_out[var_bnds] = ds[var_bnds]
-    ds_out['z_extrap_bnds'] = ds_ismip['z_extrap_bnds']
-
-    write_netcdf(ds_out, normalize_filename, progress_bar=True)
-
-
-def _vert_mask_interp_norm(config, in_filename, outdir, variable, tmpdir):
-    """Mask, vertically interpolate and normalize the dataset"""
-
-    # Overview of the vertical pipeline for a single input file:
-    # 1) Prepare per-stage temporary filenames under tmpdir.
-    # 2) Fast-path return if the final normalized file already exists.
-    # 3) Open the ISMIP grid (needed for z_extrap and its bounds).
+    # Overview of the vertical pipeline (per ct_sa native file):
+    # 1) Define stage filenames under tmpdir (masked -> interp -> normalized).
+    # 2) If the final normalized file exists, return it (resumable).
+    # 3) Open the ISMIP grid to get 'z_extrap' and 'z_extrap_bnds' (targets).
     # 4) Open the source dataset and standardize the vertical coordinate:
-    #    - fix_src_z_coord() enforces a monotonic 'lev' and valid 'lev_bnds',
-    #      returning sanitized arrays we re-attach to the dataset.
-    # 5) Build a source-validity mask from the first time slice to mark ocean
-    #    points with valid data (shape: lev x lat x lon). The time dimension is
-    #    dropped so the mask can be reused across time.
-    # 6) Read configuration for time chunking during vertical steps (memory
-    #    management) and construct a VerticalInterpolator that carries the
-    #    validity mask and target vertical coordinate ('z_extrap').
-    # 7) Run the three stages:
-    #    a) _vert_mask: apply mask/sorting on the source vertical coordinate.
-    #    b) _vert_interp: interpolate masked profiles to z_extrap; writes
-    #       'src_frac_interp' (fraction of valid source levels used).
-    #    c) _vert_normalize: normalize interpolated profiles for consistency.
-    # 8) Return the path to the normalized per-file output for downstream
-    #    horizontal remapping.
+    #    fix_src_z_coord() yields a monotonic 'lev' and valid 'lev_bnds',
+    #    which are reattached as coordinates.
+    # 5) Build a combined source-validity mask at the first time step from all
+    #    variables (ct and sa): src_valid = AND over variables. The time
+    #    dimension is dropped so the mask can be reused for all times.
+    # 6) Read vertical time-chunk settings and construct VerticalInterpolator
+    #    with src_valid, src_coord='lev' and dst_coord='z_extrap'.
+    # 7) Run three stages:
+    #    a) mask: apply mask and vertical sorting on 'lev'; write 'src_valid'.
+    #    b) interp: interpolate masked profiles to 'z_extrap'; write
+    #       'src_frac_interp' (fraction of valid source levels per column),
+    #       attach 'z_extrap_bnds', and drop 'lev'.
+    #    c) normalize: renormalize interpolated profiles using src_frac_interp.
+    # 8) Return the path to the normalized file for downstream horizontal
+    #    remapping.
 
-    # 1) Temporary file paths for each vertical stage output
-    mask_filename = os.path.join(tmpdir, f'{variable}_masked.nc')
-    interp_filename = os.path.join(tmpdir, f'{variable}_interp.nc')
-    normalized_filename = os.path.join(tmpdir, f'{variable}_normalized.nc')
+    mask_filename = os.path.join(tmpdir, 'ctsa_masked.nc')
+    interp_filename = os.path.join(tmpdir, 'ctsa_interp.nc')
+    normalized_filename = os.path.join(tmpdir, 'ctsa_normalized.nc')
 
-    # 2) Skip computation if the final vertical product already exists
     if os.path.exists(normalized_filename):
         print(
-            f'Vertically interpolated file exists, skipping: '
+            'Vertically interpolated file exists, skipping: '
             f'{normalized_filename}'
         )
         return normalized_filename
 
-    # 3) ISMIP grid contains 'z_extrap' and 'z_extrap_bnds' needed later
     ds_ismip = xr.open_dataset(get_ismip_grid_filename(config))
 
-    # 4) Open the source dataset and ensure a clean, monotonic vertical axis
     with xr.open_dataset(in_filename, decode_times=False) as ds:
-        # Standardize the source vertical coordinate and bounds
         lev, lev_bnds = fix_src_z_coord(ds, 'lev', 'lev_bnds')
         ds = ds.assign_coords({'lev': ('lev', lev.data)})
         ds['lev'].attrs = lev.attrs
         ds['lev_bnds'] = lev_bnds
 
-        # 5) Compute validity mask from the first time sample; drop time dim
-        src_valid = ds[variable].isel(time=0).notnull()
-        src_valid = src_valid.drop_vars(['time'])
+        # combine validity from all variables at first time slice
+        src_valid = None
+        for var in variables:
+            valid = ds[var].isel(time=0).notnull().drop_vars(['time'])
+            src_valid = valid if src_valid is None else (src_valid & valid)
 
-    # 6) Chunk size for vertical operations (memory/performance control)
     time_chunk = config.getint('remap_cmip', 'vert_time_chunk')
 
-    # Create the interpolator that will perform masking/interp/normalization
     interpolator = VerticalInterpolator(
         src_valid=src_valid,
         src_coord='lev',
@@ -430,54 +318,73 @@ def _vert_mask_interp_norm(config, in_filename, outdir, variable, tmpdir):
         config=config,
     )
 
-    # 7a) Mask/sort the source data on the vertical axis and write output
-    _vert_mask(
-        interpolator,
-        in_filename,
-        mask_filename,
-        time_chunk,
-        variable,
-        lev,
-        lev_bnds,
+    # mask stage
+    ds = xr.open_dataset(in_filename, decode_times=False)
+    ds = ds.chunk({'time': time_chunk})
+    ds_out = xr.Dataset()
+    ds_out = ds_out.assign_coords(
+        {
+            'lev': ('lev', lev.data),
+            'lev_bnds': (('lev', 'd2'), lev_bnds.data),
+        }
     )
+    ds_out['lev'].attrs = lev.attrs
+    for var in variables:
+        da_masked = interpolator.mask_and_sort(ds[var])
+        ds_out[var] = da_masked.astype(np.float32)
+    ds_out['src_valid'] = interpolator.src_valid.astype(np.float32)
+    for var in ['lat', 'lon', 'time']:
+        ds_out[var] = ds[var]
+        var_bnds = f'{var}_bnds'
+        if var_bnds in ds:
+            ds_out[var_bnds] = ds[var_bnds]
+    write_netcdf(ds_out, mask_filename, progress_bar=True)
 
-    # 7b) Interpolate masked data to z_extrap levels; writes src_frac_interp
-    _vert_interp(
-        interpolator,
-        ds_ismip,
-        time_chunk,
-        mask_filename,
-        interp_filename,
-        variable,
-    )
+    # interp stage
+    ds = xr.open_dataset(mask_filename, decode_times=False)
+    ds = ds.chunk({'time': time_chunk})
+    ds_out = xr.Dataset()
+    for var in variables:
+        da_interp = interpolator.interp(ds[var])
+        ds_out[var] = da_interp.astype(np.float32)
+    ds_out['src_frac_interp'] = interpolator.src_frac_interp.astype(np.float32)
+    for var in ['lat', 'lon', 'time']:
+        ds_out[var] = ds[var]
+        var_bnds = f'{var}_bnds'
+        if var_bnds in ds:
+            ds_out[var_bnds] = ds[var_bnds]
+    ds_out['z_extrap_bnds'] = ds_ismip['z_extrap_bnds']
+    ds_out = ds_out.drop_vars(['lev'])
+    write_netcdf(ds_out, interp_filename, progress_bar=True)
 
-    # 7c) Normalize the interpolated profiles and finalize vertical product
-    _vert_normalize(
-        interpolator,
-        ds_ismip,
-        time_chunk,
-        interp_filename,
-        normalized_filename,
-        variable,
-    )
+    # normalize stage
+    ds = xr.open_dataset(interp_filename, decode_times=False)
+    ds = ds.chunk({'time': time_chunk})
+    ds_out = xr.Dataset()
+    for var in variables:
+        da_norm = interpolator.normalize(ds[var])
+        ds_out[var] = da_norm.astype(np.float32)
+    ds_out['src_frac_interp'] = interpolator.src_frac_interp.astype(np.float32)
+    for var in ['lat', 'lon', 'time']:
+        ds_out[var] = ds[var]
+        var_bnds = f'{var}_bnds'
+        if var_bnds in ds:
+            ds_out[var_bnds] = ds[var_bnds]
+    ds_out['z_extrap_bnds'] = ds_ismip['z_extrap_bnds']
+    write_netcdf(ds_out, normalized_filename, progress_bar=True)
 
     print(
-        f'Vertical interpolation completed and saved to '
+        'Vertical interpolation completed and saved to '
         f"'{normalized_filename}'."
     )
 
-    # 8) Hand back the normalized file for horizontal remapping
     return normalized_filename
-
-
-## helper functions for horizontal interpolation
 
 
 def _remap_horiz(
     config,
     in_filename,
     out_filename,
-    variable,
     model_prefix,
     tmpdir,
     logger,
@@ -537,9 +444,9 @@ def _remap_horiz(
 
     method = config.get('remap', 'method')
     renorm_threshold = config.getfloat('remap', 'threshold')
-    lat_var = config.get('remap_cmip', 'lat_var')
-    lon_var = config.get('remap_cmip', 'lon_var')
-    lon_dim = config.get('remap_cmip', 'lon_dim')
+    lat_var = config.get('cmip_dataset', 'lat_var')
+    lon_var = config.get('cmip_dataset', 'lon_var')
+    lon_dim = config.get('cmip_dataset', 'lon_dim')
     in_grid_name = model_prefix
 
     # Open dataset (but do not load into memory)
@@ -556,7 +463,9 @@ def _remap_horiz(
         ds_mask = xr.open_dataset(output_mask_path, decode_times=False)
     else:
         ds_mask = ds.copy()
-        ds_mask = ds_mask.drop_vars([variable, 'time', 'time_bnds'])
+        # Keep only src_frac_interp and coords in the mask file
+        keep_vars = ['src_frac_interp']
+        ds_mask = ds_mask[keep_vars]
         write_netcdf(ds_mask, input_mask_path, progress_bar=True)
 
         # remap the mask without renormalizing
@@ -603,7 +512,9 @@ def _remap_horiz(
 
         # Slice dataset
         subset = ds.isel(time=slice(i_start, i_end))
-        subset = subset.drop_vars(['src_frac_interp'])
+        # drop fraction before remap so renormalize doesn't touch it
+        if 'src_frac_interp' in subset:
+            subset = subset.drop_vars(['src_frac_interp'])
 
         # Write temporary input chunk
         write_netcdf(subset, input_chunk_path, progress_bar=True)
@@ -628,9 +539,54 @@ def _remap_horiz(
         )
         remapped_chunks.append(remapped_chunk)
 
-    # Concatenate all remapped chunks along time
-    ds_final = xr.concat(remapped_chunks, dim='time')
+    # Sanity: ensure all chunks carry identical, unique z_extrap
+    z0 = remapped_chunks[0]['z_extrap'].values
+    if len(np.unique(z0)) != len(z0):
+        raise ValueError(
+            'First chunk has duplicate z_extrap values — aborting.'
+        )
+    for i, ds_chk in enumerate(remapped_chunks[1:], start=1):
+        z = ds_chk['z_extrap'].values
+        if z.shape != z0.shape or not np.allclose(z, z0):
+            raise ValueError(
+                f'Inconsistent z_extrap in chunk {i}: shape/values mismatch; '
+                'possible corruption.'
+            )
+
+    # Make future behavior explicit
+    ds_final = xr.concat(remapped_chunks, dim='time', join='exact')
     ds_final['src_frac_interp'] = ds_mask['src_frac_interp']
+
+    # Ensure x/y projection coordinates are present from the ISMIP grid
+    try:
+        ds_ismip = xr.open_dataset(get_ismip_grid_filename(config))
+        # Only attach if dims and sizes match expected ISMIP grid
+        if (
+            'y' in ds_final.dims
+            and 'x' in ds_final.dims
+            and ds_final.sizes.get('y') == ds_ismip.sizes.get('y')
+            and ds_final.sizes.get('x') == ds_ismip.sizes.get('x')
+        ):
+            # Add x/y as coordinates and copy attrs; include bounds if present
+            ds_final = ds_final.assign_coords(
+                {
+                    'x': ('x', ds_ismip['x'].values),
+                    'y': ('y', ds_ismip['y'].values),
+                }
+            )
+            ds_final['x'].attrs = ds_ismip['x'].attrs
+            ds_final['y'].attrs = ds_ismip['y'].attrs
+            if 'x_bnds' in ds_ismip and 'x_bnds' not in ds_final:
+                ds_final['x_bnds'] = ds_ismip['x_bnds']
+            if 'y_bnds' in ds_ismip and 'y_bnds' not in ds_final:
+                ds_final['y_bnds'] = ds_ismip['y_bnds']
+        else:
+            print(
+                'Warning: Could not attach x/y from ISMIP grid because '
+                'dimensions do not match expected (y, x).'
+            )
+    except Exception as exc:
+        print(f'Warning: failed to attach x/y from ISMIP grid: {exc}')
 
     # Save final output
     write_netcdf(ds_final, out_filename, progress_bar=True)
