@@ -486,11 +486,11 @@ def _process_task(
                 f.write(namelist_contents)
 
             logger.info(
-                '  Chunk %d:%d -> horiz %s, vert %s',
-                i0,
-                i1,
-                os.path.basename(horizontal_tmp),
-                os.path.basename(vertical_tmp),
+                (
+                    f'  Chunk {i0}:{i1} -> horiz '
+                    f'{os.path.basename(horizontal_tmp)}, '
+                    f'vert {os.path.basename(vertical_tmp)}'
+                )
             )
 
             # Run horizontal and vertical phases if outputs are missing
@@ -538,21 +538,37 @@ def _process_task(
 
 def _run_exe(exe: str, namelist: str, logger, phase: str) -> None:
     # Fortran executables expect the namelist file path as argv(1)
-    logger.info(f'Running {phase} extrapolation executable: {exe} {namelist}')
+    # Stream output live so progress appears in job logs.
+    cmd = [exe, namelist]
+    # On Linux, stdbuf can force line-buffered output for streaming
     try:
-        proc = subprocess.run(
-            [exe, namelist],
+        if shutil.which('stdbuf') is not None:
+            cmd = ['stdbuf', '-oL', '-eL'] + cmd
+    except Exception:
+        # If detection fails, proceed without stdbuf
+        pass
+
+    logger.info(f'Running {phase} extrapolation executable: {" ".join(cmd)}')
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            check=True,
             text=True,
+            bufsize=1,
         )
-        logger.info(f'{exe} output:\n{proc.stdout.strip()}')
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            logger.info(line.rstrip())
+        proc.stdout.close()
+        rc = proc.wait()
+        if rc != 0:  # pragma: no cover
+            raise subprocess.CalledProcessError(rc, cmd)
     except subprocess.CalledProcessError as e:  # pragma: no cover
         logger.error(
             f'Execution failed for {exe} (phase={phase}) rc={e.returncode}'
         )
-        logger.error(f'Combined stdout/stderr:\n{e.stdout}')
         raise
 
 
