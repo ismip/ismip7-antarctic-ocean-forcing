@@ -482,18 +482,16 @@ def _process_task(
             if config.has_option('extrap_cmip', 'num_workers')
             else '1'
         )
-    if isinstance(raw_workers, str):
-        rw = raw_workers.strip().lower()
-        if rw in ('auto', '0'):
-            cpu_cnt = os.cpu_count() or 1
-            num_workers = max(cpu_cnt - 1, 1)
-        else:
-            try:
-                num_workers = int(raw_workers)
-            except ValueError:
-                num_workers = 1
+
+    rw = raw_workers.strip().lower()
+    if rw in ('auto', '0'):
+        cpu_cnt = os.cpu_count() or 1
+        num_workers = max(cpu_cnt - 1, 1)
     else:
-        num_workers = int(raw_workers)
+        try:
+            num_workers = int(raw_workers)
+        except ValueError:
+            num_workers = 1
 
     with LoggingContext(__name__):
         logger = logging.getLogger(__name__)
