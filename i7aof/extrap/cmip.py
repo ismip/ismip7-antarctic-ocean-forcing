@@ -53,6 +53,7 @@ an informative ``FileNotFoundError`` is raised.
 
 import argparse
 import faulthandler
+import json
 import logging
 import multiprocessing as mp
 import os
@@ -708,10 +709,9 @@ def _execute_time_chunks(
             # Infer completed chunks from presence of output files
             done_set = set()
             for i0, i1 in time_indices:
-                vertical_tmp = os.path.join(
-                    task.tmp_dir, f'vertical_{i0}_{i1}.nc'
-                )
-                if os.path.exists(vertical_tmp):
+                status_path = _status_path(task.tmp_dir, task.variable, i0, i1)
+                status = _read_status(status_path)
+                if status.get('vertical', False):
                     done_set.add((i0, i1))
             pending_set = set(time_indices) - done_set
             logger.error(
@@ -743,11 +743,23 @@ def _run_chunk_worker(
     log_dir = os.path.join(tmp_dir, 'logs')
     os.makedirs(log_dir, exist_ok=True)
     log_path = os.path.join(log_dir, f'{variable}_t{i0}-{i1}.log')
+    status_path = _status_path(tmp_dir, variable, i0, i1)
 
     # Prepare per-chunk input file and write logs into the chunk log
     input_chunk = os.path.join(tmp_dir, f'input_{i0}_{i1}.nc')
     horizontal_tmp = os.path.join(tmp_dir, f'horizontal_{i0}_{i1}.nc')
     vertical_tmp = os.path.join(tmp_dir, f'vertical_{i0}_{i1}.nc')
+
+    # Read and reconcile status with existing files to avoid false positives
+    status = _read_status(status_path)
+    status = _reconcile_status_with_files(
+        status,
+        input_chunk=input_chunk,
+        horizontal_tmp=horizontal_tmp,
+        vertical_tmp=vertical_tmp,
+    )
+    # Persist reconciliation if it changed anything
+    _write_status_atomic(status_path, status)
 
     # Enable faulthandler to capture fatal errors (e.g., segfault) to the log
     fh_fault = open(log_path, 'a', encoding='utf-8')
@@ -769,7 +781,7 @@ def _run_chunk_worker(
         )
         chunk_logger.addHandler(fh)
         try:
-            if not os.path.exists(input_chunk):
+            if not status.get('prepare', False):
                 chunk_logger.info('== Phase: prepare_input ==')
                 _prepare_input_with_coords(
                     in_path,
@@ -779,6 +791,7 @@ def _run_chunk_worker(
                     time_slice=(i0, i1) if has_time else None,
                     logger=chunk_logger,
                 )
+                _mark_stage_done(status_path, 'prepare')
             # Render a per-chunk namelist after paths are defined
             namelist_contents = _render_namelist(
                 file_in=input_chunk,
@@ -796,10 +809,32 @@ def _run_chunk_worker(
             fh.close()
 
         # Phase: executables
-        if not os.path.exists(horizontal_tmp):
+        if not status.get('horizontal', False):
+            # Remove existing output to avoid stale data if present
+            try:
+                if os.path.exists(horizontal_tmp):
+                    os.remove(horizontal_tmp)
+            except Exception:
+                pass
             _run_exe_capture(horiz_exec, namelist_path, log_path, 'horizontal')
-        if not os.path.exists(vertical_tmp):
+            if not os.path.exists(horizontal_tmp):
+                raise FileNotFoundError(
+                    f'Expected horizontal output missing: {horizontal_tmp}'
+                )
+            _mark_stage_done(status_path, 'horizontal')
+            status = _read_status(status_path)
+        if not status.get('vertical', False):
+            try:
+                if os.path.exists(vertical_tmp):
+                    os.remove(vertical_tmp)
+            except Exception:
+                pass
             _run_exe_capture(vert_exec, namelist_path, log_path, 'vertical')
+            if not os.path.exists(vertical_tmp):
+                raise FileNotFoundError(
+                    f'Expected vertical output missing: {vertical_tmp}'
+                )
+            _mark_stage_done(status_path, 'vertical')
 
         if not os.path.exists(vertical_tmp):
             raise FileNotFoundError(
@@ -856,12 +891,6 @@ def _prepare_input_with_coords(
 
     Always writes a prepared copy to out_prepared_path.
     """
-    if os.path.exists(out_prepared_path):
-        print(
-            f'Prepared input file exists, not rewriting: {out_prepared_path}'
-        )
-        return
-
     log = logger or logging.getLogger(__name__)
 
     ds_in = xr.open_dataset(in_path, chunks={'time': 1}, decode_times=False)
@@ -935,15 +964,26 @@ def _prepare_input_with_coords(
 
     # Use synchronous dask scheduler to avoid multi-threaded HDF5 I/O
     log.info('Using dask scheduler: synchronous for to_netcdf')
+    tmp_out = f'{out_prepared_path}.tmp'
+    # Clean any stale tmp
+    try:
+        if os.path.exists(tmp_out):
+            os.remove(tmp_out)
+    except Exception:
+        pass
+
     with dask_config.set(scheduler='synchronous'):
         write_netcdf(
             ds_in,
-            out_prepared_path,
+            tmp_out,
             has_fill_values=lambda name, var: name == var_name,
             format='NETCDF4',
             engine='netcdf4',
             progress_bar=False,
         )
+
+    # Atomically move into place
+    os.replace(tmp_out, out_prepared_path)
 
     # Close datasets to release file handles and log completion
     ds_in.close()
@@ -1010,3 +1050,62 @@ def _finalize_output_with_grid_ds(
         has_fill_values=lambda name, var: name == variable,
         progress_bar=True,
     )
+
+
+# -----------------------------
+# Per-chunk status management
+# -----------------------------
+
+
+def _status_path(tmp_dir: str, variable: str, i0: int, i1: int) -> str:
+    """Return the JSON status file path for a chunk."""
+    status_dir = os.path.join(tmp_dir, 'status')
+    os.makedirs(status_dir, exist_ok=True)
+    return os.path.join(status_dir, f'{variable}_{i0}_{i1}.json')
+
+
+def _read_status(path: str) -> dict:
+    """Read a status JSON; return default structure if missing/corrupt."""
+    default = {'prepare': False, 'horizontal': False, 'vertical': False}
+    if not os.path.exists(path):
+        return default
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        # Ensure required keys exist
+        for k in default:
+            data.setdefault(k, False)
+        return data
+    except Exception:
+        # If unreadable, start fresh (safer than assuming done)
+        return default
+
+
+def _write_status_atomic(path: str, status: dict) -> None:
+    """Write status JSON atomically (write temp then rename)."""
+    tmp = f'{path}.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(status, f, indent=2, sort_keys=True)
+        f.write('\n')
+    os.replace(tmp, path)
+
+
+def _mark_stage_done(path: str, stage: str) -> dict:
+    """Mark a stage as done in the status file and write it; return status."""
+    status = _read_status(path)
+    status[stage] = True
+    _write_status_atomic(path, status)
+    return status
+
+
+def _reconcile_status_with_files(
+    status: dict, *, input_chunk: str, horizontal_tmp: str, vertical_tmp: str
+) -> dict:
+    """If status says done but file is missing, reset that stage to False."""
+    if status.get('prepare', False) and not os.path.exists(input_chunk):
+        status['prepare'] = False
+    if status.get('horizontal', False) and not os.path.exists(horizontal_tmp):
+        status['horizontal'] = False
+    if status.get('vertical', False) and not os.path.exists(vertical_tmp):
+        status['vertical'] = False
+    return status
