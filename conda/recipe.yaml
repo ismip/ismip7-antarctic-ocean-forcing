@@ -3,7 +3,6 @@ schema_version: 1
 context:
   # Keep this in sync with i7aof/version.py (__version__)
   version: "0.1.0"
-  python_min: "3.10"
 
 package:
   name: ismip7-antarctic-ocean-forcing
@@ -19,18 +18,19 @@ build:
 requirements:
   build:
     - ${{ compiler('c') }}
+    - ${{ stdlib('c') }}
     - ${{ compiler('fortran') }}
     - cmake
     - make
     - pkg-config
   host:
-    - python ${{ python_min }}.*
+    - python
     - pip
     - setuptools
     - netcdf-fortran
     - libnetcdf
   run:
-    - python >=${{ python_min }},<3.14
+    - python
     - cmocean
     - dask
     - esmf
@@ -56,7 +56,6 @@ requirements:
 tests:
   - python:
       pip_check: true
-      python_version: ${{ python_min }}.*
       imports:
         - i7aof
   - script: |
