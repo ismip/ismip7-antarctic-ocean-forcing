@@ -57,8 +57,11 @@ LOCAL_CHANNEL=${CONDA_PREFIX}/conda-bld
 # remove previous local builds to avoid stale artifacts
 rm -rf ${LOCAL_CHANNEL}/*/ismip7-antarctic-ocean-forcing*.conda
 
+# pick the right variant file for the python version you want to use, e.g.:
+VARIANT=conda/variants/linux_64_python3.13.____cp313.yaml
+
 # build the package (writes into $LOCAL_CHANNEL)
-rattler-build build -c conda-forge -c nodefaults --output-dir "$LOCAL_CHANNEL" -r conda/recipe.yaml
+rattler-build build -m "$VARIANT" --output-dir "$LOCAL_CHANNEL" -r conda/recipe.yaml
 
 # install the compiled executables into your dev environment
 conda install -n ismip7_dev -c "$LOCAL_CHANNEL" ismip7-antarctic-ocean-forcing

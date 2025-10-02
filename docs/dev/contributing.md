@@ -55,8 +55,11 @@ From the repository root:
 # you could also build in any temp directory outside of the source repo
 LOCAL_CHANNEL=${CONDA_PREFIX}/conda-bld
 
+# pick the right variant file for the python version you want to use, e.g.:
+VARIANT=conda/variants/linux_64_python3.13.____cp313.yaml
+
 # Build the conda package (this reads conda/recipe.yaml)
-rattler-build build -c conda-forge -c nodefaults --output-dir "$LOCAL_CHANNEL" -r conda/recipe.yaml
+rattler-build build -m "$VARIANT" --output-dir "$LOCAL_CHANNEL" -r conda/recipe.yaml
 ```
 
 This creates a local channel containing a build of
@@ -113,8 +116,10 @@ conda activate base
 LOCAL_CHANNEL=${CONDA_PREFIX}/conda-bld
 # delete any packages you already built
 rm -rf ${LOCAL_CHANNEL}/*/ismip7-antarctic-ocean-forcing*.conda
+# pick the right variant file for the python version you want to use, e.g.:
+VARIANT=conda/variants/linux_64_python3.13.____cp313.yaml
 # build the package
-rattler-build build -c conda-forge -c nodefaults --output-dir "$LOCAL_CHANNEL" -r conda/recipe.yaml
+rattler-build build -m "$VARIANT" --output-dir "$LOCAL_CHANNEL" -r conda/recipe.yaml
 # recreate the environment
 conda create -y -n ismip7_dev -c "$LOCAL_CHANNEL" -c conda-forge --file dev-spec.txt ismip7-antarctic-ocean-forcing
 # activate the environment
