@@ -93,8 +93,20 @@ jobs:
           conda activate base
           export ART_DIR="$(mktemp -d)"
           echo "ART_DIR=$ART_DIR" >> "$GITHUB_ENV"
+          # Pick the correct variant file for this Python version
+          VAR_GLOB="conda/variants/linux_64_python${{ matrix.python-version }}.*.yaml"
+          if compgen -G "$VAR_GLOB" > /dev/null; then
+            VARIANT=$(ls -1 $VAR_GLOB | head -n 1)
+          else
+            echo "No variant file found matching $VAR_GLOB" >&2
+            echo "Available variants:" >&2
+            ls -1 conda/variants || true
+            exit 1
+          fi
+          echo "Using variant: $VARIANT"
+
           # Build the package; produce a .conda artifact under a temp dir
-          rattler-build build -r conda/recipe.yaml -c conda-forge --output-dir "$ART_DIR"
+          rattler-build build -r conda/recipe.yaml -m "$VARIANT" --output-dir "$ART_DIR"
           if compgen -G "$ART_DIR/linux-64/*.conda" > /dev/null; then
             ARTIFACT_PATH=$(ls -1 "$ART_DIR"/linux-64/*.conda | head -n 1)
           else
