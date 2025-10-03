@@ -176,7 +176,7 @@ def _load_config_and_paths(
     os.makedirs(outdir, exist_ok=True)
     os.chdir(workdir)
 
-    ismip_res_str = get_res_string(config)
+    ismip_res_str = get_res_string(config, extrap=True)
     return config, workdir, outdir, ismip_res_str, model_prefix
 
 

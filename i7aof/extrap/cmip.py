@@ -327,7 +327,7 @@ def _prepare_paths_and_config(
     )
     out_dir = os.path.join(workdir, 'extrap', model, scenario, 'Omon', 'ct_sa')
     os.makedirs(out_dir, exist_ok=True)
-    ismip_res_str = get_res_string(config)
+    ismip_res_str = get_res_string(config, extrap=True)
     return config, workdir, remap_dir, out_dir, ismip_res_str, model_prefix
 
 

@@ -90,7 +90,7 @@ def get_horiz_res_string(config):
     return res
 
 
-def get_ver_res_string(config):
+def get_ver_res_string(config, extrap: bool = False):
     """
     Get the vertical resolution string from the configuration.
 
@@ -98,6 +98,8 @@ def get_ver_res_string(config):
     ----------
     config : mpas_tools.config.MpasConfigParser
         Configuration object with grid parameters.
+    extrap : bool, optional
+        If True, use ``dz_extrap`` instead of ``dz`` for the resolution.
 
     Returns
     -------
@@ -105,14 +107,15 @@ def get_ver_res_string(config):
         The vertical resolution as a string.
     """
     section = config['ismip_grid']
-    vres = section.getfloat('dz')
+    key = 'dz_extrap' if extrap else 'dz'
+    vres = section.getfloat(key)
     if vres == int(vres):
         vres = int(vres)
     res = f'{vres}m'
     return res
 
 
-def get_res_string(config):
+def get_res_string(config, extrap: bool = False):
     """
     Get the resolution string from the configuration.
 
@@ -120,6 +123,9 @@ def get_res_string(config):
     ----------
     config : mpas_tools.config.MpasConfigParser
         Configuration object with grid parameters.
+    extrap : bool, optional
+        If True, use ``dz_extrap`` for the vertical component of the
+        resolution string.
 
     Returns
     -------
@@ -128,7 +134,7 @@ def get_res_string(config):
         resolutions.
     """
     hres = get_horiz_res_string(config)
-    vres = get_ver_res_string(config)
+    vres = get_ver_res_string(config, extrap=extrap)
     return f'{hres}_{vres}'
 
 
