@@ -58,7 +58,6 @@ import logging
 import multiprocessing as mp
 import os
 import shutil
-import subprocess
 import traceback
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from concurrent.futures.process import BrokenProcessPool
@@ -67,21 +66,20 @@ from typing import List, Sequence, Tuple
 
 import xarray as xr
 from dask import config as dask_config
-from jinja2 import BaseLoader, Environment
 from mpas_tools.config import MpasConfigParser
 from mpas_tools.logging import LoggingContext
 
 from i7aof.cmip import get_model_prefix
-from i7aof.extrap import load_template_text
-from i7aof.grid.ismip import (
-    get_horiz_res_string,
-    get_ismip_grid_filename,
-    get_res_string,
-    write_ismip_grid,
+from i7aof.extrap.shared import (
+    _ensure_imbie_masks,
+    _ensure_ismip_grid,
+    _ensure_topography,
+    _finalize_output_with_grid,
+    _render_namelist,
+    _run_exe_capture,
 )
-from i7aof.imbie.masks import make_imbie_masks
+from i7aof.grid.ismip import get_res_string
 from i7aof.io import write_netcdf
-from i7aof.topo import get_topo
 
 __all__ = ['extrap_cmip', 'main']
 
@@ -341,119 +339,6 @@ def _collect_remap_outputs(remap_dir: str, ismip_res_str: str) -> List[str]:
     return result
 
 
-def _ensure_imbie_masks(config, workdir: str) -> str:
-    """Ensure IMBIE basin mask NetCDF exists; build it if missing.
-
-    Returns
-    -------
-    str
-        Path to basin numbers NetCDF file.
-    """
-    # The output naming in make_imbie_masks is basinNumbers_<res>.nc
-
-    res = get_horiz_res_string(config)
-    basin_file = os.path.join(workdir, 'imbie', f'basinNumbers_{res}.nc')
-    if not os.path.exists(basin_file):
-        cwd = os.getcwd()
-        try:
-            os.makedirs(os.path.join(workdir, 'imbie'), exist_ok=True)
-            os.chdir(workdir)
-            make_imbie_masks(config)
-        finally:
-            os.chdir(cwd)
-        if not os.path.exists(basin_file):  # safety check
-            raise FileNotFoundError(
-                f'Failed to generate IMBIE basin file: {basin_file}'
-            )
-    return basin_file
-
-
-def _ensure_topography(config, workdir: str) -> str:
-    """Ensure topography file on ISMIP grid exists; build it if missing.
-
-    Returns
-    -------
-    str
-        Path to the ISMIP-grid topography NetCDF file.
-    """
-    logger = logging.getLogger(__name__)
-    cwd = os.getcwd()
-    try:
-        os.makedirs(os.path.join(workdir, 'topo'), exist_ok=True)
-        os.chdir(workdir)
-        topo_obj = get_topo(config, logger)
-        topo_path = topo_obj.get_topo_on_ismip_path()
-        if not os.path.exists(topo_path):
-            # Need intermediate preprocessed file first
-            try:
-                topo_obj.download_and_preprocess_topo()
-            except FileNotFoundError as e:
-                # Provide actionable message then re-raise
-                raise FileNotFoundError(
-                    f'Topography prerequisite missing: {e}. '
-                    'Please fetch required source data (see docs).'
-                ) from e
-            topo_obj.remap_topo_to_ismip()
-        if not os.path.exists(topo_path):
-            raise FileNotFoundError(
-                f'Failed to build topography file: {topo_path}'
-            )
-    finally:
-        os.chdir(cwd)
-    return os.path.join(workdir, topo_path)
-
-
-def _ensure_ismip_grid(config, workdir: str) -> str:
-    """Ensure ISMIP grid exists under workdir and return absolute path."""
-    grid_rel = get_ismip_grid_filename(config)
-    grid_abs = os.path.join(workdir, grid_rel)
-    if not os.path.exists(grid_abs):
-        cwd = os.getcwd()
-        try:
-            os.makedirs(os.path.dirname(grid_abs), exist_ok=True)
-            os.chdir(workdir)
-            write_ismip_grid(config)
-        finally:
-            os.chdir(cwd)
-        if not os.path.exists(grid_abs):
-            raise FileNotFoundError(
-                f'Failed to generate ISMIP grid file: {grid_abs}'
-            )
-    return grid_abs
-
-
-def _render_namelist(
-    file_in: str,
-    horizontal_out: str,
-    vertical_out: str,
-    basin_file: str,
-    topo_file: str,
-    variable: str,
-) -> str:
-    template_txt = load_template_text()
-    env = Environment(
-        loader=BaseLoader(),
-        autoescape=False,
-        trim_blocks=True,
-        lstrip_blocks=True,
-    )
-    template = env.from_string(template_txt)
-    rendered = template.render(
-        file_in=file_in,
-        horizontal_out=horizontal_out,
-        vertical_out=vertical_out,
-        file_basin=basin_file,
-        file_topo=topo_file,
-        var_name=variable,
-        z_name='z_extrap',
-    )
-    # Some Fortran compilers are picky if a namelist file doesn't end with a
-    # newline; ensure one exists.
-    if not rendered.endswith('\n'):
-        rendered = rendered + '\n'
-    return rendered
-
-
 def _process_task(
     task: FileTask,
     config: MpasConfigParser,
@@ -501,15 +386,6 @@ def _process_task(
             f'(variable={task.variable}, chunk={time_chunk})'
         )
 
-        horiz_exec = 'i7aof_extrap_horizontal'
-        vert_exec = 'i7aof_extrap_vertical'
-        # Verify required executables exist once
-        for exe in (horiz_exec, vert_exec):
-            if shutil.which(exe) is None:
-                raise FileNotFoundError(
-                    f"Required executable '{exe}' not found on PATH."
-                )
-
         # Open source input lazily to compute chunk indices
         with xr.open_dataset(task.in_path, decode_times=False) as ds_meta:
             has_time = 'time' in ds_meta.dims
@@ -530,8 +406,6 @@ def _process_task(
             basin_file=basin_file,
             topo_file=topo_file,
             time_indices=time_indices,
-            horiz_exec=horiz_exec,
-            vert_exec=vert_exec,
             num_workers=num_workers,
             has_time=has_time,
             logger=logger,
@@ -554,12 +428,13 @@ def _process_task(
             ds_final_in = xr.concat(ds_list, dim='time', join='exact')
             logger.info('Concatenation complete.')
 
-        _finalize_output_with_grid_ds(
-            ds_final_in,
-            grid_file,
-            task.out_path,
-            task.variable,
-            logger,
+        _finalize_output_with_grid(
+            ds_in=ds_final_in,
+            grid_path=grid_file,
+            final_out_path=task.out_path,
+            variable=task.variable,
+            logger=logger,
+            drop_singleton_time=False,
         )
 
         if not keep_intermediate:
@@ -570,45 +445,6 @@ def _process_task(
     # ds_meta closed automatically by context manager above
 
 
-def _run_exe_capture(
-    exe: str, namelist: str, log_path: str, phase: str
-) -> None:
-    """Run a Fortran executable capturing stdout/stderr to a log file."""
-    cmd = [exe, namelist]
-    if shutil.which('stdbuf') is not None:
-        # Disable buffering to get near real-time output
-        cmd = ['stdbuf', '-o0', '-e0'] + cmd
-
-    env = os.environ.copy()
-    # Avoid oversubscription when multiple workers run BLAS/OMP code
-    env.setdefault('OMP_NUM_THREADS', '1')
-    env.setdefault('OPENBLAS_NUM_THREADS', '1')
-    env.setdefault('MKL_NUM_THREADS', '1')
-
-    # Ensure log directory exists
-    os.makedirs(os.path.dirname(log_path), exist_ok=True)
-    with open(log_path, 'a', encoding='utf-8') as lf:
-        lf.write(f'== Phase: {phase} ==\n')
-        lf.write(f'Command: {" ".join(cmd)}\n')
-        lf.flush()
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            env=env,
-        )
-        assert proc.stdout is not None
-        for line in proc.stdout:
-            lf.write(line)
-            lf.flush()
-        proc.stdout.close()
-        rc = proc.wait()
-        if rc != 0:
-            raise subprocess.CalledProcessError(rc, cmd)
-
-
 def _execute_time_chunks(
     *,
     task: FileTask,
@@ -616,8 +452,6 @@ def _execute_time_chunks(
     basin_file: str,
     topo_file: str,
     time_indices: List[Tuple[int, int]],
-    horiz_exec: str,
-    vert_exec: str,
     num_workers: int,
     has_time: bool,
     logger,
@@ -639,8 +473,6 @@ def _execute_time_chunks(
                 topo_file=topo_file,
                 variable=task.variable,
                 tmp_dir=task.tmp_dir,
-                horiz_exec=horiz_exec,
-                vert_exec=vert_exec,
                 has_time=has_time,
             )
             vertical_chunks.append(tup)
@@ -673,8 +505,6 @@ def _execute_time_chunks(
                 topo_file=topo_file,
                 variable=task.variable,
                 tmp_dir=task.tmp_dir,
-                horiz_exec=horiz_exec,
-                vert_exec=vert_exec,
                 has_time=has_time,
             )
             futures.append(fut)
@@ -735,8 +565,6 @@ def _run_chunk_worker(
     topo_file: str,
     variable: str,
     tmp_dir: str,
-    horiz_exec: str,
-    vert_exec: str,
     has_time: bool,
 ) -> Tuple[int, int, str]:
     """Process a single time chunk and return (i0, i1, vertical_tmp_path)."""
@@ -816,7 +644,13 @@ def _run_chunk_worker(
                     os.remove(horizontal_tmp)
             except Exception:
                 pass
-            _run_exe_capture(horiz_exec, namelist_path, log_path, 'horizontal')
+            _run_exe_capture(
+                'i7aof_extrap_horizontal',
+                namelist_path,
+                log_path,
+                'horizontal',
+                logger=chunk_logger,
+            )
             if not os.path.exists(horizontal_tmp):
                 raise FileNotFoundError(
                     f'Expected horizontal output missing: {horizontal_tmp}'
@@ -829,7 +663,13 @@ def _run_chunk_worker(
                     os.remove(vertical_tmp)
             except Exception:
                 pass
-            _run_exe_capture(vert_exec, namelist_path, log_path, 'vertical')
+            _run_exe_capture(
+                'i7aof_extrap_vertical',
+                namelist_path,
+                log_path,
+                'vertical',
+                logger=chunk_logger,
+            )
             if not os.path.exists(vertical_tmp):
                 raise FileNotFoundError(
                     f'Expected vertical output missing: {vertical_tmp}'
@@ -994,61 +834,6 @@ def _prepare_input_with_coords(
     log.info(
         f'Finished writing prepared input to {out_prepared_path} '
         f'({size_gb:.2f} GiB)'
-    )
-
-
-def _finalize_output_with_grid_ds(
-    ds_in: xr.Dataset,
-    grid_path: str,
-    final_out_path: str,
-    variable: str,
-    logger,
-) -> None:
-    """Finalize from an xarray Dataset by injecting grid vars and writing.
-
-    This variant avoids creating a large concatenated temporary file by
-    operating directly on a (possibly lazily concatenated) Dataset.
-    """
-    logger.info(f'Finalizing output to {final_out_path}...')
-    ds_out = ds_in
-    ds_grid = xr.open_dataset(grid_path, decode_times=False)
-
-    logger.info('Injecting grid coordinates and variables into output...')
-    coord_names = ['x', 'y']
-    var_names = [
-        'x_bnds',
-        'y_bnds',
-        'lat',
-        'lon',
-        'lat_bnds',
-        'lon_bnds',
-        'crs',
-    ]
-
-    drop_list = [v for v in (coord_names + var_names) if v in ds_out.variables]
-    if drop_list:
-        ds_out = ds_out.drop_vars(drop_list, errors='ignore')
-
-    to_add_coords = {v: ds_grid[v] for v in coord_names if v in ds_grid}
-    to_add_vars = {v: ds_grid[v] for v in var_names if v in ds_grid}
-
-    if to_add_coords:
-        names = ', '.join(sorted(to_add_coords.keys()))
-        logger.info(f'Overwriting grid coordinates in output: {names}')
-        ds_out = ds_out.assign_coords(to_add_coords)
-
-    if to_add_vars:
-        names = ', '.join(sorted(to_add_vars.keys()))
-        logger.info(f'Overwriting grid variables in output: {names}')
-        ds_out = ds_out.assign(to_add_vars)
-
-    logger.info('Writing final output NetCDF file...')
-
-    write_netcdf(
-        ds_out,
-        final_out_path,
-        has_fill_values=lambda name, var: name == variable,
-        progress_bar=True,
     )
 
 
