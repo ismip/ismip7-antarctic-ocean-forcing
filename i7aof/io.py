@@ -14,6 +14,7 @@ def write_netcdf(
     format=None,
     engine=None,
     progress_bar=False,
+    has_fill_values=None,
 ):
     """
     Write an xarray.Dataset to a file with NetCDF4 fill values
@@ -35,6 +36,18 @@ def write_netcdf(
 
     engine : {'netcdf4', 'scipy', 'h5netcdf'}, optional
         The library to use for NetCDF output, the default is 'netcdf4'
+
+    has_fill_values : bool | dict | callable, optional
+        Controls whether to apply ``_FillValue`` per variable without scanning
+        data:
+          - bool: apply to all variables (True adds, False omits)
+          - dict: mapping of var_name -> bool
+          - callable: function (var_name, var: xarray.DataArray) -> bool
+        If omitted (None), the function determines necessity by checking for
+        NaNs using xarray's lazy operations (``var.isnull().any().compute()``),
+        which is safe for chunked datasets. For unchunked datasets, the scan
+        may load data into memory; callers can avoid this by opening datasets
+        with Dask chunks.
     """  # noqa: E501
     if fillvalues is None:
         fillvalues = netCDF4.default_fillvals
@@ -50,16 +63,16 @@ def write_netcdf(
     for var_name in var_names:
         var = ds[var_name]
         encoding_dict[var_name] = {}
-        dtype = var.dtype
-
-        # add fill values
-        if dtype in numpy_fillvals:
-            if numpy.any(numpy.isnan(var)):
-                # only add fill values if they're needed
-                fill = numpy_fillvals[dtype]
-            else:
-                fill = None
-            encoding_dict[var_name]['_FillValue'] = fill
+        fill = _decide_fill_value(
+            var_name, var, numpy_fillvals, has_fill_values
+        )
+        present_in_enc = '_FillValue' in var.encoding
+        present_in_attrs = '_FillValue' in var.attrs
+        if fill is not None or present_in_enc or present_in_attrs:
+            # Preserve explicit None to suppress backend auto-fill
+            encoding_dict[var_name]['_FillValue'] = var.encoding.get(
+                '_FillValue', var.attrs.get('_FillValue', fill)
+            )
 
     if 'time' in ds.dims:
         # make sure the time dimension is unlimited
@@ -114,3 +127,38 @@ def write_netcdf(
         )
         # delete the temporary NETCDF4 file
         os.remove(out_filename)
+
+
+def _decide_fill_value(var_name, var, numpy_fillvals, has_fill_values):
+    """Return an appropriate _FillValue (or None) for a variable.
+
+    - Respects caller directive (bool|dict|callable) when provided.
+    - Otherwise detects NaNs via xarray lazy ops (safe for chunked arrays).
+    """
+    dtype = getattr(var, 'dtype', None)
+    candidate = numpy_fillvals.get(dtype)
+    if candidate is None:
+        return None
+
+    # Caller directive overrides default behavior
+    if has_fill_values is not None:
+        if isinstance(has_fill_values, bool):
+            return candidate if has_fill_values else None
+        if isinstance(has_fill_values, dict):
+            choice = has_fill_values.get(var_name)
+            if choice is not None:
+                return candidate if choice else None
+        if callable(has_fill_values):
+            try:
+                choice = bool(has_fill_values(var_name, var))
+                return candidate if choice else None
+            except Exception:
+                # Fall back to default behavior
+                pass
+
+    # Default: detect NaNs using xarray (works well for chunked data)
+    try:
+        has_nan = bool(var.isnull().any().compute())
+    except Exception:
+        has_nan = False
+    return candidate if has_nan else None

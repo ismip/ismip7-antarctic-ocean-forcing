@@ -22,7 +22,7 @@ conda config --add channels conda-forge
 conda config --set channel_priority strict
 ```
 
-Then, this repository can be cloned and a conda  environment can be set up with
+Then, this repository can be cloned and a conda environment can be set up with
 the required packages as follows:
 
 ```bash
@@ -36,6 +36,53 @@ python -m pip install -e . --no-deps --no-build-isolation
 pre-commit install
 ```
 
+### Fortran extrapolation executables
+
+The package includes Fortran executables that are required for the
+horizontal and vertical extrapolation steps. There is currently no
+Python-only implementation of these routines; without the executables
+the extrapolation workflow cannot be run. A conda-forge build that
+ships the executables automatically is planned, but until that
+feedstock is published you must build them locally to enable
+extrapolation.
+
+Quick start (after creating/activating the `ismip7_dev` environment above; and
+with `rattler-build` installed in your base environment):
+
+```bash
+# from repo root; use your base env's conda-bld as a local channel
+conda activate base
+LOCAL_CHANNEL=${CONDA_PREFIX}/conda-bld
+
+# remove previous local builds to avoid stale artifacts
+rm -rf ${LOCAL_CHANNEL}/*/ismip7-antarctic-ocean-forcing*.conda
+
+# pick the right variant file for the python version you want to use, e.g.:
+VARIANT=conda/variants/linux_64_python3.13.____cp313.yaml
+
+# build the package (writes into $LOCAL_CHANNEL)
+rattler-build build -m "$VARIANT" --output-dir "$LOCAL_CHANNEL" -r conda/recipe.yaml
+
+# install the compiled executables into your dev environment
+conda install -n ismip7_dev -c "$LOCAL_CHANNEL" ismip7-antarctic-ocean-forcing
+```
+
+Re-run the cleanup, build, and install commands whenever you change the Fortran
+sources.
+
+If you need to modify or experiment with the Fortran sources locally,
+an additional (lightweight) local package build step using
+`rattler-build` is required. A concise workflow and troubleshooting
+notes are documented in the developer guide: see
+`docs/dev/contributing.md` (section: "Building and testing the Fortran
+extrapolation tools locally"). The short version is: build the recipe
+into a local channel with `rattler-build`, then create your development
+environment using that channel ahead of `conda-forge`.
+
+If you skip the local Fortran build you will not be able to run the
+extrapolation step. Once the conda-forge package becomes available this
+manual build step will no longer be necessary for typical users.
+
 To use this environment, you simply run:
 ```bash
 conda activate ismip7_dev
@@ -46,7 +93,7 @@ Note: if the `conda` command is not found, `conda` was not added to your
 source ~/miniforge3/etc/profile.d/conda.sh
 conda activate
 ```
-to ge the base environment with the `conda` command.
+to get the base environment with the `conda` command.
 
 ### Developing in a new directory
 

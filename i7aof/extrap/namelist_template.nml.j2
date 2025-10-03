@@ -1,0 +1,24 @@
+&horizontal_extrapolation
+  ! REQUIRED: path to input CMIP6 file already on ISMIP6 grid
+  file_in    = '{{ file_in | default("__REQUIRED__") }}'
+  ! REQUIRED: output file produced by horizontal extrapolation (intermediate if vertical step follows)
+  file_out   = '{{ horizontal_out | default("tmp_hor.nc") }}'
+  ! REQUIRED: IMBIE2 basin numbers file
+  file_basin = '{{ file_basin | default("__REQUIRED__") }}'
+  ! REQUIRED: BedMachine / topography file
+  file_topo  = '{{ file_topo | default("__REQUIRED__") }}'
+  ! REQUIRED: variable name to extrapolate (e.g. thetao, so)
+  varnam     = '{{ var_name | default("__REQUIRED__") }}'
+  ! OPTIONAL: name of vertical dimension/coordinate variable
+  z_name     = '{{ z_name | default("z") }}'
+/
+
+&vertical_extrapolation
+  ! REQUIRED: input file is usually the horizontal output
+  file_in  = '{{ horizontal_out | default("tmp_hor.nc") }}'
+  ! REQUIRED: final vertically extrapolated output file
+  file_out = '{{ vertical_out | default("__REQUIRED__") }}'
+  varnam   = '{{ var_name | default("__REQUIRED__") }}'
+  ! OPTIONAL: name of vertical dimension/coordinate variable
+  z_name   = '{{ z_name | default("z") }}'
+/

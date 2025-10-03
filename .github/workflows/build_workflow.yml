@@ -67,27 +67,77 @@ jobs:
       - name: Checkout Code Repository
         uses: actions/checkout@v5
 
-      - name: Set up Conda Environment
+      - name: Set up Conda (Miniforge)
         uses: conda-incubator/setup-miniconda@v3
         with:
-          activate-environment: "ismip7_ci"
           miniforge-variant: Miniforge3
           miniforge-version: latest
           channels: conda-forge
           channel-priority: strict
           auto-update-conda: true
-          python-version: ${{ matrix.python-version }}
+          use-mamba: false
 
-      - name: Install ismip7-antarctic-ocean-forcing
+      # Use default (libmamba) solver; no extra config required
+
+      - name: Install rattler-build
         run: |
-          conda create -n ismip7_dev --file dev-spec.txt \
-            python=${{ matrix.python-version }}
-          conda activate ismip7_dev
-          python -m pip install -vv --no-deps --no-build-isolation .
+          set -e -o pipefail
+          conda activate base
+          conda update -y --all
+          conda install -y -c conda-forge rattler-build
+          rattler-build --version
+
+      - name: Build conda package with rattler-build
+        run: |
+          set -e -o pipefail
+          conda activate base
+          export ART_DIR="$(mktemp -d)"
+          echo "ART_DIR=$ART_DIR" >> "$GITHUB_ENV"
+          # Pick the correct variant file for this Python version
+          VAR_GLOB="conda/variants/linux_64_python${{ matrix.python-version }}.*.yaml"
+          if compgen -G "$VAR_GLOB" > /dev/null; then
+            VARIANT=$(ls -1 $VAR_GLOB | head -n 1)
+          else
+            echo "No variant file found matching $VAR_GLOB" >&2
+            echo "Available variants:" >&2
+            ls -1 conda/variants || true
+            exit 1
+          fi
+          echo "Using variant: $VARIANT"
+
+          # Build the package; produce a .conda artifact under a temp dir
+          rattler-build build -r conda/recipe.yaml -m "$VARIANT" --output-dir "$ART_DIR"
+          if compgen -G "$ART_DIR/linux-64/*.conda" > /dev/null; then
+            ARTIFACT_PATH=$(ls -1 "$ART_DIR"/linux-64/*.conda | head -n 1)
+          else
+            echo "No .conda artifacts found in $ART_DIR" >&2
+            ls -R "$ART_DIR" || true
+            exit 1
+          fi
+          echo "ARTIFACT=$ARTIFACT_PATH" >> "$GITHUB_ENV"
+
+      - name: Create test env and install built package
+        run: |
+          set -e -o pipefail
+          # Create env installing our package from the local channel in one solve
+          conda create -y -n ismip7_test -c "file://$ART_DIR" -c conda-forge \
+            ismip7-antarctic-ocean-forcing python=${{ matrix.python-version }}
+          conda activate ismip7_test
+          # Sanity check: ensure package came from our local channel
+          conda list | grep -E '^ismip7-antarctic-ocean-forcing\s'
 
       - name: Run Tests
         run: |
-          conda activate ismip7_dev
+          set -e -o pipefail
+          conda activate ismip7_test
+          # Verify Python package entry points
           ismip7-antarctic-ocean-forcing --help
           ismip7-antarctic-remap-cmip --help
-          python -c "import i7aof.version; print(i7aof.version.__version__)"
+          ismip7-antarctic-extrap-cmip --help
+          # Verify Fortran executables are on PATH and executable
+          command -v i7aof_extrap_horizontal >/dev/null 2>&1
+          test -x "$(command -v i7aof_extrap_horizontal)"
+          command -v i7aof_extrap_vertical >/dev/null 2>&1
+          test -x "$(command -v i7aof_extrap_vertical)"
+          # Basic import/version check
+          python -c "import i7aof.version as v; print(v.__version__)"

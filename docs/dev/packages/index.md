@@ -7,6 +7,7 @@ Overview and deep dives into the code structure of `i7aof` packages. Each page o
 :caption: i7aof packages
 
 biascorr
+extrap
 grid
 imbie
 io
