@@ -56,6 +56,7 @@ i7aof = ["*.cfg", "**/*.cfg", "**/*.nml.j2"]
 [project.scripts]
 ismip7-antarctic-ocean-forcing = "i7aof.__main__:main"
 ismip7-antarctic-convert-cmip = "i7aof.convert.cmip:main"
+ismip7-antarctic-remap-clim = "i7aof.remap.clim:main"
 ismip7-antarctic-remap-cmip = "i7aof.remap.cmip:main"
 ismip7-antarctic-extrap-cmip = "i7aof.extrap.cmip:main"
 
