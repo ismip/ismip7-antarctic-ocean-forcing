@@ -15,3 +15,10 @@ Remapping utilities and CMIP workflows. See {doc}`../dev/packages/remap` for dev
    :undoc-members:
    :show-inheritance:
 ```
+
+```{eval-rst}
+.. automodule:: i7aof.remap.clim
+   :members:
+   :undoc-members:
+   :show-inheritance:
+```

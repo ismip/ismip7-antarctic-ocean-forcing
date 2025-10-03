@@ -9,6 +9,7 @@ This guide covers installation, configuration, and common tasks for using `i7aof
 install
 quickstart
 workflows
+clim
 cmip
 remap
 bias-correction
