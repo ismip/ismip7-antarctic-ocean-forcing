@@ -264,7 +264,7 @@ def _preprocess_climatology_input(config, in_filename, tmpdir):
     lev = ds[lev_var]
     if 'dbar' in lev.units:
         # pressure is in dbar; convert to height (m, positive up)
-        lev_vals = -gsw.z_from_p(ds[lev_var], lat=-75.0)
+        lev_vals = gsw.z_from_p(ds[lev_var], lat=-75.0)
         lev = xr.DataArray(lev_vals.values, dims=['lev'])
         lev.attrs = {'units': 'm', 'positive': 'up'}
     ds = ds.drop_vars(lev_var)
