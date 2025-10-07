@@ -299,6 +299,10 @@ def _preprocess_climatology_input(config, in_filename, tmpdir):
             if dims != target:
                 ds[var] = ds[var].transpose(*target)
 
+    # Omit values with too high mse
+    ds['ct'] = ds['ct'].where(ds['ct_mse'] < 1e9, other=np.nan)
+    ds['sa'] = ds['sa'].where(ds['sa_mse'] < 1e9, other=np.nan)
+
     out_path = os.path.join(tmpdir, 'preprocessed.nc')
     write_netcdf(ds, out_path, progress_bar=True)
     return out_path
