@@ -277,6 +277,7 @@ def _apply_biascorrection(
         ds_out = ds_out.coarsen(z_extrap=3, boundary='trim').mean()
 
         outfile = os.path.join(outdir, os.path.basename(file))
+        outfile = outfile.replace('20m', '60m')
         write_netcdf(ds_out, outfile, progress_bar=True)
 
         # TODO Always compute ct, sa, and tf
