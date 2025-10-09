@@ -202,6 +202,7 @@ def _compute_biases(
         ds_hist = xr.open_mfdataset(hist_files, use_cftime=True)
 
         # Extract climatology period (only full annual for now)
+        # TODO make dependent on clim
         ds_hist = ds_hist.sel(time=slice('1995-01-01', '2014-12-31'))
         ds_hist = ds_hist.chunk({'time': 12})
 
@@ -256,33 +257,29 @@ def _apply_biascorrection(
 
         # Read bias
         biasfile = os.path.join(biasdir, f'bias_{var}.nc')
-        # TODO check and compute here, remove computation from main
-        # Only feed var and biasfile + whatever else necessary
         ds_bias = xr.open_dataset(biasfile)
 
         # Read CMIP file
         ds_cmip = xr.open_dataset(file)
-        # TODO remove
-        # ds_cmip = ds_cmip.sel(time=slice('1995-01-01', '2014-12-31'))
-
         ds_cmip = ds_cmip.chunk({'time': 12})
-
-        var_corr = ds_cmip[var] - ds_bias[var]
 
         # Write out corrected field
         ds_out = xr.Dataset()
         for vvar in ['x', 'y', 'z_extrap', 'time']:
             ds_out[vvar] = ds_cmip[vvar]
-        ds_out[var] = var_corr
+        ds_out[var] = ds_cmip[var] - ds_bias[var]
 
         # Convert to yearly output
         ds_out = ds_out.resample(time='1YE').mean()
         ds_out['time'] = ds_out['time'].dt.year
 
+        # Coarsen vertical resolution
+        ds_out = ds_out.coarsen(z_extrap=3, boundary='trim').mean()
+
         outfile = os.path.join(outdir, os.path.basename(file))
         write_netcdf(ds_out, outfile, progress_bar=True)
 
-        # TODO if var == 'ct', also compute Tf and TF, write out TF
+        # TODO Always compute ct, sa, and tf
 
         ds_bias.close()
         ds_cmip.close()
