@@ -11,10 +11,12 @@ Workflow
 import os
 from typing import List
 
+import xarray as xr
 from mpas_tools.config import MpasConfigParser
 
 from i7aof.cmip import get_model_prefix
 from i7aof.grid.ismip import get_res_string
+from i7aof.io import write_netcdf
 
 
 def biascorr_cmip(
@@ -23,7 +25,7 @@ def biascorr_cmip(
     clim_name: str,
     workdir: str | None = None,
     user_config_filename: str | None = None,
-    variables: tuple[str, ...] = ('ct', 'sa'),
+    variables: list[str, ...] | None = None,
 ):
     """
     Bias correct CMIP ct/sa in two stages:
@@ -45,10 +47,14 @@ def biascorr_cmip(
     user_config_filename : str, optional
         The path to a file with user config options that override the
         defaults
-    variables : tuple of str, optional
-        Variables to extrapolate (default: ``('ct', 'sa')``).
+    variables : list of str, optional
+        Variables to extrapolate (default: ``['ct', 'sa']``).
     """
 
+    if variables is None:
+        variables = ['ct', 'sa']
+
+    # Read config
     (
         config,
         workdir,
@@ -64,13 +70,23 @@ def biascorr_cmip(
         clim_name=clim_name,
     )
 
+    # Collect files to bias correct
     in_files = _collect_extrap_outputs(extrap_dir, ismip_res_str)
     if not in_files:
         raise FileNotFoundError(
             'No extrapolated files found. Run: ismip7-antarctic-extrap-cmip'
         )
 
-    print(in_files)
+    # Compute bias over historical period
+    _compute_biases(
+        workdir=workdir,
+        model=model,
+        scenario=scenario,
+        ismip_res_str=ismip_res_str,
+        extrap_dir=extrap_dir,
+        variables=variables,
+        clim_name=clim_name,
+    )
 
 
 # helper functions
@@ -111,6 +127,7 @@ def _load_config_and_paths(
     outdir = os.path.join(
         workdir, 'biascorr', model, scenario, clim_name, 'Omon', 'ct_sa'
     )
+
     os.makedirs(outdir, exist_ok=True)
     os.chdir(workdir)
 
@@ -119,6 +136,7 @@ def _load_config_and_paths(
 
 
 def _collect_extrap_outputs(extrap_dir: str, ismip_res_str: str) -> List[str]:
+    """Collect all extrapolated ct and sa files"""
     if not os.path.isdir(extrap_dir):
         return []
     result: List[str] = []
@@ -126,3 +144,68 @@ def _collect_extrap_outputs(extrap_dir: str, ismip_res_str: str) -> List[str]:
         if f'ismip{ismip_res_str}' in name and ('ct' in name or 'sa' in name):
             result.append(os.path.join(extrap_dir, name))
     return result
+
+
+def _compute_biases(
+    workdir, model, ismip_res_str, extrap_dir, scenario, variables, clim_name
+):
+    """Compute the bias if not already done"""
+
+    biasdir = os.path.join(
+        workdir, 'biascorr', model, 'intermediate', clim_name
+    )
+    os.makedirs(biasdir, exist_ok=True)
+
+    climdir = os.path.join(workdir, 'extrap', 'climatology', clim_name)
+
+    hist_dir = os.path.join(
+        workdir, 'extrap', model, 'historical', 'Omon', 'ct_sa'
+    )
+
+    for var in variables:
+        # Get historical files
+        hist_files: List[str] = []
+        for name in sorted(os.listdir(hist_dir)):
+            if f'ismip{ismip_res_str}' in name and var in name:
+                hist_files.append(os.path.join(extrap_dir, name))
+        if not hist_files:
+            raise FileNotFoundError(
+                f'No historical extrapolated files available for {var}'
+            )
+
+        # Define filename for bias and skip if it's already present
+        biasfile = os.path.join(biasdir, f'bias_{var}.nc')
+        if os.path.exists(biasfile):
+            print(f'Bias file already exists, skipping: {biasfile}')
+            continue
+
+        # Get climatology file for this variable
+        climfile = os.path.join(
+            climdir, f'OI_Climatology_ismip{ismip_res_str}_{var}_extrap.nc'
+        )
+        ds_clim = xr.open_dataset(climfile)
+
+        # Get historical file(s)
+        ds_hist = xr.open_mfdataset(hist_files, use_cftime=True)
+
+        # Extract climatology period (only full annual for now)
+        ds_hist = ds_hist.sel(time=slice('1995-01-01', '2014-12-31'))
+        ds_hist = ds_hist.chunk({'time': 12})
+
+        # Compute time-average over climatology period
+        dpm = ds_hist.time.dt.days_in_month
+        weightedsum = (ds_hist[var] * dpm).sum(dim='time')
+        average = weightedsum / dpm.sum()
+
+        bias = average - ds_clim[var]
+
+        # Write out bias
+        ds_out = xr.Dataset()
+        for vvar in ['x', 'y', 'z_extrap']:
+            ds_out[vvar] = ds_hist[vvar]
+        ds_out[var] = bias
+        write_netcdf(ds_out, biasfile, progress_bar=True)
+
+        ds_clim.close()
+        ds_hist.close()
+        ds_out.close()
