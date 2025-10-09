@@ -88,6 +88,19 @@ def biascorr_cmip(
         clim_name=clim_name,
     )
 
+    # Apply actual correction
+    _apply_biascorrection(
+        workdir=workdir,
+        model=model,
+        scenario=scenario,
+        ismip_res_str=ismip_res_str,
+        extrap_dir=extrap_dir,
+        variables=variables,
+        clim_name=clim_name,
+        in_files=in_files,
+        outdir=outdir,
+    )
+
 
 # helper functions
 
@@ -208,4 +221,69 @@ def _compute_biases(
 
         ds_clim.close()
         ds_hist.close()
+        ds_out.close()
+
+
+def _apply_biascorrection(
+    workdir,
+    model,
+    ismip_res_str,
+    extrap_dir,
+    scenario,
+    variables,
+    clim_name,
+    in_files,
+    outdir,
+):
+    """Apply bias correction to all in_files"""
+
+    biasdir = os.path.join(
+        workdir, 'biascorr', model, 'intermediate', clim_name
+    )
+
+    for file in in_files:
+        if f'ismip{ismip_res_str}' not in file:
+            continue
+
+        # Detect which variable is in this file
+        if 'ct' in os.path.basename(file) and 'ct' in variables:
+            var = 'ct'
+        elif 'sa' in os.path.basename(file) and 'sa' in variables:
+            var = 'sa'
+        else:
+            print(f'Skipping {file}')
+            continue
+
+        # Read bias
+        biasfile = os.path.join(biasdir, f'bias_{var}.nc')
+        # TODO check and compute here, remove computation from main
+        # Only feed var and biasfile + whatever else necessary
+        ds_bias = xr.open_dataset(biasfile)
+
+        # Read CMIP file
+        ds_cmip = xr.open_dataset(file)
+        # TODO remove
+        # ds_cmip = ds_cmip.sel(time=slice('1995-01-01', '2014-12-31'))
+
+        ds_cmip = ds_cmip.chunk({'time': 12})
+
+        var_corr = ds_cmip[var] - ds_bias[var]
+
+        # Write out corrected field
+        ds_out = xr.Dataset()
+        for vvar in ['x', 'y', 'z_extrap', 'time']:
+            ds_out[vvar] = ds_cmip[vvar]
+        ds_out[var] = var_corr
+
+        # Convert to yearly output
+        ds_out = ds_out.resample(time='1YE').mean()
+        ds_out['time'] = ds_out['time'].dt.year
+
+        outfile = os.path.join(outdir, os.path.basename(file))
+        write_netcdf(ds_out, outfile, progress_bar=True)
+
+        # TODO if var == 'ct', also compute Tf and TF, write out TF
+
+        ds_bias.close()
+        ds_cmip.close()
         ds_out.close()
