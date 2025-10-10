@@ -29,11 +29,13 @@ from i7aof.extrap import load_template_text
 from i7aof.grid.ismip import (
     get_horiz_res_string,
     get_ismip_grid_filename,
+    get_res_string,
     write_ismip_grid,
 )
 from i7aof.imbie.masks import make_imbie_masks
 from i7aof.io import write_netcdf
 from i7aof.topo import get_topo
+from i7aof.vert.resamp import VerticalResampler
 
 __all__ = [
     '_ensure_ismip_grid',
@@ -44,6 +46,7 @@ __all__ = [
     '_run_exe_capture',
     '_finalize_output_with_grid',
     '_apply_under_ice_mask_to_file',
+    '_resample_after_extrapolated_file',
 ]
 
 
@@ -419,3 +422,106 @@ def _apply_under_ice_mask_to_file(
     # Close datasets
     ds_prep.close()
     ds_topo.close()
+
+
+def _resample_after_extrapolated_file(
+    *,
+    in_path: str,
+    grid_file: str,
+    variable: str,
+    config: MpasConfigParser,
+    workdir: str | None = None,
+    logger: logging.Logger | None = None,
+) -> str:
+    """Conservatively resample an extrapolated file from z_extrap to z.
+
+    Returns the output path (which may already exist).
+    """
+    log = logger or logging.getLogger(__name__)
+    res_extrap = get_res_string(config, extrap=True)
+    res_final = get_res_string(config, extrap=False)
+    # Resolve paths robustly: if grid_file or in_path are relative and not
+    # found from CWD, attempt to resolve against the provided workdir.
+    grid_path = grid_file
+    if not os.path.isabs(grid_path) and not os.path.exists(grid_path):
+        if workdir is not None:
+            candidate = os.path.join(workdir, grid_path)
+            if os.path.exists(candidate):
+                grid_path = candidate
+                log.debug(
+                    f'Resolved grid_file relative to workdir: {grid_path}'
+                )
+    in_path_resolved = in_path
+    if not os.path.isabs(in_path_resolved) and not os.path.exists(
+        in_path_resolved
+    ):
+        if workdir is not None:
+            candidate = os.path.join(workdir, in_path_resolved)
+            if os.path.exists(candidate):
+                in_path_resolved = candidate
+                log.debug(
+                    'Resolved input path relative to workdir: '
+                    f'{in_path_resolved}'
+                )
+
+    out_path = in_path_resolved.replace(
+        f'ismip{res_extrap}', f'ismip{res_final}'
+    )
+    if os.path.abspath(out_path) == os.path.abspath(in_path_resolved):
+        base, ext = os.path.splitext(in_path_resolved)
+        out_path = f'{base}_z{ext}'
+    if os.path.exists(out_path):
+        log.info(f'Resampled output exists, skipping: {out_path}')
+        return out_path
+
+    log.info(
+        'Starting conservative vertical resampling '
+        f'({res_extrap} -> {res_final}) to {out_path}'
+    )
+    # Fail fast if required files are missing
+    if not os.path.exists(grid_path):
+        raise FileNotFoundError(
+            f"ISMIP grid file not found: '{grid_file}'. Tried: '{grid_path}'"
+        )
+    if not os.path.exists(in_path_resolved):
+        raise FileNotFoundError(
+            'Extrapolated input not found: '
+            f"'{in_path}' (resolved: '{in_path_resolved}')"
+        )
+
+    with (
+        xr.open_dataset(grid_path, decode_times=False) as ds_grid,
+        xr.open_dataset(in_path_resolved, decode_times=False) as ds_in,
+    ):
+        z_src = ds_grid['z_extrap']
+        src_valid = xr.DataArray(
+            np.ones(z_src.shape, dtype=np.float32),
+            dims=('z_extrap',),
+            coords={'z_extrap': z_src},
+        )
+        resampler = VerticalResampler(
+            src_valid=src_valid,
+            src_coord='z_extrap',
+            dst_coord='z',
+            config=config,
+        )
+        if variable not in ds_in:
+            raise KeyError(
+                f"Variable '{variable}' not found in {in_path_resolved}."
+            )
+        da_in = ds_in[variable]
+        da_out = resampler.resample(da_in)
+        ds_res = ds_in.copy()
+        ds_res[variable] = da_out.astype(da_in.dtype)
+        if 'z_extrap' in ds_res:
+            ds_res = ds_res.drop_vars(['z_extrap'])
+        if 'z_bnds' in ds_grid:
+            ds_res['z_bnds'] = ds_grid['z_bnds']
+        log.info(f'Writing resampled output: {out_path}')
+        write_netcdf(
+            ds_res,
+            out_path,
+            has_fill_values=lambda name, v, _v=variable: name == _v,
+            progress_bar=True,
+        )
+    return out_path

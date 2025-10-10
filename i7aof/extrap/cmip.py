@@ -77,6 +77,7 @@ from i7aof.extrap.shared import (
     _ensure_topography,
     _finalize_output_with_grid,
     _render_namelist,
+    _resample_after_extrapolated_file,
     _run_exe_capture,
 )
 from i7aof.grid.ismip import get_res_string
@@ -226,6 +227,7 @@ def extrap_cmip(
                 topo_file=topo_file,
                 keep_intermediate=keep_intermediate,
                 num_workers_override=num_workers,
+                workdir=workdir,
             )
 
 
@@ -321,6 +323,8 @@ def _prepare_paths_and_config(
     assert workdir is not None, (
         'Internal error: workdir should be resolved to a string'
     )
+    # Persist workdir into config for downstream consumers (path resolution)
+    config.set('workdir', 'base_dir', workdir)
     remap_dir = os.path.join(
         workdir, 'remap', model, scenario, 'Omon', 'ct_sa'
     )
@@ -348,106 +352,28 @@ def _process_task(
     topo_file: str,
     keep_intermediate: bool,
     num_workers_override: int | str | None = None,
+    workdir: str | None = None,
 ) -> None:
-    if os.path.exists(task.out_path):
-        print(f'Extrapolated file exists, skipping: {task.out_path}')
-        return
-    os.makedirs(os.path.dirname(task.out_path), exist_ok=True)
-    os.makedirs(task.tmp_dir, exist_ok=True)
+    # Ensure the extrapolated file exists (run if missing)
+    _ensure_extrapolated_file(
+        task=task,
+        config=config,
+        basin_file=basin_file,
+        grid_file=grid_file,
+        topo_file=topo_file,
+        keep_intermediate=keep_intermediate,
+        num_workers_override=num_workers_override,
+    )
 
-    # We'll preprocess per time chunk to keep memory and file sizes in check
-    # Determine chunking in time
-    time_chunk = config.getint('extrap_cmip', 'time_chunk')
-
-    # Number of parallel workers and per-chunk logging
-    # Accept integer, or the string 'auto'/'0' to mean (cpu_count - 1)
-    if num_workers_override is not None:
-        raw_workers = str(num_workers_override)
-    else:
-        raw_workers = (
-            config.get('extrap_cmip', 'num_workers')
-            if config.has_option('extrap_cmip', 'num_workers')
-            else '1'
-        )
-
-    rw = raw_workers.strip().lower()
-    if rw in ('auto', '0'):
-        cpu_cnt = os.cpu_count() or 1
-        num_workers = max(cpu_cnt - 1, 1)
-    else:
-        try:
-            num_workers = int(raw_workers)
-        except ValueError:
-            num_workers = 1
-
-    with LoggingContext(__name__):
-        logger = logging.getLogger(__name__)
-        logger.info(
-            f'Starting extrapolation (chunked): {task.in_path} '
-            f'(variable={task.variable}, chunk={time_chunk})'
-        )
-
-        # Open source input lazily to compute chunk indices
-        with xr.open_dataset(task.in_path, decode_times=False) as ds_meta:
-            has_time = 'time' in ds_meta.dims
-            if not has_time:
-                # No time dimension; process as a single synthetic chunk
-                time_indices = [(0, 1)]
-            else:
-                n_time = ds_meta.sizes['time']
-                time_indices = [
-                    (i0, min(i0 + time_chunk, n_time))
-                    for i0 in range(0, n_time, time_chunk)
-                ]
-
-        # Determine masking options from config
-        mask_enabled = config.getboolean('extrap', 'mask_under_ice')
-        mask_threshold = config.getfloat('extrap', 'under_ice_threshold')
-
-        # Execute all chunks (serial or parallel)
-        vertical_chunks = _execute_time_chunks(
-            task=task,
-            grid_file=grid_file,
-            basin_file=basin_file,
-            topo_file=topo_file,
-            time_indices=time_indices,
-            num_workers=num_workers,
-            has_time=has_time,
-            logger=logger,
-            mask_enabled=mask_enabled,
-            mask_threshold=mask_threshold,
-        )
-
-        # Sort by start index and concatenate along time
-        vertical_chunks.sort(key=lambda t: t[0])
-        if len(vertical_chunks) == 1:
-            ds_final_in = xr.open_dataset(
-                vertical_chunks[0][2], decode_times=False
-            )
-        else:
-            ds_list = [
-                xr.open_dataset(path, decode_times=False, chunks={'time': 1})
-                for (_i0, _i1, path) in vertical_chunks
-            ]
-            logger.info(
-                f'Concatenating {len(ds_list)} vertical chunks along time...'
-            )
-            ds_final_in = xr.concat(ds_list, dim='time', join='exact')
-            logger.info('Concatenation complete.')
-
-        _finalize_output_with_grid(
-            ds_in=ds_final_in,
-            grid_path=grid_file,
-            final_out_path=task.out_path,
-            variable=task.variable,
-            logger=logger,
-            drop_singleton_time=False,
-        )
-
-        if not keep_intermediate:
-            _cleanup_intermediate(task, logger)
-        else:
-            logger.info('Keeping intermediate files and namelists.')
+    # After extrapolation (or if it already existed), conservatively resample
+    _resample_after_extrapolated_file(
+        in_path=task.out_path,
+        grid_file=grid_file,
+        variable=task.variable,
+        config=config,
+        workdir=workdir,
+        logger=None,
+    )
 
     # ds_meta closed automatically by context manager above
 
@@ -859,6 +785,120 @@ def _prepare_input_with_coords(
         f'Finished writing prepared input to {out_prepared_path} '
         f'({size_gb:.2f} GiB)'
     )
+
+
+def _ensure_extrapolated_file(
+    *,
+    task: FileTask,
+    config: MpasConfigParser,
+    basin_file: str,
+    grid_file: str,
+    topo_file: str,
+    keep_intermediate: bool,
+    num_workers_override: int | str | None = None,
+) -> None:
+    """Run chunked extrapolation and finalize output if missing.
+
+    If the final extrapolated file already exists, this is a no-op.
+    """
+    if os.path.exists(task.out_path):
+        # Nothing to do
+        return
+
+    os.makedirs(os.path.dirname(task.out_path), exist_ok=True)
+    os.makedirs(task.tmp_dir, exist_ok=True)
+
+    # Determine chunking in time
+    time_chunk = config.getint('extrap_cmip', 'time_chunk')
+
+    # Number of parallel workers and per-chunk logging
+    if num_workers_override is not None:
+        raw_workers = str(num_workers_override)
+    else:
+        raw_workers = (
+            config.get('extrap_cmip', 'num_workers')
+            if config.has_option('extrap_cmip', 'num_workers')
+            else '1'
+        )
+
+    rw = raw_workers.strip().lower()
+    if rw in ('auto', '0'):
+        cpu_cnt = os.cpu_count() or 1
+        num_workers = max(cpu_cnt - 1, 1)
+    else:
+        try:
+            num_workers = int(raw_workers)
+        except ValueError:
+            num_workers = 1
+
+    with LoggingContext(__name__):
+        logger = logging.getLogger(__name__)
+        logger.info(
+            f'Starting extrapolation (chunked): {task.in_path} '
+            f'(variable={task.variable}, chunk={time_chunk})'
+        )
+
+        # Open source input lazily to compute chunk indices
+        with xr.open_dataset(task.in_path, decode_times=False) as ds_meta:
+            has_time = 'time' in ds_meta.dims
+            if not has_time:
+                # No time dimension; process as a single synthetic chunk
+                time_indices = [(0, 1)]
+            else:
+                n_time = ds_meta.sizes['time']
+                time_indices = [
+                    (i0, min(i0 + time_chunk, n_time))
+                    for i0 in range(0, n_time, time_chunk)
+                ]
+
+        # Determine masking options from config
+        mask_enabled = config.getboolean('extrap', 'mask_under_ice')
+        mask_threshold = config.getfloat('extrap', 'under_ice_threshold')
+
+        # Execute all chunks (serial or parallel)
+        vertical_chunks = _execute_time_chunks(
+            task=task,
+            grid_file=grid_file,
+            basin_file=basin_file,
+            topo_file=topo_file,
+            time_indices=time_indices,
+            num_workers=num_workers,
+            has_time=has_time,
+            logger=logger,
+            mask_enabled=mask_enabled,
+            mask_threshold=mask_threshold,
+        )
+
+        # Sort by start index and concatenate along time
+        vertical_chunks.sort(key=lambda t: t[0])
+        if len(vertical_chunks) == 1:
+            ds_final_in = xr.open_dataset(
+                vertical_chunks[0][2], decode_times=False
+            )
+        else:
+            ds_list = [
+                xr.open_dataset(path, decode_times=False, chunks={'time': 1})
+                for (_i0, _i1, path) in vertical_chunks
+            ]
+            logger.info(
+                f'Concatenating {len(ds_list)} vertical chunks along time...'
+            )
+            ds_final_in = xr.concat(ds_list, dim='time', join='exact')
+            logger.info('Concatenation complete.')
+
+        _finalize_output_with_grid(
+            ds_in=ds_final_in,
+            grid_path=grid_file,
+            final_out_path=task.out_path,
+            variable=task.variable,
+            logger=logger,
+            drop_singleton_time=False,
+        )
+
+        if not keep_intermediate:
+            _cleanup_intermediate(task, logger)
+        else:
+            logger.info('Keeping intermediate files and namelists.')
 
 
 # -----------------------------
