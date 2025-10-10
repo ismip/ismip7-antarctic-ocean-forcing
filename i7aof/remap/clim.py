@@ -248,6 +248,14 @@ def _preprocess_climatology_input(config, in_filename, tmpdir):
     lon_dim = config.get('climatology', 'lon_dim')
     lev_dim = config.get('climatology', 'lev_dim')
 
+    ct_var = config.get('climatology', 'ct_var')
+    sa_var = config.get('climatology', 'sa_var')
+
+    ct_mse_var = config.get('climatology', 'ct_mse_var')
+    sa_mse_var = config.get('climatology', 'sa_mse_var')
+
+    threshold = config.getfloat('climatology', 'mse_threshold')
+
     # Drop SCALAR dim if present
     if 'SCALAR' in ds.dims:
         ds = ds.isel(SCALAR=0, drop=True)
@@ -291,17 +299,23 @@ def _preprocess_climatology_input(config, in_filename, tmpdir):
     ds['lon'].attrs.setdefault('units', 'degrees_east')
     ds['lat'].attrs.setdefault('units', 'degrees_north')
 
+    vars_to_transpose = [ct_var, sa_var]
+    has_mse = ct_mse_var in ds.data_vars and sa_mse_var in ds.data_vars
+    if has_mse:
+        vars_to_transpose += [ct_mse_var, sa_mse_var]
+
     # Reorder ct/sa to (lev, lat, lon)
-    for var in ['ct', 'sa', 'ct_mse', 'sa_mse']:
+    for var in vars_to_transpose:
         if var in ds:
             dims = ds[var].dims
             target = tuple([d for d in ['lev', 'lat', 'lon'] if d in dims])
             if dims != target:
                 ds[var] = ds[var].transpose(*target)
 
-    # Omit values with too high mse
-    ds['ct'] = ds['ct'].where(ds['ct_mse'] < 1e9, other=np.nan)
-    ds['sa'] = ds['sa'].where(ds['sa_mse'] < 1e9, other=np.nan)
+    if has_mse:
+        # Omit values with too high mse
+        ds[ct_var] = ds[ct_var].where(ds[ct_mse_var] < threshold, other=np.nan)
+        ds[sa_var] = ds[sa_var].where(ds[sa_mse_var] < threshold, other=np.nan)
 
     out_path = os.path.join(tmpdir, 'preprocessed.nc')
     write_netcdf(ds, out_path, progress_bar=True)
