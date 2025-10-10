@@ -19,6 +19,7 @@ import os
 import shutil
 import subprocess
 
+import numpy as np
 import xarray as xr
 from dask import config as dask_config
 from jinja2 import BaseLoader, Environment
@@ -42,6 +43,7 @@ __all__ = [
     '_prepare_input_single',
     '_run_exe_capture',
     '_finalize_output_with_grid',
+    '_apply_under_ice_mask_to_file',
 ]
 
 
@@ -338,3 +340,82 @@ def _finalize_output_with_grid(
         has_fill_values=lambda name, var: name == variable,
         progress_bar=True,
     )
+
+
+def _apply_under_ice_mask_to_file(
+    *,
+    prepared_path: str,
+    topo_file: str,
+    variable: str,
+    threshold: float,
+    logger: logging.Logger | None = None,
+) -> None:
+    """Mask values under ice using topography ``ice_frac`` and rewrite file.
+
+    This applies a 2D (y, x) mask where ``ice_frac > threshold`` to the
+    target variable in ``prepared_path``. The masked dataset is written back
+    atomically to ``prepared_path`` using a ``.tmp`` file and replace.
+
+    Parameters
+    ----------
+    prepared_path : str
+        Path to the prepared NetCDF file that the Fortran tools will read.
+    topo_file : str
+        Path to the topography file on the ISMIP grid (must contain
+        ``ice_frac`` with dims (y, x)).
+    variable : str
+        Name of the variable to mask (e.g., 'ct' or 'sa').
+    threshold : float
+        Mask where ``ice_frac > threshold``.
+    logger : logging.Logger, optional
+        Logger for info messages.
+    """
+    log = logger or logging.getLogger(__name__)
+    ds_prep = xr.open_dataset(prepared_path, decode_times=False)
+    ds_topo = xr.open_dataset(topo_file, decode_times=False)
+
+    if 'ice_frac' not in ds_topo:
+        raise KeyError(
+            f"Topography file '{topo_file}' is missing required 'ice_frac'."
+        )
+    if variable not in ds_prep:
+        raise KeyError(
+            f"Variable '{variable}' not found in prepared file "
+            f"'{prepared_path}'. Available: {', '.join(ds_prep.data_vars)}"
+        )
+
+    mask = ds_topo['ice_frac'] > threshold  # dims: (y, x)
+    before = ds_prep[variable]
+    after = before.where(~mask, other=np.nan)
+    # preserve attrs
+    after.attrs = before.attrs
+    ds_prep[variable] = after
+
+    tmp_out = f'{prepared_path}.tmp'
+    try:
+        if os.path.exists(tmp_out):
+            os.remove(tmp_out)
+    except Exception:  # best effort
+        pass
+
+    log.info(
+        f"Applying under-ice mask to '{variable}' with threshold {threshold} "
+        f'-> {prepared_path}'
+    )
+    # Write atomically; ensure only target var has fill value
+    from dask import config as dask_config  # local import to avoid cycles
+
+    with dask_config.set(scheduler='synchronous'):
+        write_netcdf(
+            ds_prep,
+            tmp_out,
+            has_fill_values=lambda name, var: name == variable,
+            format='NETCDF4',
+            engine='netcdf4',
+            progress_bar=False,
+        )
+    os.replace(tmp_out, prepared_path)
+
+    # Close datasets
+    ds_prep.close()
+    ds_topo.close()

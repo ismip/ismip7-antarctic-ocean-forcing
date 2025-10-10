@@ -71,6 +71,7 @@ from mpas_tools.logging import LoggingContext
 
 from i7aof.cmip import get_model_prefix
 from i7aof.extrap.shared import (
+    _apply_under_ice_mask_to_file,
     _ensure_imbie_masks,
     _ensure_ismip_grid,
     _ensure_topography,
@@ -399,6 +400,10 @@ def _process_task(
                     for i0 in range(0, n_time, time_chunk)
                 ]
 
+        # Determine masking options from config
+        mask_enabled = config.getboolean('extrap', 'mask_under_ice')
+        mask_threshold = config.getfloat('extrap', 'under_ice_threshold')
+
         # Execute all chunks (serial or parallel)
         vertical_chunks = _execute_time_chunks(
             task=task,
@@ -409,6 +414,8 @@ def _process_task(
             num_workers=num_workers,
             has_time=has_time,
             logger=logger,
+            mask_enabled=mask_enabled,
+            mask_threshold=mask_threshold,
         )
 
         # Sort by start index and concatenate along time
@@ -455,6 +462,8 @@ def _execute_time_chunks(
     num_workers: int,
     has_time: bool,
     logger,
+    mask_enabled: bool,
+    mask_threshold: float,
 ) -> List[Tuple[int, int, str]]:
     """Execute time chunks serially or in parallel and return outputs."""
     vertical_chunks: List[Tuple[int, int, str]] = []
@@ -474,6 +483,8 @@ def _execute_time_chunks(
                 variable=task.variable,
                 tmp_dir=task.tmp_dir,
                 has_time=has_time,
+                mask_enabled=mask_enabled,
+                mask_threshold=mask_threshold,
             )
             vertical_chunks.append(tup)
             logger.info(
@@ -506,6 +517,8 @@ def _execute_time_chunks(
                 variable=task.variable,
                 tmp_dir=task.tmp_dir,
                 has_time=has_time,
+                mask_enabled=mask_enabled,
+                mask_threshold=mask_threshold,
             )
             futures.append(fut)
             fut_to_idx[fut] = (i0, i1)
@@ -566,6 +579,8 @@ def _run_chunk_worker(
     variable: str,
     tmp_dir: str,
     has_time: bool,
+    mask_enabled: bool,
+    mask_threshold: float,
 ) -> Tuple[int, int, str]:
     """Process a single time chunk and return (i0, i1, vertical_tmp_path)."""
     log_dir = os.path.join(tmp_dir, 'logs')
@@ -619,6 +634,15 @@ def _run_chunk_worker(
                     time_slice=(i0, i1) if has_time else None,
                     logger=chunk_logger,
                 )
+                # Apply under-ice mask before marking prepare done.
+                if mask_enabled:
+                    _apply_under_ice_mask_to_file(
+                        prepared_path=input_chunk,
+                        topo_file=topo_file,
+                        variable=variable,
+                        threshold=mask_threshold,
+                        logger=chunk_logger,
+                    )
                 _mark_stage_done(status_path, 'prepare')
             # Render a per-chunk namelist after paths are defined
             namelist_contents = _render_namelist(

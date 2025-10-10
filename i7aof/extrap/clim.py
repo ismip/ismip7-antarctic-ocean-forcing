@@ -31,6 +31,7 @@ from mpas_tools.config import MpasConfigParser
 from mpas_tools.logging import LoggingContext
 
 from i7aof.extrap.shared import (
+    _apply_under_ice_mask_to_file,
     _ensure_imbie_masks,
     _ensure_ismip_grid,
     _ensure_topography,
@@ -152,6 +153,19 @@ def extrap_climatology(
                 # add dummy singleton time so Fortran expectation is met
                 add_dummy_time=True,
             )
+
+            # Optional pre-extrap masking under grounded/floating ice using
+            # ice_frac from topography. Controlled by config knobs.
+            mask_enabled = config.has_option('extrap', 'mask_under_ice')
+            if mask_enabled:
+                thr = config.getfloat('extrap', 'under_ice_threshold')
+                _apply_under_ice_mask_to_file(
+                    prepared_path=prepared,
+                    topo_file=topo_file,
+                    variable=var,
+                    threshold=thr,
+                    logger=logger,
+                )
 
             # Render namelist
             namelist_txt = _render_namelist(
