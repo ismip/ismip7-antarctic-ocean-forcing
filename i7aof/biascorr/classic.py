@@ -98,6 +98,19 @@ def biascorr_cmip(
         outdir=outdir,
     )
 
+    # Compute thermal forcing
+    _compute_thermal_forcing(
+        config=config,
+        workdir=workdir,
+        model=model,
+        scenario=scenario,
+        ismip_res_str=ismip_res_str,
+        clim_name=clim_name,
+        ct_files=ct_files,
+        sa_files=sa_files,
+        outdir=outdir,
+    )
+
 
 # helper functions
 
@@ -251,10 +264,6 @@ def _apply_biascorrection(
     time_chunk = config.get('biascorr', 'time_chunk')
 
     for ct_file, sa_file in zip(ct_files, sa_files, strict=False):
-        corrvar = {}
-
-        ds_tf = xr.Dataset()
-
         for var, file in zip(['ct', 'sa'], [ct_file, sa_file], strict=False):
             # Read biases
             biasfile = os.path.join(biasdir, f'bias_{var}.nc')
@@ -262,22 +271,21 @@ def _apply_biascorrection(
 
             # Read CMIP files
             ds_cmip = xr.open_dataset(file)
-            # TODO remove:
-            ds_cmip = ds_cmip.sel(time=slice('2010-01-01', '2014-12-31'))
             ds_cmip = ds_cmip.chunk({'time': time_chunk})
 
-            # Compute corrected variable
-            corrvar[var] = ds_cmip[var] - ds_bias[var]
+            # Define output filename
             outfile = os.path.join(outdir, os.path.basename(file))
             outfile = outfile.replace('20m', '60m')
             if os.path.exists(outfile):
                 print(f'Corrected files already exist: {outfile}')
             else:
-                # Write out corrected field
+                # Output file doesn't exist yet, write out
+
+                # Write to dataset
                 ds_out = xr.Dataset()
                 for vvar in ['x', 'y', 'z_extrap', 'time']:
                     ds_out[vvar] = ds_cmip[vvar]
-                ds_out[var] = corrvar[var]
+                ds_out[var] = ds_cmip[var] - ds_bias[var]
 
                 # Convert to yearly output
                 ds_out = ds_out.resample(time='1YE').mean()
@@ -286,19 +294,57 @@ def _apply_biascorrection(
                 # Coarsen vertical resolution
                 ds_out = ds_out.coarsen(z_extrap=3, boundary='trim').mean()
 
-                outfile = os.path.join(outdir, os.path.basename(file))
-                outfile = outfile.replace('20m', '60m')
                 write_netcdf(ds_out, outfile, progress_bar=True)
                 ds_out.close()
-
-            # Port variables to ds_tf (only once)
-            if var == 'ct':
-                for vvar in ['x', 'y', 'time']:
-                    ds_tf[vvar] = ds_cmip[vvar]
 
             # Clean up
             ds_bias.close()
             ds_cmip.close()
+
+
+def _compute_thermal_forcing(
+    config,
+    workdir,
+    model,
+    ismip_res_str,
+    scenario,
+    clim_name,
+    ct_files,
+    sa_files,
+    outdir,
+):
+    """Apply bias correction to all in_files"""
+
+    biasdir = os.path.join(
+        workdir, 'biascorr', model, 'intermediate', clim_name
+    )
+
+    time_chunk = config.get('biascorr', 'time_chunk')
+
+    # Read liquidus parameters
+    lbd1 = config.getfloat('biascorr', 'lbd1')
+    lbd2 = config.getfloat('biascorr', 'lbd2')
+    lbd3 = config.getfloat('biascorr', 'lbd3')
+
+    for ct_file, sa_file in zip(ct_files, sa_files, strict=False):
+        # Read biases
+        biasfile_ct = os.path.join(biasdir, 'bias_ct.nc')
+        ds_bias_ct = xr.open_dataset(biasfile_ct)
+        biasfile_sa = os.path.join(biasdir, 'bias_sa.nc')
+        ds_bias_sa = xr.open_dataset(biasfile_sa)
+
+        # Read cmip
+        ds_cmip_ct = xr.open_dataset(ct_file)
+        ds_cmip_ct = ds_cmip_ct.sel(time=slice('2010-01-01', '2014-12-31'))
+        ds_cmip_ct = ds_cmip_ct.chunk({'time': time_chunk})
+
+        ds_cmip_sa = xr.open_dataset(sa_file)
+        ds_cmip_sa = ds_cmip_sa.sel(time=slice('2010-01-01', '2014-12-31'))
+        ds_cmip_sa = ds_cmip_sa.chunk({'time': time_chunk})
+
+        # Compute corrected ct sa
+        ct_corr = ds_cmip_ct['ct'] - ds_bias_ct['ct']
+        sa_corr = ds_cmip_sa['sa'] - ds_bias_sa['sa']
 
         # Read topography
         topo_file = _ensure_topography(config, workdir)
@@ -306,39 +352,45 @@ def _apply_biascorrection(
         draft = ds_topo['draft']
         draft = xr.where(np.isnan(draft), 0.0, draft)
 
-        lbd1 = config.getfloat('biascorr', 'lbd1')
-        lbd2 = config.getfloat('biascorr', 'lbd2')
-        lbd3 = config.getfloat('biascorr', 'lbd3')
-
-        # Compute thermal forcing
+        # Convert draft to pressure
         pres = gsw.p_from_z(draft.values, ds_topo['lat'].values)
-
-        pres_t = xr.ones_like(corrvar['sa'])
+        pres_t = xr.ones_like(ct_corr.isel(z_extrap=0))
         for t in range(len(pres_t.time)):
             pres_t[t, :, :] = pres
 
-        sa_base = corrvar['sa'].interp(z_extrap=draft, method='linear')
+        # Extract ct and sa at ice draft
+        sa_base = sa_corr.interp(z_extrap=draft, method='linear')
         sa_base = sa_base.squeeze()
-        ct_base = corrvar['ct'].interp(z_extrap=draft, method='linear')
+        ct_base = ct_corr.interp(z_extrap=draft, method='linear')
         ct_base = ct_base.squeeze()
 
-        print('computing ct_freeze')
         ct_freeze = lbd1 * sa_base + lbd2 + lbd3 * pres_t
-        # gsw.CT_freezing_poly(
+        # ct_freeze = gsw.CT_freezing_poly(
         #    sa_base.values, pres_t.values, saturation_fraction=1
-        #    )
+        # )
+
+        ds_tf = xr.Dataset()
+
+        for vvar in ['x', 'y', 'time']:
+            ds_tf[vvar] = ds_cmip_ct[vvar]
         ds_tf['tf'] = ct_base - ct_freeze
 
         # Convert to yearly output
         ds_tf = ds_tf.resample(time='1YE').mean()
         ds_tf['time'] = ds_tf['time'].dt.year
 
-        print('writing output')
+        # Define output file
         file = ct_file.replace('ct', 'tf')
         outfile = os.path.join(outdir, os.path.basename(file))
         outfile = outfile.replace('20m', '60m')
+
+        print(f'writing output: {outfile}')
         write_netcdf(ds_tf, outfile, progress_bar=True)
 
         # Clean up
         ds_topo.close()
         ds_tf.close()
+        ds_bias_ct.close()
+        ds_bias_sa.close()
+        ds_cmip_ct.close()
+        ds_cmip_sa.close()
