@@ -9,7 +9,7 @@ Workflow
 """
 
 import os
-from typing import List
+from typing import List, Tuple
 
 import gsw
 import xarray as xr
@@ -156,10 +156,12 @@ def _load_config_and_paths(
     return config, workdir, extrap_dir, outdir, ismip_res_str, model_prefix
 
 
-def _collect_extrap_outputs(extrap_dir: str, ismip_res_str: str) -> List[str]:
+def _collect_extrap_outputs(
+    extrap_dir: str, ismip_res_str: str
+) -> Tuple[List[str], List[str]]:
     """Collect all extrapolated ct and sa files"""
     if not os.path.isdir(extrap_dir):
-        return []
+        return [], []
     ct_files: List[str] = []
     sa_files: List[str] = []
     allfiles = sorted(os.listdir(extrap_dir))
