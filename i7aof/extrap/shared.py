@@ -430,6 +430,7 @@ def _resample_after_extrapolated_file(
     grid_file: str,
     variable: str,
     config: MpasConfigParser,
+    time_chunk: int | None = None,
     workdir: str | None = None,
     logger: logging.Logger | None = None,
 ) -> str:
@@ -489,9 +490,13 @@ def _resample_after_extrapolated_file(
             f"'{in_path}' (resolved: '{in_path_resolved}')"
         )
 
+    # Open input lazily with dask time chunks (if requested) to limit memory
+    in_chunks = {'time': time_chunk} if time_chunk else None
     with (
         xr.open_dataset(grid_path, decode_times=False) as ds_grid,
-        xr.open_dataset(in_path_resolved, decode_times=False) as ds_in,
+        xr.open_dataset(
+            in_path_resolved, decode_times=False, chunks=in_chunks
+        ) as ds_in,
     ):
         z_src = ds_grid['z_extrap']
         src_valid = xr.DataArray(

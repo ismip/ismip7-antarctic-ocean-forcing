@@ -152,6 +152,7 @@ def extrap_climatology(
                 grid_file=grid_file,
                 variable=var,
                 config=config,
+                time_chunk=None,
                 workdir=workdir,
                 logger=logger,
             )
