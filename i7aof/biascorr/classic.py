@@ -11,10 +11,13 @@ Workflow
 import os
 from typing import List
 
+import gsw
+import numpy as np
 import xarray as xr
 from mpas_tools.config import MpasConfigParser
 
 from i7aof.cmip import get_model_prefix
+from i7aof.extrap.shared import _ensure_topography
 from i7aof.grid.ismip import get_res_string
 from i7aof.io import write_netcdf
 
@@ -260,7 +263,7 @@ def _apply_biascorrection(
             # Read CMIP files
             ds_cmip = xr.open_dataset(file)
             # TODO remove:
-            ds_cmip = ds_cmip.sel(time=slice('1995-01-01', '2014-12-31'))
+            ds_cmip = ds_cmip.sel(time=slice('2010-01-01', '2014-12-31'))
             ds_cmip = ds_cmip.chunk({'time': time_chunk})
 
             # Compute corrected variable
@@ -289,13 +292,30 @@ def _apply_biascorrection(
                     ds_tf[vvar] = ds_cmip[vvar]
 
             # Clean up
+            ds_out.close()
             ds_bias.close()
             ds_cmip.close()
-            ds_out.close()
 
         # Read topography
+        topo_file = _ensure_topography(config, workdir)
+        ds_topo = xr.open_dataset(topo_file)
+        draft = ds_topo['draft']
+        draft = xr.where(np.isnan(draft), 0.0, draft)
 
         # Compute thermal forcing
+        pres = gsw.p_from_z(draft, ds_topo['lat'])
+
+        pres_t = xr.ones_like(corrvar['sa'])
+        for t in range(len(pres_t.time)):
+            pres_t[t, :, :] = pres
+
+        sa_base = corrvar['sa'].interp(z_extrap=draft, method='linear')
+        sa_base = sa_base.squeeze()
+        ct_base = corrvar['ct'].interp(z_extrap=draft, method='linear')
+        ct_base = ct_base.squeeze()
+
+        ct_freeze = gsw.CT_freezing(sa_base, pres_t, saturation_fraction=1)
+        ds_tf['tf'] = ct_base - ct_freeze
 
         # Convert to yearly output
         ds_tf = ds_tf.resample(time='1YE').mean()
@@ -308,3 +328,4 @@ def _apply_biascorrection(
 
         # Clean up
         ds_tf.close()
+        ds_topo.close()
