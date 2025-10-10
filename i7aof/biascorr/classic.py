@@ -25,7 +25,6 @@ def biascorr_cmip(
     clim_name: str,
     workdir: str | None = None,
     user_config_filename: str | None = None,
-    variables: list[str, ...] | None = None,
 ):
     """
     Bias correct CMIP ct/sa in two stages:
@@ -47,12 +46,7 @@ def biascorr_cmip(
     user_config_filename : str, optional
         The path to a file with user config options that override the
         defaults
-    variables : list of str, optional
-        Variables to extrapolate (default: ``['ct', 'sa']``).
     """
-
-    if variables is None:
-        variables = ['ct', 'sa']
 
     # Read config
     (
@@ -71,33 +65,33 @@ def biascorr_cmip(
     )
 
     # Collect files to bias correct
-    in_files = _collect_extrap_outputs(extrap_dir, ismip_res_str)
-    if not in_files:
+    ct_files, sa_files = _collect_extrap_outputs(extrap_dir, ismip_res_str)
+    if not ct_files or not sa_files:
         raise FileNotFoundError(
             'No extrapolated files found. Run: ismip7-antarctic-extrap-cmip'
         )
 
     # Compute bias over historical period
     _compute_biases(
+        config=config,
         workdir=workdir,
         model=model,
         scenario=scenario,
         ismip_res_str=ismip_res_str,
         extrap_dir=extrap_dir,
-        variables=variables,
         clim_name=clim_name,
     )
 
     # Apply actual correction
     _apply_biascorrection(
+        config=config,
         workdir=workdir,
         model=model,
         scenario=scenario,
         ismip_res_str=ismip_res_str,
-        extrap_dir=extrap_dir,
-        variables=variables,
         clim_name=clim_name,
-        in_files=in_files,
+        ct_files=ct_files,
+        sa_files=sa_files,
         outdir=outdir,
     )
 
@@ -152,15 +146,22 @@ def _collect_extrap_outputs(extrap_dir: str, ismip_res_str: str) -> List[str]:
     """Collect all extrapolated ct and sa files"""
     if not os.path.isdir(extrap_dir):
         return []
-    result: List[str] = []
-    for name in sorted(os.listdir(extrap_dir)):
-        if f'ismip{ismip_res_str}' in name and ('ct' in name or 'sa' in name):
-            result.append(os.path.join(extrap_dir, name))
-    return result
+    ct_files: List[str] = []
+    sa_files: List[str] = []
+    allfiles = sorted(os.listdir(extrap_dir))
+    for name in allfiles:
+        if f'ismip{ismip_res_str}' in name and 'ct' in name:
+            ct_name = name
+            sa_name = ct_name.replace('ct', 'sa')
+            if sa_name in allfiles:
+                ct_files.append(os.path.join(extrap_dir, ct_name))
+                sa_files.append(os.path.join(extrap_dir, sa_name))
+
+    return ct_files, sa_files
 
 
 def _compute_biases(
-    workdir, model, ismip_res_str, extrap_dir, scenario, variables, clim_name
+    config, workdir, model, ismip_res_str, extrap_dir, scenario, clim_name
 ):
     """Compute the bias if not already done"""
 
@@ -175,7 +176,9 @@ def _compute_biases(
         workdir, 'extrap', model, 'historical', 'Omon', 'ct_sa'
     )
 
-    for var in variables:
+    time_chunk = config.get('biascorr', 'time_chunk')
+
+    for var in ['ct', 'sa']:
         # Get historical files
         hist_files: List[str] = []
         for name in sorted(os.listdir(hist_dir)):
@@ -204,7 +207,7 @@ def _compute_biases(
         # Extract climatology period (only full annual for now)
         # TODO make dependent on clim
         ds_hist = ds_hist.sel(time=slice('1995-01-01', '2014-12-31'))
-        ds_hist = ds_hist.chunk({'time': 12})
+        ds_hist = ds_hist.chunk({'time': time_chunk})
 
         # Compute time-average over climatology period
         dpm = ds_hist.time.dt.days_in_month
@@ -226,14 +229,14 @@ def _compute_biases(
 
 
 def _apply_biascorrection(
+    config,
     workdir,
     model,
     ismip_res_str,
-    extrap_dir,
     scenario,
-    variables,
     clim_name,
-    in_files,
+    ct_files,
+    sa_files,
     outdir,
 ):
     """Apply bias correction to all in_files"""
@@ -242,46 +245,66 @@ def _apply_biascorrection(
         workdir, 'biascorr', model, 'intermediate', clim_name
     )
 
-    for file in in_files:
-        if f'ismip{ismip_res_str}' not in file:
-            continue
+    time_chunk = config.get('biascorr', 'time_chunk')
 
-        # Detect which variable is in this file
-        if 'ct' in os.path.basename(file) and 'ct' in variables:
-            var = 'ct'
-        elif 'sa' in os.path.basename(file) and 'sa' in variables:
-            var = 'sa'
-        else:
-            print(f'Skipping {file}')
-            continue
+    for ct_file, sa_file in zip(ct_files, sa_files, strict=False):
+        corrvar = {}
 
-        # Read bias
-        biasfile = os.path.join(biasdir, f'bias_{var}.nc')
-        ds_bias = xr.open_dataset(biasfile)
+        ds_tf = xr.Dataset()
 
-        # Read CMIP file
-        ds_cmip = xr.open_dataset(file)
-        ds_cmip = ds_cmip.chunk({'time': 12})
+        for var, file in zip(['ct', 'sa'], [ct_file, sa_file], strict=False):
+            # Read biases
+            biasfile = os.path.join(biasdir, f'bias_{var}.nc')
+            ds_bias = xr.open_dataset(biasfile)
 
-        # Write out corrected field
-        ds_out = xr.Dataset()
-        for vvar in ['x', 'y', 'z_extrap', 'time']:
-            ds_out[vvar] = ds_cmip[vvar]
-        ds_out[var] = ds_cmip[var] - ds_bias[var]
+            # Read CMIP files
+            ds_cmip = xr.open_dataset(file)
+            # TODO remove:
+            ds_cmip = ds_cmip.sel(time=slice('1995-01-01', '2014-12-31'))
+            ds_cmip = ds_cmip.chunk({'time': time_chunk})
+
+            # Compute corrected variable
+            corrvar[var] = ds_cmip[var] - ds_bias[var]
+
+            # Write out corrected field
+            ds_out = xr.Dataset()
+            for vvar in ['x', 'y', 'z_extrap', 'time']:
+                ds_out[vvar] = ds_cmip[vvar]
+            ds_out[var] = corrvar[var]
+
+            # Convert to yearly output
+            ds_out = ds_out.resample(time='1YE').mean()
+            ds_out['time'] = ds_out['time'].dt.year
+
+            # Coarsen vertical resolution
+            ds_out = ds_out.coarsen(z_extrap=3, boundary='trim').mean()
+
+            outfile = os.path.join(outdir, os.path.basename(file))
+            outfile = outfile.replace('20m', '60m')
+            write_netcdf(ds_out, outfile, progress_bar=True)
+
+            # Port variables to ds_tf (only once)
+            if var == 'ct':
+                for vvar in ['x', 'y', 'time']:
+                    ds_tf[vvar] = ds_cmip[vvar]
+
+            # Clean up
+            ds_bias.close()
+            ds_cmip.close()
+            ds_out.close()
+
+        # Read topography
+
+        # Compute thermal forcing
 
         # Convert to yearly output
-        ds_out = ds_out.resample(time='1YE').mean()
-        ds_out['time'] = ds_out['time'].dt.year
+        ds_tf = ds_tf.resample(time='1YE').mean()
+        ds_tf['time'] = ds_tf['time'].dt.year
 
-        # Coarsen vertical resolution
-        ds_out = ds_out.coarsen(z_extrap=3, boundary='trim').mean()
-
+        file = ct_file.replace('ct', 'tf')
         outfile = os.path.join(outdir, os.path.basename(file))
         outfile = outfile.replace('20m', '60m')
-        write_netcdf(ds_out, outfile, progress_bar=True)
+        write_netcdf(ds_tf, outfile, progress_bar=True)
 
-        # TODO Always compute ct, sa, and tf
-
-        ds_bias.close()
-        ds_cmip.close()
-        ds_out.close()
+        # Clean up
+        ds_tf.close()
