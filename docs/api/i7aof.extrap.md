@@ -17,3 +17,10 @@ architecture and {doc}`../user/workflows` for usage notes.
    :undoc-members:
    :show-inheritance:
 ```
+
+```{eval-rst}
+.. automodule:: i7aof.extrap.clim
+   :members:
+   :undoc-members:
+   :show-inheritance:
+```

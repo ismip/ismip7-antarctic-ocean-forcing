@@ -68,6 +68,8 @@ class VerticalInterpolator:
 
         # Prepare src_frac and interpolate it
         src_frac = xr.where(src_valid, 1.0, 0.0)
+
+        # Interpolate src_frac
         self.src_frac_interp = self._vert_interp(
             src_frac, src_coord, self.z_dst
         ).chunk()
