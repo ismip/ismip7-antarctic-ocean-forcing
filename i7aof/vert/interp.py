@@ -66,12 +66,8 @@ class VerticalInterpolator:
         # Prepare destination coordinate
         self.z_dst = ds_ismip[dst_coord]
 
-        # Prepare src_frac
+        # Prepare src_frac and interpolate it
         src_frac = xr.where(src_valid, 1.0, 0.0)
-
-        # Mask cavity data
-        mask = src_frac.isel({src_coord: 0}) == 0.0
-        src_frac = src_frac.where(~mask, 0.0)
 
         # Interpolate src_frac
         self.src_frac_interp = self._vert_interp(
