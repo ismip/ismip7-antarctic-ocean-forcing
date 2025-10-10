@@ -26,6 +26,17 @@ Import paths and brief descriptions by module:
     Ensure the source vertical coordinate is positive up and in meters,
     applying the same to bounds; returns corrected `z` and `z_bnds`.
 
+- Module: {py:mod}`i7aof.vert.resamp`
+  - {py:class}`VerticalResampler <i7aof.vert.resamp.VerticalResampler>`:
+    Conservative vertical resampling using layer-overlap weights, designed
+    to map intensive fields (e.g., CT and SA) from `z_extrap` to `z`. The
+    resampler computes per-layer overlap thickness between source and
+    destination bounds and returns a thickness-weighted mean over valid
+    source contributions, normalized by the valid overlap. A coverage
+    threshold is applied from `[vert_interp] threshold`.
+    - Typical usage: post-extrapolation coarsening (e.g., 20 m → 60 m) on
+      the ISMIP grid to deliver standard `z`-level outputs.
+
 Note: package `__init__.py` currently has no public re-exports.
 
 ## Required config options
@@ -35,6 +46,7 @@ Sections and keys used by this package:
 - `[vert_interp]`
   - `threshold` (float): minimum valid-source fraction to allow
     renormalization; values below are treated as invalid (NaN).
+  - Used by both the linear interpolator and the conservative resampler.
 
 - `[ismip_grid]` (shared with {py:mod}`i7aof.grid.ismip`)
   - `dz`, `dz_extrap` define the vertical coordinates written to the ISMIP
@@ -56,6 +68,8 @@ be missed at coarser vertical resolution.
 - No files are written by this package directly. The interpolator returns
   in-memory {py:class}`xarray.DataArray` results and stores
   `src_frac_interp` on the instance for reuse.
+  The resampler similarly returns in-memory results; workflow drivers write
+  the resampled files.
 
 ## Data model
 
@@ -116,6 +130,22 @@ da_norm = vi.normalize(da_interp)
 
 # src_frac_interp can be reused across time steps for same grid
 src_frac = vi.src_frac_interp
+
+Conservative resampling from `z_extrap` to `z` (intensive fields):
+
+```python
+from i7aof.vert.resamp import VerticalResampler
+
+z_src = ds_ismip['z_extrap']
+src_valid = xr.DataArray(
+  np.ones_like(z_src, dtype=np.float32), dims=('z_extrap',), coords={'z_extrap': z_src}
+)
+vr = VerticalResampler(
+  src_valid=src_valid, src_coord='z_extrap', dst_coord='z', config=config
+)
+ct_z = vr.resample(ds_extrap['ct'])
+sa_z = vr.resample(ds_extrap['sa'])
+```
 ```
 
 ## Internals (for maintainers)
@@ -135,6 +165,12 @@ src_frac = vi.src_frac_interp
 - {py:func}`fix_src_z_coord` flips sign if `positive='down'` and converts units
   from centimeters to meters for both coord and bounds; sets `units='m'` and
   `positive='up'` on the coord; bounds attrs cleared (not required by CF).
+
+- Resampler computes an overlap matrix `w[i,j]` between destination and source
+  layer bounds and evaluates `sum_j w[i,j] * x_j * valid_j / sum_j w[i,j] * valid_j`.
+  The coverage fraction `f_i = (sum_j w[i,j] * valid_j) / dz_dst[i]` is compared
+  to the threshold; layers below threshold are set to invalid (NaN). The method
+  is conservative for integrals and appropriate for intensive variables.
 
 ## Edge cases / validations
 
