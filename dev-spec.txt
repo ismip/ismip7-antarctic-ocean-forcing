@@ -23,6 +23,7 @@ scipy
 shapely
 tqdm
 xarray
+zarr
 
 # build
 pip
