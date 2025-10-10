@@ -367,7 +367,7 @@ def _process_task(
 
     # After extrapolation (or if it already existed), conservatively resample
     # Use a small dask chunk in time to limit memory during resampling
-    vert_time_chunk = config.getint('remap_cmip', 'vert_time_chunk')
+    vert_time_chunk = config.getint('extrap_cmip', 'time_chunk_resample')
 
     _resample_after_extrapolated_file(
         in_path=task.out_path,
