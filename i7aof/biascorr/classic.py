@@ -268,23 +268,28 @@ def _apply_biascorrection(
 
             # Compute corrected variable
             corrvar[var] = ds_cmip[var] - ds_bias[var]
-
-            # Write out corrected field
-            ds_out = xr.Dataset()
-            for vvar in ['x', 'y', 'z_extrap', 'time']:
-                ds_out[vvar] = ds_cmip[vvar]
-            ds_out[var] = corrvar[var]
-
-            # Convert to yearly output
-            ds_out = ds_out.resample(time='1YE').mean()
-            ds_out['time'] = ds_out['time'].dt.year
-
-            # Coarsen vertical resolution
-            ds_out = ds_out.coarsen(z_extrap=3, boundary='trim').mean()
-
             outfile = os.path.join(outdir, os.path.basename(file))
             outfile = outfile.replace('20m', '60m')
-            write_netcdf(ds_out, outfile, progress_bar=True)
+            if os.path.exists(outfile):
+                print(f'Corrected files already exist: {outfile}')
+            else:
+                # Write out corrected field
+                ds_out = xr.Dataset()
+                for vvar in ['x', 'y', 'z_extrap', 'time']:
+                    ds_out[vvar] = ds_cmip[vvar]
+                ds_out[var] = corrvar[var]
+
+                # Convert to yearly output
+                ds_out = ds_out.resample(time='1YE').mean()
+                ds_out['time'] = ds_out['time'].dt.year
+
+                # Coarsen vertical resolution
+                ds_out = ds_out.coarsen(z_extrap=3, boundary='trim').mean()
+
+                outfile = os.path.join(outdir, os.path.basename(file))
+                outfile = outfile.replace('20m', '60m')
+                write_netcdf(ds_out, outfile, progress_bar=True)
+                ds_out.close()
 
             # Port variables to ds_tf (only once)
             if var == 'ct':
@@ -292,7 +297,6 @@ def _apply_biascorrection(
                     ds_tf[vvar] = ds_cmip[vvar]
 
             # Clean up
-            ds_out.close()
             ds_bias.close()
             ds_cmip.close()
 
@@ -302,8 +306,12 @@ def _apply_biascorrection(
         draft = ds_topo['draft']
         draft = xr.where(np.isnan(draft), 0.0, draft)
 
+        lbd1 = config.getfloat('biascorr', 'lbd1')
+        lbd2 = config.getfloat('biascorr', 'lbd2')
+        lbd3 = config.getfloat('biascorr', 'lbd3')
+
         # Compute thermal forcing
-        pres = gsw.p_from_z(draft, ds_topo['lat'])
+        pres = gsw.p_from_z(draft.values, ds_topo['lat'].values)
 
         pres_t = xr.ones_like(corrvar['sa'])
         for t in range(len(pres_t.time)):
@@ -314,18 +322,23 @@ def _apply_biascorrection(
         ct_base = corrvar['ct'].interp(z_extrap=draft, method='linear')
         ct_base = ct_base.squeeze()
 
-        ct_freeze = gsw.CT_freezing(sa_base, pres_t, saturation_fraction=1)
+        print('computing ct_freeze')
+        ct_freeze = lbd1 * sa_base + lbd2 + lbd3 * pres_t
+        # gsw.CT_freezing_poly(
+        #    sa_base.values, pres_t.values, saturation_fraction=1
+        #    )
         ds_tf['tf'] = ct_base - ct_freeze
 
         # Convert to yearly output
         ds_tf = ds_tf.resample(time='1YE').mean()
         ds_tf['time'] = ds_tf['time'].dt.year
 
+        print('writing output')
         file = ct_file.replace('ct', 'tf')
         outfile = os.path.join(outdir, os.path.basename(file))
         outfile = outfile.replace('20m', '60m')
         write_netcdf(ds_tf, outfile, progress_bar=True)
 
         # Clean up
-        ds_tf.close()
         ds_topo.close()
+        ds_tf.close()
