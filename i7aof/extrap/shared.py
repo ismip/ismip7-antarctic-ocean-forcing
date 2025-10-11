@@ -243,7 +243,7 @@ def _prepare_input_single(
     try:
         if os.path.exists(tmp_out):
             os.remove(tmp_out)
-    except Exception:  # pragma: no cover - best effort
+    except OSError:  # pragma: no cover - best effort
         pass
     with dask_config.set(scheduler='synchronous'):
         write_netcdf(
@@ -398,7 +398,7 @@ def _apply_under_ice_mask_to_file(
     try:
         if os.path.exists(tmp_out):
             os.remove(tmp_out)
-    except Exception:  # best effort
+    except OSError:  # best effort
         pass
 
     log.info(
@@ -467,16 +467,14 @@ def _vertically_resample_to_coarse_ismip_grid(
 
     # Zarr store will be recreated on first append if it exists
 
-    # Build chunk indices
-    with xr.open_dataset(in_path, decode_times=False) as ds_meta:
-        if 'time' in ds_meta.dims and time_chunk:
-            n_time = ds_meta.sizes['time']
-            indices = [
-                (i0, min(i0 + time_chunk, n_time))
-                for i0 in range(0, n_time, time_chunk)
-            ]
-        else:
-            indices = [(0, 1)]
+    # Build chunk indices and capture original time coordinate (values + attrs)
+    # so we can reattach metadata after the Zarr round-trip.
+    (
+        indices,
+        time_template,
+        time_bounds_name,
+        time_bounds_template,
+    ) = _capture_time_templates(in_path, time_chunk)
 
     first = True
     in_chunks = {'time': time_chunk} if time_chunk else None
@@ -518,6 +516,14 @@ def _vertically_resample_to_coarse_ismip_grid(
     log.info('Converting Zarr to NetCDF...')
 
     def _post(ds_z: xr.Dataset) -> xr.Dataset:
+        ds_z = _restore_time_metadata(
+            ds_z,
+            time_template,
+            time_bounds_name,
+            time_bounds_template,
+            log,
+        )
+
         var_da = ds_z[variable]
         chunks = getattr(var_da, 'chunks', None)
         if chunks and all(c is not None for c in chunks):
@@ -532,3 +538,96 @@ def _vertically_resample_to_coarse_ismip_grid(
         postprocess=_post,
     )
     return out_nc
+
+
+def _capture_time_templates(
+    in_path: str, time_chunk: int | None
+) -> tuple[
+    list[tuple[int, int]],
+    xr.DataArray | None,
+    str | None,
+    xr.DataArray | None,
+]:
+    """Capture time coordinate and bounds templates and build chunk indices.
+
+    Returns indices for time chunking along with the loaded time coordinate
+    and optional time bounds DataArray (and its name) from the source file.
+    """
+    with xr.open_dataset(in_path, decode_times=False) as ds_meta:
+        time_template: xr.DataArray | None = None
+        time_bounds_template: xr.DataArray | None = None
+        time_bounds_name: str | None = None
+
+        if 'time' in ds_meta.dims and time_chunk:
+            n_time = ds_meta.sizes['time']
+            indices = [
+                (i0, min(i0 + time_chunk, n_time))
+                for i0 in range(0, n_time, time_chunk)
+            ]
+            # Load to decouple from open file and preserve attrs/encoding
+            # load may raise ValueError/IOError-like; fallback keeps attrs
+            try:
+                time_template = ds_meta['time'].load()
+            except (ValueError, RuntimeError, OSError):
+                time_template = ds_meta['time'].copy(deep=True)
+        else:
+            indices = [(0, 1)]
+            if 'time' in ds_meta.dims:
+                try:
+                    time_template = ds_meta['time'].load()
+                except (ValueError, RuntimeError, OSError):
+                    time_template = ds_meta['time'].copy(deep=True)
+
+        # Capture time bounds if present
+        for cand in ('time_bnds', 'time_bounds'):
+            if cand in ds_meta:
+                time_bounds_name = cand
+                try:
+                    time_bounds_template = ds_meta[cand].load()
+                except (ValueError, RuntimeError, OSError):
+                    time_bounds_template = ds_meta[cand].copy(deep=True)
+                break
+
+    return (
+        indices,
+        time_template,
+        time_bounds_name,
+        time_bounds_template,
+    )
+
+
+def _restore_time_metadata(
+    ds: xr.Dataset,
+    time_template: xr.DataArray | None,
+    time_bounds_name: str | None,
+    time_bounds_template: xr.DataArray | None,
+    log: logging.Logger,
+) -> xr.Dataset:
+    """Restore time coordinate and bounds (values + attrs) onto dataset."""
+    if (
+        'time' in ds.dims
+        and 'time' in ds.variables
+        and time_template is not None
+    ):
+        if int(ds.sizes.get('time', -1)) == int(
+            time_template.sizes.get('time', -2)
+        ):
+            ds = ds.assign_coords(time=time_template)
+        else:
+            log.warning(
+                'Time length mismatch between Zarr (%s) and source (%s); '
+                'skipping time metadata restoration.',
+                ds.sizes.get('time'),
+                time_template.sizes.get('time'),
+            )
+
+    if (
+        time_bounds_name is not None
+        and time_bounds_template is not None
+        and 'time' in ds.dims
+        and int(ds.sizes.get('time', -1))
+        == int(time_bounds_template.sizes.get('time', -2))
+    ):
+        ds[time_bounds_name] = time_bounds_template
+
+    return ds

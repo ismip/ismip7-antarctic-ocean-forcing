@@ -226,7 +226,7 @@ def main():
     )
 
 
-## preprocessing helper
+# preprocessing helper
 
 
 def _preprocess_climatology_input(config, in_filename, tmpdir):
