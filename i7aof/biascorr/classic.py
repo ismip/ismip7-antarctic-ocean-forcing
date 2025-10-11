@@ -319,11 +319,6 @@ def _compute_thermal_forcing(
 
     time_chunk = config.get('biascorr', 'time_chunk')
 
-    # Read liquidus parameters
-    lbd1 = config.getfloat('biascorr', 'lbd1')
-    lbd2 = config.getfloat('biascorr', 'lbd2')
-    lbd3 = config.getfloat('biascorr', 'lbd3')
-
     for ct_file, sa_file in zip(ct_files, sa_files, strict=False):
         # Read biases
         biasfile_ct = os.path.join(biasdir, 'bias_ct.nc')
@@ -331,33 +326,28 @@ def _compute_thermal_forcing(
         biasfile_sa = os.path.join(biasdir, 'bias_sa.nc')
         ds_bias_sa = xr.open_dataset(biasfile_sa)
 
-        # Read cmip
+        # Read cmip output
         ds_cmip_ct = xr.open_dataset(ct_file)
-        ds_cmip_ct = ds_cmip_ct.sel(time=slice('2012-01-01', '2014-12-31'))
         ds_cmip_ct = ds_cmip_ct.chunk({'time': time_chunk})
-
         ds_cmip_sa = xr.open_dataset(sa_file)
-        ds_cmip_sa = ds_cmip_sa.sel(time=slice('2012-01-01', '2014-12-31'))
         ds_cmip_sa = ds_cmip_sa.chunk({'time': time_chunk})
 
         # Compute corrected ct sa
         ct_corr = ds_cmip_ct['ct'] - ds_bias_ct['ct']
         sa_corr = ds_cmip_sa['sa'] - ds_bias_sa['sa']
 
-        # Convert draft to pressure
+        # Create 4D array of pressure
         pres = xr.ones_like(sa_corr)
         for k, z in enumerate(pres.z_extrap.values):
             pres_k = gsw.p_from_z(z, ds_cmip_sa['lat'].values)
             for t in range(len(pres.time)):
                 pres[t, k, :, :] = pres_k
 
-        ct_freeze = lbd1 * sa_corr + lbd2 + lbd3 * pres
-        # ct_freeze = gsw.CT_freezing_poly(
-        #    sa_base.values, pres_t.values, saturation_fraction=1
-        # )
+        # Compute freezing temperature
+        ct_freeze = gsw.CT_freezing_poly(sa_corr, pres, saturation_fraction=1)
 
+        # Create dataset with thermal forcing
         ds_tf = xr.Dataset()
-
         for vvar in ['x', 'y', 'time', 'z_extrap']:
             ds_tf[vvar] = ds_cmip_ct[vvar]
         ds_tf['tf'] = ct_corr - ct_freeze
