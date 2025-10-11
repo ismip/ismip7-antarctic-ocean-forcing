@@ -222,7 +222,7 @@ def _compute_biases(
 
         # Extract climatology period (only full annual for now)
         # TODO make dependent on clim
-        ds_hist = ds_hist.sel(time=slice('1995-01-01', '2014-12-31'))
+        ds_hist = ds_hist.sel(time=slice('1995-01-01', '2015-01-01'))
         ds_hist = ds_hist.chunk({'time': time_chunk})
 
         # Compute time-average over climatology period
