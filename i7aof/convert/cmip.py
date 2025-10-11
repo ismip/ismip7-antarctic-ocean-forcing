@@ -197,7 +197,12 @@ def _process_file_pair(
             else:
                 chunk_name = f'{out_base}_part-static.nc'
             chunk_path = os.path.join(tmp_dir, chunk_name)
-            write_netcdf(ds_ctsa, chunk_path, progress_bar=False)
+            write_netcdf(
+                ds_ctsa,
+                chunk_path,
+                progress_bar=False,
+                has_fill_values=lambda name, var: name in ('ct', 'sa'),
+            )
             chunk_files.append(chunk_path)
 
         if len(chunk_files) == 1:
@@ -210,7 +215,12 @@ def _process_file_pair(
                 decode_times=False,
             )
         _inject_bounds(ds_final, ds_thetao, bounds_records, time_bounds)
-        write_netcdf(ds_final, out_abs, progress_bar=True)
+        write_netcdf(
+            ds_final,
+            out_abs,
+            progress_bar=True,
+            has_fill_values=lambda name, var: name in ('ct', 'sa'),
+        )
         ds_final.close()
     finally:
         ds_thetao.close()

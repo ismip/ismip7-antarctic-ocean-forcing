@@ -186,7 +186,13 @@ def _write_mask_stage(
         ds_out[var] = da_masked.astype(np.float32)
     ds_out['src_valid'] = interpolator.src_valid.astype(np.float32)
     ds_out = _assign_coords_and_bounds(ds, ds_out)
-    write_netcdf(ds_out, mask_filename, progress_bar=True)
+    write_netcdf(
+        ds_out,
+        mask_filename,
+        progress_bar=True,
+        has_fill_values=lambda name, var: name
+        in set(variables + ['src_valid']),
+    )
 
 
 def _write_interp_stage(
@@ -209,7 +215,13 @@ def _write_interp_stage(
     ds_out['z_extrap_bnds'] = ds_ismip['z_extrap_bnds']
     if 'lev' in ds_out:
         ds_out = ds_out.drop_vars(['lev'])
-    write_netcdf(ds_out, interp_filename, progress_bar=True)
+    write_netcdf(
+        ds_out,
+        interp_filename,
+        progress_bar=True,
+        has_fill_values=lambda name, var: name
+        in set(variables + ['src_frac_interp']),
+    )
 
 
 def _write_normalize_stage(
@@ -230,7 +242,13 @@ def _write_normalize_stage(
     ds_out['src_frac_interp'] = interpolator.src_frac_interp.astype(np.float32)
     ds_out = _assign_coords_and_bounds(ds, ds_out)
     ds_out['z_extrap_bnds'] = ds_ismip['z_extrap_bnds']
-    write_netcdf(ds_out, normalized_filename, progress_bar=True)
+    write_netcdf(
+        ds_out,
+        normalized_filename,
+        progress_bar=True,
+        has_fill_values=lambda name, var: name
+        in set(variables + ['src_frac_interp']),
+    )
 
 
 def _remap_horiz(
@@ -322,7 +340,12 @@ def _remap_horiz(
         # Keep only src_frac_interp in the mask file
         keep_vars = ['src_frac_interp']
         ds_mask = ds_mask[keep_vars]
-        write_netcdf(ds_mask, input_mask_path, progress_bar=True)
+        write_netcdf(
+            ds_mask,
+            input_mask_path,
+            progress_bar=True,
+            has_fill_values=lambda name, var: name == 'src_frac_interp',
+        )
 
         # remap the mask without renormalizing
         remap_lat_lon_to_ismip(
@@ -393,7 +416,13 @@ def _remap_horiz(
     # Ensure time bounds variable and attribute are present on final output
     ds_final = _restore_time_bounds_dataset(ds_final, tbname, tbda)
 
-    write_netcdf(ds_final, out_filename, progress_bar=True)
+    write_netcdf(
+        ds_final,
+        out_filename,
+        progress_bar=True,
+        has_fill_values=lambda name, var: name
+        in set([v for v in ds_final.data_vars if v not in ds_final.coords]),
+    )
 
 
 def _capture_time_bounds_dataset(ds):
@@ -466,7 +495,13 @@ def _remap_no_time(
     subset = ds
     if 'src_frac_interp' in subset:
         subset = subset.drop_vars(['src_frac_interp'])
-    write_netcdf(subset, input_chunk_path, progress_bar=True)
+    write_netcdf(
+        subset,
+        input_chunk_path,
+        progress_bar=True,
+        has_fill_values=lambda name, var, _subset=subset: name
+        in set([v for v in _subset.data_vars if v not in _subset.coords]),
+    )
 
     remap_lat_lon_to_ismip(
         in_filename=input_chunk_path,
@@ -524,7 +559,13 @@ def _remap_with_time(
         subset = ds.isel(time=slice(i_start, i_end))
         if 'src_frac_interp' in subset:
             subset = subset.drop_vars(['src_frac_interp'])
-        write_netcdf(subset, input_chunk_path, progress_bar=True)
+        write_netcdf(
+            subset,
+            input_chunk_path,
+            progress_bar=True,
+            has_fill_values=lambda name, var, _subset=subset: name
+            in set([v for v in _subset.data_vars if v not in _subset.coords]),
+        )
 
         remap_lat_lon_to_ismip(
             in_filename=input_chunk_path,
