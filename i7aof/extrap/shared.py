@@ -29,7 +29,6 @@ from i7aof.extrap import load_template_text
 from i7aof.grid.ismip import (
     get_horiz_res_string,
     get_ismip_grid_filename,
-    get_res_string,
     write_ismip_grid,
 )
 from i7aof.imbie.masks import make_imbie_masks
@@ -46,7 +45,7 @@ __all__ = [
     '_run_exe_capture',
     '_finalize_output_with_grid',
     '_apply_under_ice_mask_to_file',
-    '_resample_after_extrapolated_file',
+    '_vertically_resample_to_coarse_ismip_grid',
 ]
 
 
@@ -424,80 +423,33 @@ def _apply_under_ice_mask_to_file(
     ds_topo.close()
 
 
-def _resample_after_extrapolated_file(
+def _vertically_resample_to_coarse_ismip_grid(
     *,
     in_path: str,
     grid_file: str,
     variable: str,
     config: MpasConfigParser,
-    time_chunk: int | None = None,
-    workdir: str | None = None,
+    out_nc: str,
+    time_chunk: int | None,
+    zarr_store: str,
     logger: logging.Logger | None = None,
 ) -> str:
-    """Conservatively resample an extrapolated file from z_extrap to z.
+    """
+    Resample CT and SA vertically from the finer interpolation grid to the
+    coarser ISMIP grid.  Process the data in time chunks to Zarr, convert to
+    NetCDF, and return out_nc.
 
-    Returns the output path (which may already exist).
+    - Removes any pre-existing Zarr store at the given path.
+    - Appends along time if present; otherwise writes a single slice.
+    - Preserves chunk encodings for the target variable to speed NetCDF write.
     """
     log = logger or logging.getLogger(__name__)
-    res_extrap = get_res_string(config, extrap=True)
-    res_final = get_res_string(config, extrap=False)
-    # Resolve paths robustly: if grid_file or in_path are relative and not
-    # found from CWD, attempt to resolve against the provided workdir.
-    grid_path = grid_file
-    if not os.path.isabs(grid_path) and not os.path.exists(grid_path):
-        if workdir is not None:
-            candidate = os.path.join(workdir, grid_path)
-            if os.path.exists(candidate):
-                grid_path = candidate
-                log.debug(
-                    f'Resolved grid_file relative to workdir: {grid_path}'
-                )
-    in_path_resolved = in_path
-    if not os.path.isabs(in_path_resolved) and not os.path.exists(
-        in_path_resolved
-    ):
-        if workdir is not None:
-            candidate = os.path.join(workdir, in_path_resolved)
-            if os.path.exists(candidate):
-                in_path_resolved = candidate
-                log.debug(
-                    'Resolved input path relative to workdir: '
-                    f'{in_path_resolved}'
-                )
+    if os.path.exists(out_nc):
+        log.info(f'Resampled output exists, skipping: {out_nc}')
+        return out_nc
 
-    out_path = in_path_resolved.replace(
-        f'ismip{res_extrap}', f'ismip{res_final}'
-    )
-    if os.path.abspath(out_path) == os.path.abspath(in_path_resolved):
-        base, ext = os.path.splitext(in_path_resolved)
-        out_path = f'{base}_z{ext}'
-    if os.path.exists(out_path):
-        log.info(f'Resampled output exists, skipping: {out_path}')
-        return out_path
-
-    log.info(
-        'Starting conservative vertical resampling '
-        f'({res_extrap} -> {res_final}) to {out_path}'
-    )
-    # Fail fast if required files are missing
-    if not os.path.exists(grid_path):
-        raise FileNotFoundError(
-            f"ISMIP grid file not found: '{grid_file}'. Tried: '{grid_path}'"
-        )
-    if not os.path.exists(in_path_resolved):
-        raise FileNotFoundError(
-            'Extrapolated input not found: '
-            f"'{in_path}' (resolved: '{in_path_resolved}')"
-        )
-
-    # Open input lazily with dask time chunks (if requested) to limit memory
-    in_chunks = {'time': time_chunk} if time_chunk else None
-    with (
-        xr.open_dataset(grid_path, decode_times=False) as ds_grid,
-        xr.open_dataset(
-            in_path_resolved, decode_times=False, chunks=in_chunks
-        ) as ds_in,
-    ):
+    # Prepare resampler and optional z_bnds once
+    with xr.open_dataset(grid_file, decode_times=False) as ds_grid:
         z_src = ds_grid['z_extrap']
         src_valid = xr.DataArray(
             np.ones(z_src.shape, dtype=np.float32),
@@ -510,23 +462,81 @@ def _resample_after_extrapolated_file(
             dst_coord='z',
             config=config,
         )
-        if variable not in ds_in:
-            raise KeyError(
-                f"Variable '{variable}' not found in {in_path_resolved}."
+        z_bnds = ds_grid['z_bnds'] if 'z_bnds' in ds_grid else None
+
+    # Clean any old store
+    if os.path.isdir(zarr_store):
+        shutil.rmtree(zarr_store)
+
+    # Build chunk indices
+    with xr.open_dataset(in_path, decode_times=False) as ds_meta:
+        if 'time' in ds_meta.dims and time_chunk:
+            n_time = ds_meta.sizes['time']
+            indices = [
+                (i0, min(i0 + time_chunk, n_time))
+                for i0 in range(0, n_time, time_chunk)
+            ]
+        else:
+            indices = [(0, 1)]
+
+    first = True
+    in_chunks = {'time': time_chunk} if time_chunk else None
+    with xr.open_dataset(
+        in_path, decode_times=False, chunks=in_chunks
+    ) as ds_in:
+        for i0, i1 in indices:
+            ds_slice = (
+                ds_in.isel(time=slice(i0, i1))
+                if 'time' in ds_in.dims
+                else ds_in
             )
-        da_in = ds_in[variable]
-        da_out = resampler.resample(da_in)
-        ds_res = ds_in.copy()
-        ds_res[variable] = da_out.astype(da_in.dtype)
-        if 'z_extrap' in ds_res:
-            ds_res = ds_res.drop_vars(['z_extrap'])
-        if 'z_bnds' in ds_grid:
-            ds_res['z_bnds'] = ds_grid['z_bnds']
-        log.info(f'Writing resampled output: {out_path}')
+            if variable not in ds_slice:
+                raise KeyError(
+                    f"Variable '{variable}' not found in {in_path}."
+                )
+            da_out = resampler.resample(ds_slice[variable])
+            ds_res = ds_slice.copy()
+            ds_res[variable] = da_out.astype(ds_slice[variable].dtype)
+            if 'z_extrap' in ds_res:
+                ds_res = ds_res.drop_vars(['z_extrap'])
+            if z_bnds is not None:
+                ds_res['z_bnds'] = z_bnds
+            # Chunk this slice fully in time for contiguous appends
+            if 'time' in ds_res.dims:
+                ds_res = ds_res.chunk({'time': max(i1 - i0, 1)})
+
+            # Write/append to Zarr
+            if first:
+                log.info(f'Creating Zarr store: {zarr_store}')
+                ds_res.to_zarr(zarr_store, mode='w', consolidated=False)
+            else:
+                ds_res.to_zarr(
+                    zarr_store,
+                    mode='a',
+                    append_dim='time' if 'time' in ds_res.dims else None,
+                    consolidated=False,
+                )
+            first = False
+
+    # Convert Zarr to NetCDF once
+    log.info('Converting Zarr to NetCDF...')
+    ds_z = xr.open_zarr(zarr_store, consolidated=False)
+    try:
+        var_da = ds_z[variable]
+        chunks = getattr(var_da, 'chunks', None)
+        if chunks and all(c is not None for c in chunks):
+            var_da.encoding['chunksizes'] = tuple(chunks)
         write_netcdf(
-            ds_res,
-            out_path,
+            ds_z,
+            out_nc,
             has_fill_values=lambda name, v, _v=variable: name == _v,
             progress_bar=True,
         )
-    return out_path
+    finally:
+        ds_z.close()
+    # Cleanup Zarr on success
+    try:
+        shutil.rmtree(zarr_store)
+    except OSError:
+        log.warning(f'Failed to remove Zarr store: {zarr_store}')
+    return out_nc

@@ -38,9 +38,10 @@ from i7aof.extrap.shared import (
     _finalize_output_with_grid,
     _prepare_input_single,
     _render_namelist,
-    _resample_after_extrapolated_file,
     _run_exe_capture,
+    _vertically_resample_to_coarse_ismip_grid,
 )
+from i7aof.grid.ismip import get_res_string
 
 __all__ = ['extrap_climatology', 'main']
 
@@ -146,14 +147,28 @@ def extrap_climatology(
                 logger=logger,
                 keep_intermediate=keep_intermediate,
             )
-            # After extrapolation (or if it already existed), resample
-            _resample_after_extrapolated_file(
+            # After extrapolation (or if it already existed), resample.
+            # Use shared Zarr-based helper for consistent performance.
+            res_extrap = get_res_string(config, extrap=True)
+            res_final = get_res_string(config, extrap=False)
+            out_nc = out_file.replace(
+                f'ismip{res_extrap}', f'ismip{res_final}'
+            )
+            if os.path.abspath(out_nc) == os.path.abspath(out_file):
+                stem_nc, ext_nc = os.path.splitext(out_file)
+                out_nc = f'{stem_nc}_z{ext_nc}'
+            base_nc = os.path.splitext(os.path.basename(out_nc))[0]
+            zarr_store = os.path.join(
+                os.path.dirname(out_nc), f'{base_nc}.zarr'
+            )
+            _vertically_resample_to_coarse_ismip_grid(
                 in_path=out_file,
                 grid_file=grid_file,
                 variable=var,
                 config=config,
+                out_nc=out_nc,
                 time_chunk=None,
-                workdir=workdir,
+                zarr_store=zarr_store,
                 logger=logger,
             )
 
