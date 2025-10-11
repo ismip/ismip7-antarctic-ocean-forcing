@@ -319,6 +319,11 @@ def _compute_thermal_forcing(
 
     time_chunk = config.get('biascorr', 'time_chunk')
 
+    # Read liquidus parameters
+    lbd1 = config.getfloat('biascorr', 'lbd1')
+    lbd2 = config.getfloat('biascorr', 'lbd2')
+    lbd3 = config.getfloat('biascorr', 'lbd3')
+
     for ct_file, sa_file in zip(ct_files, sa_files, strict=False):
         # Read biases
         biasfile_ct = os.path.join(biasdir, 'bias_ct.nc')
@@ -344,7 +349,10 @@ def _compute_thermal_forcing(
                 pres[t, k, :, :] = pres_k
 
         # Compute freezing temperature
-        ct_freeze = gsw.CT_freezing_poly(sa_corr, pres, saturation_fraction=1)
+        ct_freeze = lbd1 * sa_corr + lbd2 + lbd3 * pres
+        # ct_freeze = gsw.CT_freezing_poly(
+        #    sa_corr, pres, saturation_fraction=1
+        # )
 
         # Create dataset with thermal forcing
         ds_tf = xr.Dataset()
