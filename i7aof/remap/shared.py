@@ -111,6 +111,39 @@ def _vert_mask_interp_norm_multi(
     return normalized_filename
 
 
+def _assign_coords_and_bounds(
+    ds_src: xr.Dataset,
+    ds_dest: xr.Dataset,
+    coord_names: tuple[str, ...] = ('lat', 'lon', 'time'),
+) -> xr.Dataset:
+    """Copy coordinates and their bounds variables from ds_src to ds_dest.
+
+    - Adds coord variables in coord_names if present in ds_src.
+    - Adds conventional ``<coord>_bnds`` variables when present.
+    - Honors CF ``bounds`` attribute to include non-conventional names like
+      ``time_bounds``.
+    - Does not overwrite variables already present in ds_dest.
+    """
+    ds_out = ds_dest
+    for cname in coord_names:
+        if cname in ds_src and cname not in ds_out:
+            ds_out[cname] = ds_src[cname]
+        # Conventional bounds variable (<coord>_bnds)
+        bname_conv = f'{cname}_bnds'
+        if bname_conv in ds_src and bname_conv not in ds_out:
+            ds_out[bname_conv] = ds_src[bname_conv]
+        # CF bounds attribute (supports time_bounds, etc.)
+        if cname in ds_src:
+            bname_attr = ds_src[cname].attrs.get('bounds')
+            if (
+                isinstance(bname_attr, str)
+                and bname_attr in ds_src
+                and bname_attr not in ds_out
+            ):
+                ds_out[bname_attr] = ds_src[bname_attr]
+    return ds_out
+
+
 def _prepare_vert_coords_and_mask(in_filename, variables):
     with xr.open_dataset(in_filename, decode_times=False) as ds:
         lev, lev_bnds = fix_src_z_coord(ds, 'lev', 'lev_bnds')
@@ -152,12 +185,7 @@ def _write_mask_stage(
         da_masked = interpolator.mask_and_sort(ds[var])
         ds_out[var] = da_masked.astype(np.float32)
     ds_out['src_valid'] = interpolator.src_valid.astype(np.float32)
-    for var in ['lat', 'lon', 'time']:
-        if var in ds:
-            ds_out[var] = ds[var]
-        var_bnds = f'{var}_bnds'
-        if var_bnds in ds:
-            ds_out[var_bnds] = ds[var_bnds]
+    ds_out = _assign_coords_and_bounds(ds, ds_out)
     write_netcdf(ds_out, mask_filename, progress_bar=True)
 
 
@@ -177,12 +205,7 @@ def _write_interp_stage(
         da_interp = interpolator.interp(ds[var])
         ds_out[var] = da_interp.astype(np.float32)
     ds_out['src_frac_interp'] = interpolator.src_frac_interp.astype(np.float32)
-    for var in ['lat', 'lon', 'time']:
-        if var in ds:
-            ds_out[var] = ds[var]
-        var_bnds = f'{var}_bnds'
-        if var_bnds in ds:
-            ds_out[var_bnds] = ds[var_bnds]
+    ds_out = _assign_coords_and_bounds(ds, ds_out)
     ds_out['z_extrap_bnds'] = ds_ismip['z_extrap_bnds']
     if 'lev' in ds_out:
         ds_out = ds_out.drop_vars(['lev'])
@@ -205,12 +228,7 @@ def _write_normalize_stage(
         da_norm = interpolator.normalize(ds[var])
         ds_out[var] = da_norm.astype(np.float32)
     ds_out['src_frac_interp'] = interpolator.src_frac_interp.astype(np.float32)
-    for var in ['lat', 'lon', 'time']:
-        if var in ds:
-            ds_out[var] = ds[var]
-        var_bnds = f'{var}_bnds'
-        if var_bnds in ds:
-            ds_out[var_bnds] = ds[var_bnds]
+    ds_out = _assign_coords_and_bounds(ds, ds_out)
     ds_out['z_extrap_bnds'] = ds_ismip['z_extrap_bnds']
     write_netcdf(ds_out, normalized_filename, progress_bar=True)
 
@@ -265,25 +283,31 @@ def _remap_horiz(
     renorm_threshold = config.getfloat('remap', 'threshold')
 
     # Determine coordinate var/dim names
-    def _get_opt(section, option, default=None):
-        try:
-            if config.has_option(section, option):
-                return config.get(section, option)
-        except Exception:
-            pass
-        return default
-
     if lat_var is None:
-        lat_var = _get_opt('cmip_dataset', 'lat_var', default='lat')
+        lat_var = (
+            config.get('cmip_dataset', 'lat_var')
+            if config.has_option('cmip_dataset', 'lat_var')
+            else 'lat'
+        )
     if lon_var is None:
-        lon_var = _get_opt('cmip_dataset', 'lon_var', default='lon')
+        lon_var = (
+            config.get('cmip_dataset', 'lon_var')
+            if config.has_option('cmip_dataset', 'lon_var')
+            else 'lon'
+        )
     if lon_dim is None:
-        lon_dim = _get_opt('cmip_dataset', 'lon_dim', default='lon')
+        lon_dim = (
+            config.get('cmip_dataset', 'lon_dim')
+            if config.has_option('cmip_dataset', 'lon_dim')
+            else 'lon'
+        )
 
     in_grid_name = model_prefix
 
     # Open dataset lazily
     ds = xr.open_dataset(in_filename, chunks={'time': 1}, decode_times=False)
+    # Capture original time bounds metadata to re-attach if remapping drops it
+    tbname, tbda = _capture_time_bounds_dataset(ds)
 
     if method == 'bilinear':
         # ensure periodic longitude to avoid seam
@@ -364,6 +388,37 @@ def _remap_horiz(
     ds_final['src_frac_interp'] = ds_mask['src_frac_interp']
 
     # Ensure x/y projection coordinates are present from the ISMIP grid
+    ds_final = _attach_ismip_xy_if_match(ds_final, config)
+
+    # Ensure time bounds variable and attribute are present on final output
+    ds_final = _restore_time_bounds_dataset(ds_final, tbname, tbda)
+
+    write_netcdf(ds_final, out_filename, progress_bar=True)
+
+
+def _capture_time_bounds_dataset(ds):
+    tbname = None
+    tbda = None
+    if 'time' in ds and 'time' in ds.coords:
+        tbname_attr = ds['time'].attrs.get('bounds')
+        if isinstance(tbname_attr, str) and tbname_attr in ds:
+            tbname = tbname_attr
+            tbda = ds[tbname]
+    return tbname, tbda
+
+
+def _restore_time_bounds_dataset(ds, tbname, tbda):
+    if 'time' in ds and tbname is not None:
+        ds['time'].attrs['bounds'] = tbname
+        if tbname not in ds and tbda is not None:
+            if int(ds.sizes.get('time', -1)) == int(
+                tbda.sizes.get('time', -2)
+            ):
+                ds[tbname] = tbda
+    return ds
+
+
+def _attach_ismip_xy_if_match(ds_final, config):
     try:
         ds_ismip = xr.open_dataset(get_ismip_grid_filename(config))
         if (
@@ -391,8 +446,7 @@ def _remap_horiz(
             )
     except Exception as exc:
         print(f'Warning: failed to attach x/y from ISMIP grid: {exc}')
-
-    write_netcdf(ds_final, out_filename, progress_bar=True)
+    return ds_final
 
 
 def _remap_no_time(
