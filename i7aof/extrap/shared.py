@@ -49,6 +49,31 @@ __all__ = [
 ]
 
 
+def _strip_fill_on_non_target(
+    ds: xr.Dataset, target_vars: set[str]
+) -> xr.Dataset:
+    """Remove _FillValue from attrs/encoding for all vars not in target_vars.
+
+    This avoids writing fill values on coordinate variables or auxiliary
+    variables where they are not desired, even if upstream processes added
+    such attributes or encodings. Returns a dataset with the modifications
+    applied in-place semantics (xarray may copy lazily under the hood).
+    """
+    for name in list(ds.data_vars) + list(ds.coords):
+        if name in target_vars:
+            continue
+        var = ds[name]
+        # Drop from encoding and attrs if present
+        if isinstance(var.encoding, dict) and '_FillValue' in var.encoding:
+            try:
+                del var.encoding['_FillValue']
+            except KeyError:
+                pass
+        if isinstance(var.attrs, dict) and '_FillValue' in var.attrs:
+            var.attrs.pop('_FillValue', None)
+    return ds
+
+
 def _ensure_imbie_masks(config: MpasConfigParser, workdir: str) -> str:
     """Ensure IMBIE basin mask file exists under ``workdir`` and return it."""
     res = get_horiz_res_string(config)
@@ -335,6 +360,8 @@ def _finalize_output_with_grid(
         for tb in ('time_bnds', 'time_bounds'):
             if tb in ds_out:
                 ds_out = ds_out.drop_vars(tb, errors='ignore')
+    # Ensure no stray fill values on coords/aux variables
+    ds_out = _strip_fill_on_non_target(ds_out, target_vars={variable})
     logger.info(f'Writing extrapolated output: {final_out_path}')
     write_netcdf(
         ds_out,
@@ -491,6 +518,8 @@ def _vertically_resample_to_coarse_ismip_grid(
                     f"Variable '{variable}' not found in {in_path}."
                 )
             da_out = resampler.resample(ds_slice[variable])
+            # Preserve original variable attributes (units, long_name, etc.)
+            da_out.attrs = dict(ds_slice[variable].attrs)
             ds_res = ds_slice.copy()
             ds_res[variable] = da_out.astype(ds_slice[variable].dtype)
             if 'z_extrap' in ds_res:
@@ -530,6 +559,8 @@ def _vertically_resample_to_coarse_ismip_grid(
         chunks = getattr(var_da, 'chunks', None)
         if chunks and all(c is not None for c in chunks):
             var_da.encoding['chunksizes'] = tuple(chunks)
+        # Ensure coordinates and non-target variables do not carry _FillValue
+        ds_z = _strip_fill_on_non_target(ds_z, target_vars={variable})
         write_netcdf(
             ds_z,
             out_nc,
