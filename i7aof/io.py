@@ -153,7 +153,7 @@ def _decide_fill_value(var_name, var, numpy_fillvals, has_fill_values):
     # Default: detect NaNs using xarray (works well for chunked data)
     try:
         has_nan = bool(var.isnull().any().compute())
-    except Exception:
+    except (RuntimeError, ValueError):
         has_nan = False
     return candidate if has_nan else None
 
