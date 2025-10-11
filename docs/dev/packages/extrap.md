@@ -92,8 +92,6 @@ ismip7-antarctic-extrap-cmip \
 
 ### Post-extrap vertical resampling (z_extrap → z)
 
-- Implemented as a shared helper:
-  {py:func}`i7aof.extrap.shared.resample_to_zarr_then_netcdf`.
 - Strategy: open the extrapolated NetCDF lazily (optionally chunked by time),
   iterate over time chunks of length `[extrap_cmip] time_chunk_resample`,
   apply {py:class}`i7aof.vert.resamp.VerticalResampler` to conservatively map
