@@ -152,7 +152,7 @@ def _load_config_and_paths(
     os.makedirs(outdir, exist_ok=True)
     os.chdir(workdir)
 
-    ismip_res_str = get_res_string(config, extrap=True)
+    ismip_res_str = get_res_string(config, extrap=False)
     return config, workdir, extrap_dir, outdir, ismip_res_str, model_prefix
 
 
@@ -273,7 +273,6 @@ def _apply_biascorrection(
 
             # Define output filename
             outfile = os.path.join(outdir, os.path.basename(file))
-            outfile = outfile.replace('20m', '60m')
             if os.path.exists(outfile):
                 print(f'Corrected files already exist: {outfile}')
             else:
@@ -288,9 +287,6 @@ def _apply_biascorrection(
                 # Convert to yearly output
                 ds_out = ds_out.resample(time='1YE').mean()
                 ds_out['time'] = ds_out['time'].dt.year
-
-                # Coarsen vertical resolution
-                ds_out = ds_out.coarsen(z_extrap=3, boundary='trim').mean()
 
                 write_netcdf(ds_out, outfile, progress_bar=True)
                 ds_out.close()
@@ -367,7 +363,6 @@ def _compute_thermal_forcing(
         # Define output file
         file = ct_file.replace('ct', 'tf')
         outfile = os.path.join(outdir, os.path.basename(file))
-        outfile = outfile.replace('20m', '60m')
 
         print(f'writing output: {outfile}')
         write_netcdf(ds_tf, outfile, progress_bar=True)
