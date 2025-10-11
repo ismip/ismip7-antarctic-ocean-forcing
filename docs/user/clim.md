@@ -64,6 +64,14 @@ Outputs (one per variable):
 <workdir>/extrap/climatology/<clim_name>/<remapped_stem>_<var>_extrap.nc
 ```
 
+### Post-extrap vertical resampling
+
+After extrapolation, a conservative resampling step maps `z_extrap` to `z`
+levels (from 20 m to 60 m by default). The workflow uses the same Zarr-first
+approach as CMIP (single write without time appends) and converts to a final
+NetCDF alongside the Extrap output. Dimension order is `(z, y, x)` for
+climatologies (no time).
+
 ### Dimension Ordering
 
 Climatology remap outputs enforce variable dimension order

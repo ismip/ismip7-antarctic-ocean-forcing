@@ -36,6 +36,7 @@ Import paths and brief descriptions by module:
     threshold is applied from `[vert_interp] threshold`.
     - Typical usage: post-extrapolation coarsening (e.g., 20 m → 60 m) on
       the ISMIP grid to deliver standard `z`-level outputs.
+    - The resampler enforces output dimension order `(time?, z, y, x)`.
 
 Note: package `__init__.py` currently has no public re-exports.
 
@@ -69,7 +70,8 @@ be missed at coarser vertical resolution.
   in-memory {py:class}`xarray.DataArray` results and stores
   `src_frac_interp` on the instance for reuse.
   The resampler similarly returns in-memory results; workflow drivers write
-  the resampled files.
+  the resampled files. In CMIP/climatology workflows, resampling is applied
+  via a Zarr-first, append-by-time helper to reduce memory/I/O pressure.
 
 ## Data model
 
