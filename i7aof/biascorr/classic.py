@@ -199,7 +199,7 @@ def _compute_biases(
         hist_files: List[str] = []
         for name in sorted(os.listdir(hist_dir)):
             if f'ismip{ismip_res_str}' in name and var in name:
-                hist_files.append(os.path.join(extrap_dir, name))
+                hist_files.append(os.path.join(hist_dir, name))
         if not hist_files:
             raise FileNotFoundError(
                 f'No historical extrapolated files available for {var}'
