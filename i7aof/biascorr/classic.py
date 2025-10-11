@@ -12,12 +12,10 @@ import os
 from typing import List
 
 import gsw
-import numpy as np
 import xarray as xr
 from mpas_tools.config import MpasConfigParser
 
 from i7aof.cmip import get_model_prefix
-from i7aof.extrap.shared import _ensure_topography
 from i7aof.grid.ismip import get_res_string
 from i7aof.io import write_netcdf
 
@@ -335,45 +333,34 @@ def _compute_thermal_forcing(
 
         # Read cmip
         ds_cmip_ct = xr.open_dataset(ct_file)
-        ds_cmip_ct = ds_cmip_ct.sel(time=slice('2010-01-01', '2014-12-31'))
+        ds_cmip_ct = ds_cmip_ct.sel(time=slice('2012-01-01', '2014-12-31'))
         ds_cmip_ct = ds_cmip_ct.chunk({'time': time_chunk})
 
         ds_cmip_sa = xr.open_dataset(sa_file)
-        ds_cmip_sa = ds_cmip_sa.sel(time=slice('2010-01-01', '2014-12-31'))
+        ds_cmip_sa = ds_cmip_sa.sel(time=slice('2012-01-01', '2014-12-31'))
         ds_cmip_sa = ds_cmip_sa.chunk({'time': time_chunk})
 
         # Compute corrected ct sa
         ct_corr = ds_cmip_ct['ct'] - ds_bias_ct['ct']
         sa_corr = ds_cmip_sa['sa'] - ds_bias_sa['sa']
 
-        # Read topography
-        topo_file = _ensure_topography(config, workdir)
-        ds_topo = xr.open_dataset(topo_file)
-        draft = ds_topo['draft']
-        draft = xr.where(np.isnan(draft), 0.0, draft)
-
         # Convert draft to pressure
-        pres = gsw.p_from_z(draft.values, ds_topo['lat'].values)
-        pres_t = xr.ones_like(ct_corr.isel(z_extrap=0))
-        for t in range(len(pres_t.time)):
-            pres_t[t, :, :] = pres
+        pres = xr.ones_like(sa_corr)
+        for k, z in enumerate(pres.z_extrap.values):
+            pres_k = gsw.p_from_z(z, ds_cmip_sa['lat'].values)
+            for t in range(len(pres.time)):
+                pres[t, k, :, :] = pres_k
 
-        # Extract ct and sa at ice draft
-        sa_base = sa_corr.interp(z_extrap=draft, method='linear')
-        sa_base = sa_base.squeeze()
-        ct_base = ct_corr.interp(z_extrap=draft, method='linear')
-        ct_base = ct_base.squeeze()
-
-        ct_freeze = lbd1 * sa_base + lbd2 + lbd3 * pres_t
+        ct_freeze = lbd1 * sa_corr + lbd2 + lbd3 * pres
         # ct_freeze = gsw.CT_freezing_poly(
         #    sa_base.values, pres_t.values, saturation_fraction=1
         # )
 
         ds_tf = xr.Dataset()
 
-        for vvar in ['x', 'y', 'time']:
+        for vvar in ['x', 'y', 'time', 'z_extrap']:
             ds_tf[vvar] = ds_cmip_ct[vvar]
-        ds_tf['tf'] = ct_base - ct_freeze
+        ds_tf['tf'] = ct_corr - ct_freeze
 
         # Convert to yearly output
         ds_tf = ds_tf.resample(time='1YE').mean()
@@ -388,7 +375,6 @@ def _compute_thermal_forcing(
         write_netcdf(ds_tf, outfile, progress_bar=True)
 
         # Clean up
-        ds_topo.close()
         ds_tf.close()
         ds_bias_ct.close()
         ds_bias_sa.close()
