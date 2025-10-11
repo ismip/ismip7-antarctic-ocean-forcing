@@ -406,8 +406,6 @@ def _apply_under_ice_mask_to_file(
         f'-> {prepared_path}'
     )
     # Write atomically; ensure only target var has fill value
-    from dask import config as dask_config  # local import to avoid cycles
-
     with dask_config.set(scheduler='synchronous'):
         write_netcdf(
             ds_prep,
