@@ -232,7 +232,7 @@ def _compute_biases(
 
         # Write out bias
         ds_out = xr.Dataset()
-        for vvar in ['x', 'y', 'z_extrap']:
+        for vvar in ['x', 'y', 'z']:
             ds_out[vvar] = ds_hist[vvar]
         ds_out[var] = bias
         write_netcdf(ds_out, biasfile, progress_bar=True)
@@ -280,7 +280,7 @@ def _apply_biascorrection(
 
                 # Write to dataset
                 ds_out = xr.Dataset()
-                for vvar in ['x', 'y', 'z_extrap', 'time']:
+                for vvar in ['x', 'y', 'z', 'time']:
                     ds_out[vvar] = ds_cmip[vvar]
                 ds_out[var] = ds_cmip[var] - ds_bias[var]
 
@@ -339,7 +339,7 @@ def _compute_thermal_forcing(
 
         # Create 4D array of pressure
         pres = xr.ones_like(sa_corr)
-        for k, z in enumerate(pres.z_extrap.values):
+        for k, z in enumerate(pres.z.values):
             pres_k = gsw.p_from_z(z, ds_cmip_sa['lat'].values)
             for t in range(len(pres.time)):
                 pres[t, k, :, :] = pres_k
@@ -352,7 +352,7 @@ def _compute_thermal_forcing(
 
         # Create dataset with thermal forcing
         ds_tf = xr.Dataset()
-        for vvar in ['x', 'y', 'time', 'z_extrap']:
+        for vvar in ['x', 'y', 'time', 'z']:
             ds_tf[vvar] = ds_cmip_ct[vvar]
         ds_tf['tf'] = ct_corr - ct_freeze
 
