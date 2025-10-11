@@ -49,6 +49,31 @@ __all__ = [
 ]
 
 
+def _strip_fill_on_non_target(
+    ds: xr.Dataset, target_vars: set[str]
+) -> xr.Dataset:
+    """Remove _FillValue from attrs/encoding for all vars not in target_vars.
+
+    This avoids writing fill values on coordinate variables or auxiliary
+    variables where they are not desired, even if upstream processes added
+    such attributes or encodings. Returns a dataset with the modifications
+    applied in-place semantics (xarray may copy lazily under the hood).
+    """
+    for name in list(ds.data_vars) + list(ds.coords):
+        if name in target_vars:
+            continue
+        var = ds[name]
+        # Drop from encoding and attrs if present
+        if isinstance(var.encoding, dict) and '_FillValue' in var.encoding:
+            try:
+                del var.encoding['_FillValue']
+            except KeyError:
+                pass
+        if isinstance(var.attrs, dict) and '_FillValue' in var.attrs:
+            var.attrs.pop('_FillValue', None)
+    return ds
+
+
 def _ensure_imbie_masks(config: MpasConfigParser, workdir: str) -> str:
     """Ensure IMBIE basin mask file exists under ``workdir`` and return it."""
     res = get_horiz_res_string(config)
@@ -242,7 +267,7 @@ def _prepare_input_single(
     try:
         if os.path.exists(tmp_out):
             os.remove(tmp_out)
-    except Exception:  # pragma: no cover - best effort
+    except OSError:  # pragma: no cover - best effort
         pass
     with dask_config.set(scheduler='synchronous'):
         write_netcdf(
@@ -335,6 +360,8 @@ def _finalize_output_with_grid(
         for tb in ('time_bnds', 'time_bounds'):
             if tb in ds_out:
                 ds_out = ds_out.drop_vars(tb, errors='ignore')
+    # Ensure no stray fill values on coords/aux variables
+    ds_out = _strip_fill_on_non_target(ds_out, target_vars={variable})
     logger.info(f'Writing extrapolated output: {final_out_path}')
     write_netcdf(
         ds_out,
@@ -397,7 +424,7 @@ def _apply_under_ice_mask_to_file(
     try:
         if os.path.exists(tmp_out):
             os.remove(tmp_out)
-    except Exception:  # best effort
+    except OSError:  # best effort
         pass
 
     log.info(
@@ -405,8 +432,6 @@ def _apply_under_ice_mask_to_file(
         f'-> {prepared_path}'
     )
     # Write atomically; ensure only target var has fill value
-    from dask import config as dask_config  # local import to avoid cycles
-
     with dask_config.set(scheduler='synchronous'):
         write_netcdf(
             ds_prep,
@@ -468,16 +493,14 @@ def _vertically_resample_to_coarse_ismip_grid(
     if os.path.isdir(zarr_store):
         shutil.rmtree(zarr_store)
 
-    # Build chunk indices
-    with xr.open_dataset(in_path, decode_times=False) as ds_meta:
-        if 'time' in ds_meta.dims and time_chunk:
-            n_time = ds_meta.sizes['time']
-            indices = [
-                (i0, min(i0 + time_chunk, n_time))
-                for i0 in range(0, n_time, time_chunk)
-            ]
-        else:
-            indices = [(0, 1)]
+    # Build chunk indices and capture original time coordinate (values + attrs)
+    # so we can reattach metadata after the Zarr round-trip.
+    (
+        indices,
+        time_template,
+        time_bounds_name,
+        time_bounds_template,
+    ) = _capture_time_templates(in_path, time_chunk)
 
     first = True
     in_chunks = {'time': time_chunk} if time_chunk else None
@@ -495,6 +518,8 @@ def _vertically_resample_to_coarse_ismip_grid(
                     f"Variable '{variable}' not found in {in_path}."
                 )
             da_out = resampler.resample(ds_slice[variable])
+            # Preserve original variable attributes (units, long_name, etc.)
+            da_out.attrs = dict(ds_slice[variable].attrs)
             ds_res = ds_slice.copy()
             ds_res[variable] = da_out.astype(ds_slice[variable].dtype)
             if 'z_extrap' in ds_res:
@@ -522,10 +547,20 @@ def _vertically_resample_to_coarse_ismip_grid(
     log.info('Converting Zarr to NetCDF...')
     ds_z = xr.open_zarr(zarr_store, consolidated=False)
     try:
+        ds_z = _restore_time_metadata(
+            ds_z,
+            time_template,
+            time_bounds_name,
+            time_bounds_template,
+            log,
+        )
+
         var_da = ds_z[variable]
         chunks = getattr(var_da, 'chunks', None)
         if chunks and all(c is not None for c in chunks):
             var_da.encoding['chunksizes'] = tuple(chunks)
+        # Ensure coordinates and non-target variables do not carry _FillValue
+        ds_z = _strip_fill_on_non_target(ds_z, target_vars={variable})
         write_netcdf(
             ds_z,
             out_nc,
@@ -540,3 +575,96 @@ def _vertically_resample_to_coarse_ismip_grid(
     except OSError:
         log.warning(f'Failed to remove Zarr store: {zarr_store}')
     return out_nc
+
+
+def _capture_time_templates(
+    in_path: str, time_chunk: int | None
+) -> tuple[
+    list[tuple[int, int]],
+    xr.DataArray | None,
+    str | None,
+    xr.DataArray | None,
+]:
+    """Capture time coordinate and bounds templates and build chunk indices.
+
+    Returns indices for time chunking along with the loaded time coordinate
+    and optional time bounds DataArray (and its name) from the source file.
+    """
+    with xr.open_dataset(in_path, decode_times=False) as ds_meta:
+        time_template: xr.DataArray | None = None
+        time_bounds_template: xr.DataArray | None = None
+        time_bounds_name: str | None = None
+
+        if 'time' in ds_meta.dims and time_chunk:
+            n_time = ds_meta.sizes['time']
+            indices = [
+                (i0, min(i0 + time_chunk, n_time))
+                for i0 in range(0, n_time, time_chunk)
+            ]
+            # Load to decouple from open file and preserve attrs/encoding
+            # load may raise ValueError/IOError-like; fallback keeps attrs
+            try:
+                time_template = ds_meta['time'].load()
+            except (ValueError, RuntimeError, OSError):
+                time_template = ds_meta['time'].copy(deep=True)
+        else:
+            indices = [(0, 1)]
+            if 'time' in ds_meta.dims:
+                try:
+                    time_template = ds_meta['time'].load()
+                except (ValueError, RuntimeError, OSError):
+                    time_template = ds_meta['time'].copy(deep=True)
+
+        # Capture time bounds if present
+        for cand in ('time_bnds', 'time_bounds'):
+            if cand in ds_meta:
+                time_bounds_name = cand
+                try:
+                    time_bounds_template = ds_meta[cand].load()
+                except (ValueError, RuntimeError, OSError):
+                    time_bounds_template = ds_meta[cand].copy(deep=True)
+                break
+
+    return (
+        indices,
+        time_template,
+        time_bounds_name,
+        time_bounds_template,
+    )
+
+
+def _restore_time_metadata(
+    ds: xr.Dataset,
+    time_template: xr.DataArray | None,
+    time_bounds_name: str | None,
+    time_bounds_template: xr.DataArray | None,
+    log: logging.Logger,
+) -> xr.Dataset:
+    """Restore time coordinate and bounds (values + attrs) onto dataset."""
+    if (
+        'time' in ds.dims
+        and 'time' in ds.variables
+        and time_template is not None
+    ):
+        if int(ds.sizes.get('time', -1)) == int(
+            time_template.sizes.get('time', -2)
+        ):
+            ds = ds.assign_coords(time=time_template)
+        else:
+            log.warning(
+                'Time length mismatch between Zarr (%s) and source (%s); '
+                'skipping time metadata restoration.',
+                ds.sizes.get('time'),
+                time_template.sizes.get('time'),
+            )
+
+    if (
+        time_bounds_name is not None
+        and time_bounds_template is not None
+        and 'time' in ds.dims
+        and int(ds.sizes.get('time', -1))
+        == int(time_bounds_template.sizes.get('time', -2))
+    ):
+        ds[time_bounds_name] = time_bounds_template
+
+    return ds

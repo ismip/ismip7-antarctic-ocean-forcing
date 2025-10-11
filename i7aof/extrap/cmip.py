@@ -471,7 +471,7 @@ def _execute_time_chunks(
                         f.cancel()
                     logger.error(str(ce))
                     raise
-                except Exception as e:
+                except BaseException as e:
                     # Unexpected worker exception; include chunk indices
                     # if known
                     i0i1 = fut_to_idx.get(fut, ('?', '?'))
@@ -606,7 +606,7 @@ def _run_chunk_worker(
             try:
                 if os.path.exists(horizontal_tmp):
                     os.remove(horizontal_tmp)
-            except Exception:
+            except OSError:
                 pass
             _run_exe_capture(
                 'i7aof_extrap_horizontal',
@@ -625,7 +625,7 @@ def _run_chunk_worker(
             try:
                 if os.path.exists(vertical_tmp):
                     os.remove(vertical_tmp)
-            except Exception:
+            except OSError:
                 pass
             _run_exe_capture(
                 'i7aof_extrap_vertical',
@@ -659,11 +659,11 @@ def _run_chunk_worker(
     finally:
         try:
             faulthandler.disable()
-        except Exception:
+        except RuntimeError:
             pass
         try:
             fh_fault.close()
-        except Exception:
+        except OSError:
             pass
 
 
@@ -773,7 +773,7 @@ def _prepare_input_with_coords(
     try:
         if os.path.exists(tmp_out):
             os.remove(tmp_out)
-    except Exception:
+    except OSError:
         pass
 
     with dask_config.set(scheduler='synchronous'):
@@ -939,7 +939,7 @@ def _read_status(path: str) -> dict:
         for k in default:
             data.setdefault(k, False)
         return data
-    except Exception:
+    except (OSError, json.JSONDecodeError, ValueError):
         # If unreadable, start fresh (safer than assuming done)
         return default
 
