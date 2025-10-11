@@ -1,3 +1,5 @@
+import os
+
 import xarray as xr
 
 from i7aof.grid.ismip import get_ismip_grid_filename
@@ -6,6 +8,17 @@ from i7aof.grid.ismip import get_ismip_grid_filename
 class VerticalInterpolator:
     """
     A class to perform vertical interpolation to the ISMIP reference grid.
+
+    Notes
+    -----
+    The ISMIP grid path is obtained from
+    :func:`i7aof.grid.ismip.get_ismip_grid_filename`. If this path is
+    relative and not found from the current working directory, we will
+    attempt to resolve it against ``[workdir] base_dir`` from ``config``.
+    If still not found, a FileNotFoundError is raised with the attempted
+    paths. Ensure the ISMIP grid exists (see
+    :func:`i7aof.grid.ismip.write_ismip_grid`) and use a consistent
+    working directory or provide ``[workdir] base_dir`` in the config.
 
     Attributes
     ----------
@@ -52,7 +65,22 @@ class VerticalInterpolator:
         config :  mpas_tools.config.MpasConfigParser
             Configuration options
         """
-        ds_ismip = xr.open_dataset(get_ismip_grid_filename(config))
+        grid_rel = get_ismip_grid_filename(config)
+        grid_path = grid_rel
+        if not os.path.isabs(grid_path) and not os.path.exists(grid_path):
+            if config.has_option('workdir', 'base_dir'):
+                candidate = os.path.join(
+                    config.get('workdir', 'base_dir'), grid_rel
+                )
+                if os.path.exists(candidate):
+                    grid_path = candidate
+        if not os.path.exists(grid_path):
+            raise FileNotFoundError(
+                'ISMIP grid file not found. Tried: '
+                f"'{grid_rel}' and '{grid_path}'. "
+                'Ensure the grid is generated and paths are correct.'
+            )
+        ds_ismip = xr.open_dataset(grid_path)
         self.threshold = config.getfloat('vert_interp', 'threshold')
         self.dst_coord = dst_coord
         self.src_coord = src_coord

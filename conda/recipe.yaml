@@ -52,6 +52,7 @@ requirements:
     - shapely
     - tqdm
     - xarray
+    - zarr
 
 tests:
   - python:

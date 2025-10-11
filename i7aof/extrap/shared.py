@@ -34,6 +34,7 @@ from i7aof.grid.ismip import (
 from i7aof.imbie.masks import make_imbie_masks
 from i7aof.io import write_netcdf
 from i7aof.topo import get_topo
+from i7aof.vert.resamp import VerticalResampler
 
 __all__ = [
     '_ensure_ismip_grid',
@@ -44,6 +45,7 @@ __all__ = [
     '_run_exe_capture',
     '_finalize_output_with_grid',
     '_apply_under_ice_mask_to_file',
+    '_vertically_resample_to_coarse_ismip_grid',
 ]
 
 
@@ -419,3 +421,122 @@ def _apply_under_ice_mask_to_file(
     # Close datasets
     ds_prep.close()
     ds_topo.close()
+
+
+def _vertically_resample_to_coarse_ismip_grid(
+    *,
+    in_path: str,
+    grid_file: str,
+    variable: str,
+    config: MpasConfigParser,
+    out_nc: str,
+    time_chunk: int | None,
+    zarr_store: str,
+    logger: logging.Logger | None = None,
+) -> str:
+    """
+    Resample CT and SA vertically from the finer interpolation grid to the
+    coarser ISMIP grid.  Process the data in time chunks to Zarr, convert to
+    NetCDF, and return out_nc.
+
+    - Removes any pre-existing Zarr store at the given path.
+    - Appends along time if present; otherwise writes a single slice.
+    - Preserves chunk encodings for the target variable to speed NetCDF write.
+    """
+    log = logger or logging.getLogger(__name__)
+    if os.path.exists(out_nc):
+        log.info(f'Resampled output exists, skipping: {out_nc}')
+        return out_nc
+
+    # Prepare resampler and optional z_bnds once
+    with xr.open_dataset(grid_file, decode_times=False) as ds_grid:
+        z_src = ds_grid['z_extrap']
+        src_valid = xr.DataArray(
+            np.ones(z_src.shape, dtype=np.float32),
+            dims=('z_extrap',),
+            coords={'z_extrap': z_src},
+        )
+        resampler = VerticalResampler(
+            src_valid=src_valid,
+            src_coord='z_extrap',
+            dst_coord='z',
+            config=config,
+        )
+        z_bnds = ds_grid['z_bnds'] if 'z_bnds' in ds_grid else None
+
+    # Clean any old store
+    if os.path.isdir(zarr_store):
+        shutil.rmtree(zarr_store)
+
+    # Build chunk indices
+    with xr.open_dataset(in_path, decode_times=False) as ds_meta:
+        if 'time' in ds_meta.dims and time_chunk:
+            n_time = ds_meta.sizes['time']
+            indices = [
+                (i0, min(i0 + time_chunk, n_time))
+                for i0 in range(0, n_time, time_chunk)
+            ]
+        else:
+            indices = [(0, 1)]
+
+    first = True
+    in_chunks = {'time': time_chunk} if time_chunk else None
+    with xr.open_dataset(
+        in_path, decode_times=False, chunks=in_chunks
+    ) as ds_in:
+        for i0, i1 in indices:
+            ds_slice = (
+                ds_in.isel(time=slice(i0, i1))
+                if 'time' in ds_in.dims
+                else ds_in
+            )
+            if variable not in ds_slice:
+                raise KeyError(
+                    f"Variable '{variable}' not found in {in_path}."
+                )
+            da_out = resampler.resample(ds_slice[variable])
+            ds_res = ds_slice.copy()
+            ds_res[variable] = da_out.astype(ds_slice[variable].dtype)
+            if 'z_extrap' in ds_res:
+                ds_res = ds_res.drop_vars(['z_extrap'])
+            if z_bnds is not None:
+                ds_res['z_bnds'] = z_bnds
+            # Chunk this slice fully in time for contiguous appends
+            if 'time' in ds_res.dims:
+                ds_res = ds_res.chunk({'time': max(i1 - i0, 1)})
+
+            # Write/append to Zarr
+            if first:
+                log.info(f'Creating Zarr store: {zarr_store}')
+                ds_res.to_zarr(zarr_store, mode='w', consolidated=False)
+            else:
+                ds_res.to_zarr(
+                    zarr_store,
+                    mode='a',
+                    append_dim='time' if 'time' in ds_res.dims else None,
+                    consolidated=False,
+                )
+            first = False
+
+    # Convert Zarr to NetCDF once
+    log.info('Converting Zarr to NetCDF...')
+    ds_z = xr.open_zarr(zarr_store, consolidated=False)
+    try:
+        var_da = ds_z[variable]
+        chunks = getattr(var_da, 'chunks', None)
+        if chunks and all(c is not None for c in chunks):
+            var_da.encoding['chunksizes'] = tuple(chunks)
+        write_netcdf(
+            ds_z,
+            out_nc,
+            has_fill_values=lambda name, v, _v=variable: name == _v,
+            progress_bar=True,
+        )
+    finally:
+        ds_z.close()
+    # Cleanup Zarr on success
+    try:
+        shutil.rmtree(zarr_store)
+    except OSError:
+        log.warning(f'Failed to remove Zarr store: {zarr_store}')
+    return out_nc

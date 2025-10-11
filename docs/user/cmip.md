@@ -16,3 +16,16 @@ Guidance on obtaining and preparing CMIP6/CMIP7 data for `i7aof`.
   `[convert_cmip] time_chunk = 12` in your model config.
 - Set `I7AOF_DEBUG_TEOS10=1` to print profiling info for the TEOS-10 step if
   you need to troubleshoot performance.
+
+## Post-extrap vertical resampling
+
+After running `ismip7-antarctic-extrap-cmip`, a conservative resampling step
+maps `ct`/`sa` from `z_extrap` to `z` (20 m → 60 m by default). This now uses a
+Zarr-first workflow that appends results by time chunk and converts once to
+NetCDF, significantly improving performance and reducing memory usage.
+
+- Configure the resampling time chunk length with
+  `[extrap_cmip] time_chunk_resample` in your config.
+- Final outputs use the `ismip<hres>_<dz>` resolution tag (or `_z` suffix if
+  the tag would be unchanged). A temporary `<basename>.zarr/` folder appears
+  during processing and is cleaned up automatically.

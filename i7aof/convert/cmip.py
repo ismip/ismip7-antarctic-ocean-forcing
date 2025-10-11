@@ -53,6 +53,7 @@ def convert_cmip(
 
     workdir = _get_or_config_path(config, workdir, 'workdir')
     inputdir = _get_or_config_path(config, inputdir, 'inputdir')
+    _ensure_config_base_dirs(config, workdir=workdir, inputdir=inputdir)
 
     outdir = os.path.join(workdir, 'convert', model, scenario, 'Omon', 'ct_sa')
     os.makedirs(outdir, exist_ok=True)
@@ -135,6 +136,19 @@ def _parse_time_chunk(config: MpasConfigParser) -> int | None:
     if raw in ('', 'None', 'none'):
         return None
     return int(raw)
+
+
+def _ensure_config_base_dirs(
+    config: MpasConfigParser,
+    *,
+    workdir: str | None = None,
+    inputdir: str | None = None,
+) -> None:
+    """Persist provided workdir/inputdir into config base_dir options."""
+    if workdir is not None:
+        config.set('workdir', 'base_dir', workdir)
+    if inputdir is not None:
+        config.set('inputdir', 'base_dir', inputdir)
 
 
 def _process_file_pair(

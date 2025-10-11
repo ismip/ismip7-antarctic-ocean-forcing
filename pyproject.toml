@@ -33,7 +33,8 @@ dependencies = [
     "scikit-fmm",
     "scipy",
     "tqdm",
-    "xarray"
+    "xarray",
+    "zarr"
 ]
 
 [project.optional-dependencies]

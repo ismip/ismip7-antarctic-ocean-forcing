@@ -8,3 +8,10 @@ Vertical interpolation helpers. See {doc}`../dev/packages/vert` for developer de
    :undoc-members:
    :show-inheritance:
 ```
+
+```{eval-rst}
+.. automodule:: i7aof.vert.resamp
+   :members:
+   :undoc-members:
+   :show-inheritance:
+```
