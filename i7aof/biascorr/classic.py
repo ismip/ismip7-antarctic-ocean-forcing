@@ -223,11 +223,12 @@ def _compute_biases(
         # Extract climatology period (only full annual for now)
         # TODO make dependent on clim
         ds_hist = ds_hist.sel(time=slice('1995-01-01', '2015-01-01'))
-        ds_hist = ds_hist.chunk({'time': time_chunk})
+        # chunk just the variable because of issues chunking whole dataset
+        da_hist = ds_hist[var].chunk({'time': time_chunk})
 
         # Compute time-average over climatology period
         dpm = ds_hist.time.dt.days_in_month
-        weightedsum = (ds_hist[var] * dpm).sum(dim='time')
+        weightedsum = (da_hist * dpm).sum(dim='time')
         average = weightedsum / dpm.sum()
 
         bias = average - ds_clim[var]
@@ -271,7 +272,7 @@ def _apply_biascorrection(
 
             # Read CMIP files
             ds_cmip = xr.open_dataset(file)
-            ds_cmip = ds_cmip.chunk({'time': time_chunk})
+            da_cmip = ds_cmip[var].chunk({'time': time_chunk})
 
             # Define output filename
             outfile = os.path.join(outdir, os.path.basename(file))
@@ -284,7 +285,7 @@ def _apply_biascorrection(
                 ds_out = xr.Dataset()
                 for vvar in ['x', 'y', 'z', 'time']:
                     ds_out[vvar] = ds_cmip[vvar]
-                ds_out[var] = ds_cmip[var] - ds_bias[var]
+                ds_out[var] = da_cmip - ds_bias[var]
 
                 # Convert to yearly output
                 ds_out = ds_out.resample(time='1YE').mean()
