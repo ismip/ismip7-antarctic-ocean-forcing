@@ -263,8 +263,8 @@ def _apply_biascorrection(
 
     time_chunk = config.get('biascorr', 'time_chunk')
 
-    for ct_file, sa_file in zip(ct_files, sa_files, strict=False):
-        for var, file in zip(['ct', 'sa'], [ct_file, sa_file], strict=False):
+    for ct_file, sa_file in zip(ct_files, sa_files, strict=True):
+        for var, file in zip(['ct', 'sa'], [ct_file, sa_file], strict=True):
             # Read biases
             biasfile = os.path.join(biasdir, f'bias_{var}.nc')
             ds_bias = xr.open_dataset(biasfile)
