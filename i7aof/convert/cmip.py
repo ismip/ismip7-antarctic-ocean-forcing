@@ -2,7 +2,7 @@ import argparse
 import os
 import shutil
 import uuid
-from typing import List, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 import xarray as xr
@@ -171,7 +171,9 @@ def _process_file_pair(
     )
     os.makedirs(tmp_dir, exist_ok=True)
 
-    bounds_records = _capture_bounds(ds_thetao, depth_var, lat_var, lon_var)
+    bounds_records, time_bounds = _capture_bounds(
+        ds_thetao, depth_var, lat_var, lon_var
+    )
     chunk_files: List[str] = []
     try:
         for t0, t1 in tqdm(time_indices, desc='time chunks', unit='chunk'):
@@ -188,6 +190,7 @@ def _process_file_pair(
                 lon_var,
                 depth_var,
                 bounds_records,
+                time_bounds,
             )
             if 'time' in ds_thetao.dims:
                 chunk_name = f'{out_base}_part-{t0:06d}-{t1:06d}.nc'
@@ -206,7 +209,7 @@ def _process_file_pair(
                 concat_dim='time',
                 decode_times=False,
             )
-        _inject_bounds(ds_final, ds_thetao, bounds_records)
+        _inject_bounds(ds_final, ds_thetao, bounds_records, time_bounds)
         write_netcdf(ds_final, out_abs, progress_bar=True)
         ds_final.close()
     finally:
@@ -232,8 +235,12 @@ def _capture_bounds(
     depth_var: str,
     lat_var: str,
     lon_var: str,
-) -> list[tuple[str, str, xr.DataArray]]:
+) -> tuple[
+    list[tuple[str, str, xr.DataArray]],
+    Optional[tuple[str, str, xr.DataArray]],
+]:
     records: list[tuple[str, str, xr.DataArray]] = []
+    time_bounds: tuple[str, str, xr.DataArray] | None = None
     for coord_name in (depth_var, lat_var, lon_var):
         if coord_name not in ds_thetao:
             continue
@@ -250,7 +257,13 @@ def _capture_bounds(
         raise ValueError(
             'Missing expected bounds for coordinates: ' + ', '.join(missing)
         )
-    return records
+    # Optionally capture time bounds (do not error if absent)
+    if 'time' in ds_thetao:
+        tcoord = ds_thetao['time']
+        tbname = tcoord.attrs.get('bounds')
+        if isinstance(tbname, str) and tbname in ds_thetao:
+            time_bounds = ('time', tbname, ds_thetao[tbname])
+    return records, time_bounds
 
 
 def _convert_chunk_and_strip_bounds(
@@ -260,6 +273,7 @@ def _convert_chunk_and_strip_bounds(
     lon_var: str,
     depth_var: str,
     bounds_records: list[tuple[str, str, xr.DataArray]],
+    time_bounds: tuple[str, str, xr.DataArray] | None,
 ) -> xr.Dataset:
     ds_ctsa = convert_dataset_to_ct_sa(
         ds_th_chunk,
@@ -280,6 +294,16 @@ def _convert_chunk_and_strip_bounds(
             ds_ctsa[coord_name].attrs.pop('bounds', None)
         if bname in ds_ctsa.variables:
             ds_ctsa = ds_ctsa.drop_vars(bname)
+    # Drop time bounds and its attribute, if present in the chunk
+    if time_bounds is not None:
+        tcoord_name, tbname, _tbda = time_bounds
+        if (
+            tcoord_name in ds_ctsa.coords
+            and 'bounds' in ds_ctsa[tcoord_name].attrs
+        ):
+            ds_ctsa[tcoord_name].attrs.pop('bounds', None)
+        if tbname in ds_ctsa.variables:
+            ds_ctsa = ds_ctsa.drop_vars(tbname)
     return ds_ctsa
 
 
@@ -287,6 +311,7 @@ def _inject_bounds(
     ds_final: xr.Dataset,
     ds_thetao: xr.Dataset,
     bounds_records: list[tuple[str, str, xr.DataArray]],
+    time_bounds: tuple[str, str, xr.DataArray] | None,
 ) -> None:
     for coord_name, bname, bda in bounds_records:
         ds_final[bname] = bda.load()
@@ -295,6 +320,15 @@ def _inject_bounds(
                 {coord_name: ds_thetao[coord_name]}
             )
         ds_final[coord_name].attrs['bounds'] = bname
+    # Inject time bounds if available
+    if time_bounds is not None:
+        tcoord_name, tbname, bda = time_bounds
+        ds_final[tbname] = bda.load()
+        if tcoord_name not in ds_final.coords:
+            ds_final = ds_final.assign_coords(
+                {tcoord_name: ds_thetao[tcoord_name]}
+            )
+        ds_final[tcoord_name].attrs['bounds'] = tbname
 
 
 def main() -> None:
