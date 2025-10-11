@@ -20,6 +20,7 @@ classifiers = [
 # dependencies that are available on PyPI, a subset of those on conda-forge
 dependencies = [
     "cmocean",
+    "cftime",
     "dask",
     "gsw",
     "inpoly",
@@ -61,6 +62,7 @@ ismip7-antarctic-remap-clim = "i7aof.remap.clim:main"
 ismip7-antarctic-remap-cmip = "i7aof.remap.cmip:main"
 ismip7-antarctic-extrap-cmip = "i7aof.extrap.cmip:main"
 ismip7-antarctic-extrap-clim = "i7aof.extrap.clim:main"
+ismip7-antarctic-annual-average = "i7aof.time.average:main"
 
 [tool.setuptools.dynamic]
 version = { attr = "i7aof.version.__version__" }
