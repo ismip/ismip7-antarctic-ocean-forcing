@@ -11,13 +11,14 @@ Workflow
 import os
 from typing import List, Tuple
 
+import cftime
 import gsw
 import numpy as np
 import xarray as xr
 from mpas_tools.config import MpasConfigParser
 
 from i7aof.cmip import get_model_prefix
-from i7aof.grid.ismip import get_res_string
+from i7aof.grid.ismip import get_ismip_grid_filename, get_res_string
 from i7aof.io import write_netcdf
 
 
@@ -235,24 +236,38 @@ def _compute_biases(
         weightedsum = (da_hist * dpm).sum(dim='time')
         modclim = weightedsum / dpm.sum()
 
-        # Write out model climatology
+        # Write out model climatology (preserve attrs) and overwrite
+        # x/y/z (and bounds) from ISMIP grid
         ds_out = xr.Dataset()
-        for vvar in ['x', 'y', 'z']:
-            ds_out[vvar] = ds_hist[vvar]
+        ds_grid = xr.open_dataset(
+            get_ismip_grid_filename(config), decode_times=False
+        )
+        _assign_coord_with_bounds(ds_out, ds_grid, 'x')
+        _assign_coord_with_bounds(ds_out, ds_grid, 'y')
+        _assign_coord_with_bounds(ds_out, ds_grid, 'z')
+        # data var with attrs
         ds_out[var] = modclim
+        ds_out[var].attrs = ds_hist[var].attrs
         write_netcdf(ds_out, modclimfile, progress_bar=True)
         ds_out.close()
+        ds_grid.close()
 
         # Compute bias in model climatology
         bias = modclim - ds_clim[var]
 
-        # Write out bias
+        # Write out bias (keep same attrs as variable) and coordinates
         ds_out = xr.Dataset()
-        for vvar in ['x', 'y', 'z']:
-            ds_out[vvar] = ds_hist[vvar]
+        ds_grid = xr.open_dataset(
+            get_ismip_grid_filename(config), decode_times=False
+        )
+        _assign_coord_with_bounds(ds_out, ds_grid, 'x')
+        _assign_coord_with_bounds(ds_out, ds_grid, 'y')
+        _assign_coord_with_bounds(ds_out, ds_grid, 'z')
         ds_out[var] = bias
+        ds_out[var].attrs = ds_hist[var].attrs
         write_netcdf(ds_out, biasfile, progress_bar=True)
         ds_out.close()
+        ds_grid.close()
 
         ds_clim.close()
         ds_hist.close()
@@ -294,18 +309,31 @@ def _apply_biascorrection(
             else:
                 # Output file doesn't exist yet, write out
 
-                # Write to dataset
+                # Build dataset with ISMIP coordinates (and bounds) first
                 ds_out = xr.Dataset()
-                for vvar in ['x', 'y', 'z', 'time']:
-                    ds_out[vvar] = ds_cmip[vvar]
-                ds_out[var] = da_cmip - ds_bias[var]
+                ds_grid = xr.open_dataset(
+                    get_ismip_grid_filename(config), decode_times=False
+                )
+                _assign_coord_with_bounds(ds_out, ds_grid, 'x')
+                _assign_coord_with_bounds(ds_out, ds_grid, 'y')
+                _assign_coord_with_bounds(ds_out, ds_grid, 'z')
+                # time coord comes from source; bounds will be added
+                # after resample
+                ds_out['time'] = ds_cmip['time']
 
-                # Convert to yearly output
+                # Corrected variable and preserve attrs
+                ds_out[var] = da_cmip - ds_bias[var]
+                ds_out[var].attrs = ds_cmip[var].attrs
+
+                # Convert to yearly output (keep CF time, add time_bnds)
                 ds_out = ds_out.resample(time='1YE').mean()
-                ds_out['time'] = ds_out['time'].dt.year
+                _assign_time_bounds_annual(ds_out, ds_cmip)
+                # Re-apply variable attrs after resample (may be dropped)
+                ds_out[var].attrs = ds_cmip[var].attrs
 
                 write_netcdf(ds_out, outfile, progress_bar=True)
                 ds_out.close()
+                ds_grid.close()
 
             # Clean up
             ds_bias.close()
@@ -366,15 +394,20 @@ def _compute_thermal_forcing(
         #    sa_corr, pres, saturation_fraction=1
         # )
 
-        # Create dataset with thermal forcing
+        # Create dataset with thermal forcing; include ISMIP coords/bounds
         ds_tf = xr.Dataset()
-        for vvar in ['x', 'y', 'time', 'z']:
-            ds_tf[vvar] = ds_cmip_ct[vvar]
+        ds_grid = xr.open_dataset(
+            get_ismip_grid_filename(config), decode_times=False
+        )
+        _assign_coord_with_bounds(ds_tf, ds_grid, 'x')
+        _assign_coord_with_bounds(ds_tf, ds_grid, 'y')
+        _assign_coord_with_bounds(ds_tf, ds_grid, 'z')
+        ds_tf['time'] = ds_cmip_ct['time']
         ds_tf['tf'] = ct_corr - ct_freeze
 
-        # Convert to yearly output
+        # Convert to yearly output; keep CF time and add time_bnds
         ds_tf = ds_tf.resample(time='1YE').mean()
-        ds_tf['time'] = ds_tf['time'].dt.year
+        _assign_time_bounds_annual(ds_tf, ds_cmip_ct)
 
         # Define output file
         file = ct_file.replace('ct', 'tf')
@@ -385,7 +418,143 @@ def _compute_thermal_forcing(
 
         # Clean up
         ds_tf.close()
+        ds_grid.close()
         ds_bias_ct.close()
         ds_bias_sa.close()
         ds_cmip_ct.close()
         ds_cmip_sa.close()
+
+
+# -----------------------------------------------------------------------------
+# Helpers for attributes and CF bounds
+# -----------------------------------------------------------------------------
+
+
+def _assign_coord_with_bounds(
+    ds_out: xr.Dataset, ds_grid: xr.Dataset, coord: str
+) -> None:
+    """Assign a 1D coordinate and its bounds to ds_out from ISMIP grid.
+
+    - Copies the coordinate variable and its attributes from the canonical
+      ISMIP grid
+    - Copies the corresponding *_bnds variable and sets coord 'bounds'
+    """
+    if coord not in ds_grid:
+        return
+    ds_out[coord] = ds_grid[coord]
+    # Determine bounds variable name and copy over
+    bname = ds_grid[coord].attrs.get('bounds', f'{coord}_bnds')
+    if bname in ds_grid:
+        ds_out[bname] = ds_grid[bname]
+        ds_out[bname].attrs = ds_grid[bname].attrs.copy()
+    ds_out[coord].attrs['bounds'] = bname
+
+
+## removed: local bounds recomputation; always use ISMIP grid
+
+
+def _assign_time_bounds_annual(
+    ds_yearly: xr.Dataset, ds_src: xr.Dataset
+) -> None:
+    """Create CF-compliant annual time bounds and set attributes on time.
+
+    ds_yearly should be the result of resample(time='1YE').mean().
+    We keep the datetime-like 'time' coordinate and attach 'time_bnds'.
+    If monthly time bounds exist in ds_src as 'time_bnds' (with two columns),
+    we derive yearly bounds from min(start) and max(end) across each year.
+    Otherwise, we fall back to calendar-based [YYYY-01-01, (YYYY+1)-01-01).
+    """
+    if 'time' not in ds_yearly:
+        return
+    # Try to determine calendar
+    cal = (
+        ds_src['time'].encoding.get('calendar')
+        if 'time' in ds_src and hasattr(ds_src['time'], 'encoding')
+        else None
+    )
+    if cal is None:
+        cal = (
+            ds_src['time'].attrs.get('calendar', 'standard')
+            if 'time' in ds_src
+            else 'standard'
+        )
+
+    years = xr.DataArray(ds_yearly['time'].dt.year, dims=('time',))
+
+    # Prefer deriving from source monthly time bounds if available
+    if 'time_bnds' in ds_src and 'time' in ds_src['time_bnds'].dims:
+        tb = ds_src['time_bnds']
+        # Normalize bounds dim name to 'bnds' in output
+        bdim = tb.dims[-1]
+        if bdim != 'bnds':
+            tb = tb.rename({bdim: 'bnds'})
+        starts = []
+        ends = []
+        for y in years.values:
+            mask = ds_src['time'].dt.year == int(y)
+            if mask.any():
+                tby = tb.sel(time=mask)
+                starts.append(tby.isel(bnds=0).min().item())
+                ends.append(tby.isel(bnds=1).max().item())
+            else:
+                s, e = _year_bounds_cftime(int(y), cal)
+                starts.append(s)
+                ends.append(e)
+        bnds = np.stack(
+            [
+                np.array(starts, dtype=object),
+                np.array(ends, dtype=object),
+            ],
+            axis=1,
+        )
+        ds_yearly['time_bnds'] = (('time', 'bnds'), bnds)
+    else:
+        # Fallback: calendar-year bounds
+        starts = []
+        ends = []
+        for y in years.values:
+            s, e = _year_bounds_cftime(int(y), cal)
+            starts.append(s)
+            ends.append(e)
+        bnds = np.stack(
+            [
+                np.array(starts, dtype=object),
+                np.array(ends, dtype=object),
+            ],
+            axis=1,
+        )
+    ds_yearly['time_bnds'] = (('time', 'bnds'), bnds)
+
+    # Set coord attributes
+    ds_yearly['time'].attrs = ds_src['time'].attrs.copy()
+    ds_yearly['time'].attrs['bounds'] = 'time_bnds'
+    # provide minimal attributes on time_bnds
+    ds_yearly['time_bnds'].attrs = {}
+    units = ds_yearly['time'].attrs.get('units')
+    if units is not None:
+        ds_yearly['time_bnds'].attrs['units'] = units
+    cal_out = (
+        ds_yearly['time'].encoding.get('calendar')
+        if hasattr(ds_yearly['time'], 'encoding')
+        else ds_yearly['time'].attrs.get('calendar')
+    )
+    if cal_out is not None:
+        ds_yearly['time_bnds'].attrs['calendar'] = cal_out
+
+
+def _year_bounds_cftime(year: int, calendar: str):
+    """Return (start, end) cftime objects for the given year and calendar."""
+    cal = (calendar or 'standard').lower()
+    if cal in ('standard', 'gregorian'):
+        cls = cftime.DatetimeGregorian
+    elif cal == 'proleptic_gregorian':
+        cls = cftime.DatetimeProlepticGregorian
+    elif cal in ('noleap', '365_day'):
+        cls = cftime.DatetimeNoLeap
+    elif cal in ('all_leap', '366_day'):
+        cls = cftime.DatetimeAllLeap
+    elif cal == '360_day':
+        cls = cftime.Datetime360Day
+    else:
+        cls = cftime.DatetimeGregorian
+    return cls(year, 1, 1), cls(year + 1, 1, 1)
