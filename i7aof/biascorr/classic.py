@@ -12,6 +12,7 @@ import os
 from typing import List, Tuple
 
 import gsw
+import numpy as np
 import xarray as xr
 from mpas_tools.config import MpasConfigParser
 
@@ -354,10 +355,10 @@ def _compute_thermal_forcing(
 
         # Create 4D array of pressure
         pres = xr.ones_like(sa_corr)
-        for k, z in enumerate(pres.z.values):
-            pres_k = gsw.p_from_z(z, ds_cmip_sa['lat'].values)
-            for t in range(len(pres.time)):
-                pres[t, k, :, :] = pres_k
+        latitudes = ds_cmip_sa['lat'].values
+        depths = pres.z.values
+        pres_t = np.array([gsw.p_from_z(z, latitudes) for z in depths])
+        pres[:, :, :, :] = pres_t[np.newaxis, :, :, :]
 
         # Compute freezing temperature
         ct_freeze = lbd1 * sa_corr + lbd2 + lbd3 * pres
@@ -370,6 +371,8 @@ def _compute_thermal_forcing(
         for vvar in ['x', 'y', 'time', 'z']:
             ds_tf[vvar] = ds_cmip_ct[vvar]
         ds_tf['tf'] = ct_corr - ct_freeze
+        # TODO remove writing out pres after QC
+        ds_tf['pres'] = pres
 
         # Convert to yearly output
         ds_tf = ds_tf.resample(time='1YE').mean()
