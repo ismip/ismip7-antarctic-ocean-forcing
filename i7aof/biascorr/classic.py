@@ -371,8 +371,6 @@ def _compute_thermal_forcing(
         for vvar in ['x', 'y', 'time', 'z']:
             ds_tf[vvar] = ds_cmip_ct[vvar]
         ds_tf['tf'] = ct_corr - ct_freeze
-        # TODO remove writing out pres after QC
-        ds_tf['pres'] = pres
 
         # Convert to yearly output
         ds_tf = ds_tf.resample(time='1YE').mean()
