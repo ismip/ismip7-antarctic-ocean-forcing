@@ -332,13 +332,13 @@ def _compute_thermal_forcing(
 
         # Read cmip output
         ds_cmip_ct = xr.open_dataset(ct_file)
-        ds_cmip_ct = ds_cmip_ct.chunk({'time': time_chunk})
+        da_cmip_ct = ds_cmip_ct['ct'].chunk({'time': time_chunk})
         ds_cmip_sa = xr.open_dataset(sa_file)
-        ds_cmip_sa = ds_cmip_sa.chunk({'time': time_chunk})
+        da_cmip_sa = ds_cmip_sa['sa'].chunk({'time': time_chunk})
 
         # Compute corrected ct sa
-        ct_corr = ds_cmip_ct['ct'] - ds_bias_ct['ct']
-        sa_corr = ds_cmip_sa['sa'] - ds_bias_sa['sa']
+        ct_corr = da_cmip_ct - ds_bias_ct['ct']
+        sa_corr = da_cmip_sa - ds_bias_sa['sa']
 
         # Create 4D array of pressure
         pres = xr.ones_like(sa_corr)
