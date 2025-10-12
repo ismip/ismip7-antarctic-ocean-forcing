@@ -186,6 +186,8 @@ def _compute_biases(
     )
     os.makedirs(biasdir, exist_ok=True)
 
+    modclimdir = os.path.join(workdir, 'biascorr', model, 'intermediate')
+
     climdir = os.path.join(workdir, 'extrap', 'climatology', clim_name)
 
     hist_dir = os.path.join(
@@ -210,6 +212,7 @@ def _compute_biases(
         if os.path.exists(biasfile):
             print(f'Bias file already exists, skipping: {biasfile}')
             continue
+        modclimfile = os.path.join(modclimdir, f'model_clim_{var}.nc')
 
         # Get climatology file for this variable
         climfile = os.path.join(
@@ -229,9 +232,18 @@ def _compute_biases(
         # Compute time-average over climatology period
         dpm = ds_hist.time.dt.days_in_month
         weightedsum = (da_hist * dpm).sum(dim='time')
-        average = weightedsum / dpm.sum()
+        modclim = weightedsum / dpm.sum()
 
-        bias = average - ds_clim[var]
+        # Write out model climatology
+        ds_out = xr.Dataset()
+        for vvar in ['x', 'y', 'z']:
+            ds_out[vvar] = ds_hist[vvar]
+        ds_out[var] = modclim
+        write_netcdf(ds_out, modclimfile, progress_bar=True)
+        ds_out.close()
+
+        # Compute bias in model climatology
+        bias = modclim - ds_clim[var]
 
         # Write out bias
         ds_out = xr.Dataset()
@@ -239,10 +251,10 @@ def _compute_biases(
             ds_out[vvar] = ds_hist[vvar]
         ds_out[var] = bias
         write_netcdf(ds_out, biasfile, progress_bar=True)
+        ds_out.close()
 
         ds_clim.close()
         ds_hist.close()
-        ds_out.close()
 
 
 def _apply_biascorrection(
