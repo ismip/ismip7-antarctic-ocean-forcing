@@ -404,10 +404,22 @@ def _compute_thermal_forcing(
         _assign_coord_with_bounds(ds_tf, ds_grid, 'z')
         ds_tf['time'] = ds_cmip_ct['time']
         ds_tf['tf'] = ct_corr - ct_freeze
+        tf_attrs = {
+            'units': 'degC',
+            'long_name': 'Thermal Forcing',
+            'comment': (
+                'Computed as Conservative Temperature minus linearized '
+                'freezing temperature using liquidus coefficients '
+                '(Jourdain et al., 2017; doi:10.1002/2016JC012509).'
+            ),
+        }
+        ds_tf['tf'].attrs = tf_attrs
 
         # Convert to yearly output; keep CF time and add time_bnds
         ds_tf = ds_tf.resample(time='1YE').mean()
         _assign_time_bounds_annual(ds_tf, ds_cmip_ct)
+        # Re-apply variable attrs after resample (may be dropped)
+        ds_tf['tf'].attrs = tf_attrs
 
         # Define output file
         file = ct_file.replace('ct', 'tf')
