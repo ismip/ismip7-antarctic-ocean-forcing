@@ -248,7 +248,12 @@ def _compute_biases(
         # data var with attrs
         ds_out[var] = modclim
         ds_out[var].attrs = ds_hist[var].attrs
-        write_netcdf(ds_out, modclimfile, progress_bar=True)
+        write_netcdf(
+            ds_out,
+            modclimfile,
+            progress_bar=True,
+            has_fill_values=lambda name, _v, v=var: name == v,
+        )
         ds_out.close()
         ds_grid.close()
 
@@ -265,7 +270,12 @@ def _compute_biases(
         _assign_coord_with_bounds(ds_out, ds_grid, 'z')
         ds_out[var] = bias
         ds_out[var].attrs = ds_hist[var].attrs
-        write_netcdf(ds_out, biasfile, progress_bar=True)
+        write_netcdf(
+            ds_out,
+            biasfile,
+            progress_bar=True,
+            has_fill_values=lambda name, _v, v=var: name == v,
+        )
         ds_out.close()
         ds_grid.close()
 
@@ -331,7 +341,12 @@ def _apply_biascorrection(
                 # Re-apply variable attrs after resample (may be dropped)
                 ds_out[var].attrs = ds_cmip[var].attrs
 
-                write_netcdf(ds_out, outfile, progress_bar=True)
+                write_netcdf(
+                    ds_out,
+                    outfile,
+                    progress_bar=True,
+                    has_fill_values=lambda name, _v, v=var: name == v,
+                )
                 ds_out.close()
                 ds_grid.close()
 
@@ -426,7 +441,12 @@ def _compute_thermal_forcing(
         outfile = os.path.join(outdir, os.path.basename(file))
 
         print(f'writing output: {outfile}')
-        write_netcdf(ds_tf, outfile, progress_bar=True)
+        write_netcdf(
+            ds_tf,
+            outfile,
+            progress_bar=True,
+            has_fill_values=lambda name, _v: name == 'tf',
+        )
 
         # Clean up
         ds_tf.close()
