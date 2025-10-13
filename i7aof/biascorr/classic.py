@@ -276,6 +276,10 @@ def _compute_biases(config, workdir, model, ismip_res_str, clim_name):
         _assign_coord_with_bounds(ds_out, ds_grid, 'x')
         _assign_coord_with_bounds(ds_out, ds_grid, 'y')
         _assign_coord_with_bounds(ds_out, ds_grid, 'z')
+        # Also include geodetic coordinates and their bounds
+        for name in ['lat', 'lon', 'lat_bnds', 'lon_bnds']:
+            if name in ds_grid:
+                ds_out[name] = ds_grid[name]
         # data var with attrs
         ds_out[var] = modclim
         ds_out[var].attrs = ds_hist[var].attrs
@@ -299,6 +303,9 @@ def _compute_biases(config, workdir, model, ismip_res_str, clim_name):
         _assign_coord_with_bounds(ds_out, ds_grid, 'x')
         _assign_coord_with_bounds(ds_out, ds_grid, 'y')
         _assign_coord_with_bounds(ds_out, ds_grid, 'z')
+        for name in ['lat', 'lon', 'lat_bnds', 'lon_bnds']:
+            if name in ds_grid:
+                ds_out[name] = ds_grid[name]
         ds_out[var] = bias
         ds_out[var].attrs = ds_hist[var].attrs
         write_netcdf(
@@ -356,6 +363,9 @@ def _apply_biascorrection(
                 _assign_coord_with_bounds(ds_out, ds_grid, 'x')
                 _assign_coord_with_bounds(ds_out, ds_grid, 'y')
                 _assign_coord_with_bounds(ds_out, ds_grid, 'z')
+                for name in ['lat', 'lon', 'lat_bnds', 'lon_bnds']:
+                    if name in ds_grid:
+                        ds_out[name] = ds_grid[name]
                 # time coord comes from source; bounds will be added
                 # after resample
                 ds_out['time'] = ds_cmip['time']

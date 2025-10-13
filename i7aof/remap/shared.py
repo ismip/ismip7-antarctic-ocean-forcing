@@ -468,6 +468,19 @@ def _attach_ismip_xy_if_match(ds_final, config):
                 ds_final['x_bnds'] = ds_ismip['x_bnds']
             if 'y_bnds' in ds_ismip and 'y_bnds' not in ds_final:
                 ds_final['y_bnds'] = ds_ismip['y_bnds']
+            # Also attach geodetic coordinates and their bounds so they
+            # persist through the workflow
+            if 'lat' in ds_ismip and 'lat' not in ds_final:
+                ds_final['lat'] = ds_ismip['lat']
+                # Preserve attrs including bounds attribute
+                ds_final['lat'].attrs = ds_ismip['lat'].attrs
+            if 'lon' in ds_ismip and 'lon' not in ds_final:
+                ds_final['lon'] = ds_ismip['lon']
+                ds_final['lon'].attrs = ds_ismip['lon'].attrs
+            if 'lat_bnds' in ds_ismip and 'lat_bnds' not in ds_final:
+                ds_final['lat_bnds'] = ds_ismip['lat_bnds']
+            if 'lon_bnds' in ds_ismip and 'lon_bnds' not in ds_final:
+                ds_final['lon_bnds'] = ds_ismip['lon_bnds']
         else:
             print(
                 'Warning: Could not attach x/y from ISMIP grid because '

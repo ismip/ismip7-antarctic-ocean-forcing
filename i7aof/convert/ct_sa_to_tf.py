@@ -487,6 +487,10 @@ def _process_ct_sa_pair(
         _assign_coord_with_bounds(ds_out, ds_grid, 'x')
         _assign_coord_with_bounds(ds_out, ds_grid, 'y')
         _assign_coord_with_bounds(ds_out, ds_grid, 'z')
+        # Include geodetic coordinates and their bounds from the grid
+        for name in ['lat', 'lon', 'lat_bnds', 'lon_bnds']:
+            if name in ds_grid:
+                ds_out[name] = ds_grid[name]
 
         # Variable attributes
         ds_out['tf'].attrs = tf_attrs
