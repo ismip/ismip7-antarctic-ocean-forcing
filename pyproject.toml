@@ -72,6 +72,7 @@ ismip7-antarctic-bias-corr-classic = "i7aof.biascorr.classic:main"
 ismip7-antarctic-cmip-ct-sa-to-tf = "i7aof.convert.ct_sa_to_tf:main_cmip"
 ismip7-antarctic-clim-ct-sa-to-tf = "i7aof.convert.ct_sa_to_tf:main_clim"
 ismip7-antarctic-annual-average = "i7aof.time.average:main"
+ismip7-antarctic-cmip-annual-averages = "i7aof.time.cmip:main"
 
 [tool.setuptools.dynamic]
 version = { attr = "i7aof.version.__version__" }
