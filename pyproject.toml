@@ -67,6 +67,7 @@ ismip7-antarctic-remap-clim = "i7aof.remap.clim:main"
 ismip7-antarctic-remap-cmip = "i7aof.remap.cmip:main"
 ismip7-antarctic-extrap-cmip = "i7aof.extrap.cmip:main"
 ismip7-antarctic-extrap-clim = "i7aof.extrap.clim:main"
+ismip7-antarctic-bias-corr-classic = "i7aof.biascorr.classic:main"
 ismip7-antarctic-cmip-ct-sa-to-tf = "i7aof.convert.ct_sa_to_tf:main_cmip"
 ismip7-antarctic-clim-ct-sa-to-tf = "i7aof.convert.ct_sa_to_tf:main_clim"
 

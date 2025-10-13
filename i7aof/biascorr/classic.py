@@ -8,6 +8,7 @@ Workflow
 
 """
 
+import argparse
 import os
 from typing import List, Tuple
 
@@ -89,6 +90,58 @@ def biascorr_cmip(
         ct_files=ct_files,
         sa_files=sa_files,
         outdir=outdir,
+    )
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description=(
+            'Bias correct extrapolated CMIP ct/sa toward a reference '
+            'climatology (classic method).'
+        )
+    )
+    parser.add_argument(
+        '-m',
+        '--model',
+        dest='model',
+        required=True,
+        help='CMIP model name (required).',
+    )
+    parser.add_argument(
+        '-s',
+        '--scenario',
+        dest='scenario',
+        required=True,
+        help='Scenario (historical, ssp585, ...: required).',
+    )
+    parser.add_argument(
+        '-c',
+        '--clim',
+        dest='clim_name',
+        required=True,
+        help='Reference climatology name (required).',
+    )
+    parser.add_argument(
+        '-w',
+        '--workdir',
+        dest='workdir',
+        required=False,
+        help='Base working directory (optional).',
+    )
+    parser.add_argument(
+        '-C',
+        '--config',
+        dest='config',
+        default=None,
+        help='Path to user config file (optional).',
+    )
+    args = parser.parse_args()
+    biascorr_cmip(
+        model=args.model,
+        scenario=args.scenario,
+        clim_name=args.clim_name,
+        workdir=args.workdir,
+        user_config_filename=args.config,
     )
 
 
