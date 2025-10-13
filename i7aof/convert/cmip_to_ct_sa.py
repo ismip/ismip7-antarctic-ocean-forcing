@@ -1,8 +1,7 @@
 import argparse
 import os
 import shutil
-import uuid
-from typing import List, Sequence, Tuple
+from typing import Sequence, Tuple
 
 import numpy as np
 import xarray as xr
@@ -12,7 +11,7 @@ from tqdm import tqdm
 from i7aof.cmip import get_model_prefix
 from i7aof.convert.paths import get_ct_sa_output_paths
 from i7aof.convert.teos10 import convert_dataset_to_ct_sa
-from i7aof.io import write_netcdf
+from i7aof.io_zarr import append_to_zarr, finalize_zarr_to_netcdf
 
 
 def convert_cmip_to_ct_sa(
@@ -215,53 +214,47 @@ def _process_file_pair(
 
     time_indices = _compute_time_indices(ds_thetao, time_chunk)
     out_base = os.path.splitext(os.path.basename(out_abs))[0]
-    tmp_dir = os.path.join(
-        os.path.dirname(out_abs), f'.tmp_{out_base}_{uuid.uuid4().hex}'
-    )
-    os.makedirs(tmp_dir, exist_ok=True)
+    zarr_store = os.path.join(os.path.dirname(out_abs), f'{out_base}.zarr')
+    if os.path.isdir(zarr_store):
+        shutil.rmtree(zarr_store, ignore_errors=True)
 
     bounds_records = _capture_bounds(ds_thetao, depth_var, lat_var, lon_var)
-    chunk_files: List[str] = []
-    try:
-        for t0, t1 in tqdm(time_indices, desc='time chunks', unit='chunk'):
-            if 'time' in ds_thetao.dims:
-                ds_th_chunk = ds_thetao.isel(time=slice(t0, t1))
-                ds_so_chunk = ds_so.isel(time=slice(t0, t1))
-            else:
-                ds_th_chunk = ds_thetao
-                ds_so_chunk = ds_so
-            ds_ctsa = _convert_chunk_and_strip_bounds(
-                ds_th_chunk,
-                ds_so_chunk,
-                lat_var,
-                lon_var,
-                depth_var,
-                bounds_records,
-            )
-            if 'time' in ds_thetao.dims:
-                chunk_name = f'{out_base}_part-{t0:06d}-{t1:06d}.nc'
-            else:
-                chunk_name = f'{out_base}_part-static.nc'
-            chunk_path = os.path.join(tmp_dir, chunk_name)
-            write_netcdf(ds_ctsa, chunk_path, progress_bar=False)
-            chunk_files.append(chunk_path)
-
-        if len(chunk_files) == 1:
-            ds_final = xr.open_dataset(chunk_files[0], decode_times=False)
+    first = True
+    for t0, t1 in tqdm(time_indices, desc='time chunks', unit='chunk'):
+        if 'time' in ds_thetao.dims:
+            ds_th_chunk = ds_thetao.isel(time=slice(t0, t1))
+            ds_so_chunk = ds_so.isel(time=slice(t0, t1))
         else:
-            ds_final = xr.open_mfdataset(
-                chunk_files,
-                combine='nested',
-                concat_dim='time',
-                decode_times=False,
-            )
-        _inject_bounds(ds_final, ds_thetao, bounds_records)
-        write_netcdf(ds_final, out_abs, progress_bar=True)
-        ds_final.close()
-    finally:
-        ds_thetao.close()
-        ds_so.close()
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+            ds_th_chunk = ds_thetao
+            ds_so_chunk = ds_so
+        ds_ctsa = _convert_chunk_and_strip_bounds(
+            ds_th_chunk,
+            ds_so_chunk,
+            lat_var,
+            lon_var,
+            depth_var,
+            bounds_records,
+        )
+        first = append_to_zarr(
+            ds=ds_ctsa,
+            zarr_store=zarr_store,
+            first=first,
+            append_dim='time' if 'time' in ds_ctsa.dims else None,
+        )
+
+    def _post(ds_z: xr.Dataset) -> xr.Dataset:
+        _inject_bounds(ds_z, ds_thetao, bounds_records)
+        return ds_z
+
+    finalize_zarr_to_netcdf(
+        zarr_store=zarr_store,
+        out_nc=out_abs,
+        has_fill_values=lambda name, v: name in ('ct', 'sa'),
+        progress_bar=True,
+        postprocess=_post,
+    )
+    ds_thetao.close()
+    ds_so.close()
 
 
 def _compute_time_indices(
