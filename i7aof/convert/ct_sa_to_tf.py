@@ -1,6 +1,5 @@
 import argparse
 import os
-import shutil
 from typing import List, Sequence, Tuple
 
 import xarray as xr
@@ -11,7 +10,7 @@ from i7aof.cmip import get_model_prefix
 from i7aof.convert.teos10 import _pressure_from_z, compute_ct_freezing
 from i7aof.extrap.shared import _ensure_ismip_grid
 from i7aof.grid.ismip import get_res_string
-from i7aof.io import write_netcdf
+from i7aof.io_zarr import append_to_zarr, finalize_zarr_to_netcdf
 
 __all__ = ['cmip_ct_sa_to_tf', 'main_cmip', 'clim_ct_sa_to_tf', 'main_clim']
 
@@ -421,8 +420,8 @@ def _process_ct_sa_pair(
     out_dir = os.path.dirname(out_nc)
     base = os.path.splitext(os.path.basename(out_nc))[0]
     zarr_store = os.path.join(out_dir, f'{base}.zarr')
-    if os.path.isdir(zarr_store):
-        shutil.rmtree(zarr_store, ignore_errors=True)
+    # No need to pre-clean; append_to_zarr will remove existing store on first
+    # creation to ensure a fresh write.
 
     time_indices = _compute_time_indices(ds_ct, time_chunk)
     first = True
@@ -434,6 +433,15 @@ def _process_ct_sa_pair(
             desc='time chunks',
             leave=False,
         )
+    # Define TF attributes once and apply to each chunk and final dataset
+    tf_attrs = {
+        'units': 'degC',
+        'long_name': 'Thermal Forcing',
+        'comment': (
+            'Computed as Conservative Temperature minus TEOS-10 '
+            'freezing CT (gsw.CT_freezing) with saturation_fraction=0.'
+        ),
+    }
     for i0, i1 in iterator:
         if 'time' in ds_ct.dims:
             ds_ct_chunk = ds_ct.isel(time=slice(i0, i1))
@@ -462,48 +470,29 @@ def _process_ct_sa_pair(
         _assign_coord_with_bounds(ds_out, ds_grid, 'z')
 
         # Variable attributes
-        tf_attrs = {
-            'units': 'degC',
-            'long_name': 'Thermal Forcing',
-            'comment': (
-                'Computed as Conservative Temperature minus TEOS-10 '
-                'freezing CT (gsw.CT_freezing) with saturation_fraction=0.'
-            ),
-        }
         ds_out['tf'].attrs = tf_attrs
 
-        # Write to Zarr store, appending along time when present
-        if 'time' in ds_out.dims:
-            if first:
-                ds_out.to_zarr(zarr_store, mode='w')
-                first = False
-            else:
-                ds_out.to_zarr(zarr_store, mode='a', append_dim='time')
-        else:
-            # No time dimension; write NetCDF directly and return
-            write_netcdf(
-                ds_out,
-                out_nc,
-                progress_bar=True,
-                has_fill_values=lambda name, _v: name == 'tf',
-            )
-            ds_ct.close()
-            ds_sa.close()
-            ds_grid.close()
-            return
+        # Append to Zarr store (create on first write)
+        first = append_to_zarr(
+            ds=ds_out,
+            zarr_store=zarr_store,
+            first=first,
+            append_dim='time' if 'time' in ds_out.dims else None,
+        )
 
-    # Finalize: convert Zarr to NetCDF and remove store
-    ds_final = xr.open_zarr(zarr_store)
-    # Re-apply tf attrs (may be dropped by serialization path)
-    ds_final['tf'].attrs = ds_out['tf'].attrs
-    write_netcdf(
-        ds_final,
-        out_nc,
-        progress_bar=True,
+    # Finalize: convert Zarr to NetCDF (reapplying TF attrs) and remove store
+    def _post(ds_final: xr.Dataset) -> xr.Dataset:
+        if 'tf' in ds_final:
+            ds_final['tf'].attrs = tf_attrs
+        return ds_final
+
+    finalize_zarr_to_netcdf(
+        zarr_store=zarr_store,
+        out_nc=out_nc,
         has_fill_values=lambda name, _v: name == 'tf',
+        progress_bar=True,
+        postprocess=_post,
     )
-    ds_final.close()
-    shutil.rmtree(zarr_store, ignore_errors=True)
 
     ds_ct.close()
     ds_sa.close()
