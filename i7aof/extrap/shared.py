@@ -33,6 +33,7 @@ from i7aof.grid.ismip import (
 )
 from i7aof.imbie.masks import make_imbie_masks
 from i7aof.io import write_netcdf
+from i7aof.io_zarr import append_to_zarr, finalize_zarr_to_netcdf
 from i7aof.topo import get_topo
 from i7aof.vert.resamp import VerticalResampler
 
@@ -464,9 +465,7 @@ def _vertically_resample_to_coarse_ismip_grid(
         )
         z_bnds = ds_grid['z_bnds'] if 'z_bnds' in ds_grid else None
 
-    # Clean any old store
-    if os.path.isdir(zarr_store):
-        shutil.rmtree(zarr_store)
+    # Zarr store will be recreated on first append if it exists
 
     # Build chunk indices
     with xr.open_dataset(in_path, decode_times=False) as ds_meta:
@@ -505,38 +504,31 @@ def _vertically_resample_to_coarse_ismip_grid(
             if 'time' in ds_res.dims:
                 ds_res = ds_res.chunk({'time': max(i1 - i0, 1)})
 
-            # Write/append to Zarr
+            # Write/append to Zarr using shared helper
             if first:
                 log.info(f'Creating Zarr store: {zarr_store}')
-                ds_res.to_zarr(zarr_store, mode='w', consolidated=False)
-            else:
-                ds_res.to_zarr(
-                    zarr_store,
-                    mode='a',
-                    append_dim='time' if 'time' in ds_res.dims else None,
-                    consolidated=False,
-                )
-            first = False
+            first = append_to_zarr(
+                ds=ds_res,
+                zarr_store=zarr_store,
+                first=first,
+                append_dim='time' if 'time' in ds_res.dims else None,
+            )
 
-    # Convert Zarr to NetCDF once
+    # Convert Zarr to NetCDF once using shared helper; preserve chunk encoding
     log.info('Converting Zarr to NetCDF...')
-    ds_z = xr.open_zarr(zarr_store, consolidated=False)
-    try:
+
+    def _post(ds_z: xr.Dataset) -> xr.Dataset:
         var_da = ds_z[variable]
         chunks = getattr(var_da, 'chunks', None)
         if chunks and all(c is not None for c in chunks):
             var_da.encoding['chunksizes'] = tuple(chunks)
-        write_netcdf(
-            ds_z,
-            out_nc,
-            has_fill_values=lambda name, v, _v=variable: name == _v,
-            progress_bar=True,
-        )
-    finally:
-        ds_z.close()
-    # Cleanup Zarr on success
-    try:
-        shutil.rmtree(zarr_store)
-    except OSError:
-        log.warning(f'Failed to remove Zarr store: {zarr_store}')
+        return ds_z
+
+    finalize_zarr_to_netcdf(
+        zarr_store=zarr_store,
+        out_nc=out_nc,
+        has_fill_values=lambda name, v, _v=variable: name == _v,
+        progress_bar=True,
+        postprocess=_post,
+    )
     return out_nc
