@@ -87,18 +87,28 @@ def annual_average(
     for in_path in expanded:
         out_path = _make_out_path(in_path, out_dir, suffix='_ann')
         outputs.append(out_path)
-
         if os.path.exists(out_path) and not overwrite:
             print(f'Output exists, skipping: {out_path}')
             continue
+        _process_single_file_annual(in_path=in_path, out_path=out_path)
 
-    with xr.open_dataset(in_path, decode_times=True) as ds:
-        if 'time' not in ds.dims:
+    return outputs
+
+
+def _process_single_file_annual(*, in_path: str, out_path: str) -> None:
+    """Process a single monthly file into annual means (memory-aware)."""
+    # Heuristic chunking to avoid loading entire dataset
+    chunk_spec: dict[str, int] = {'time': 12}
+    with xr.open_dataset(in_path, decode_times=True) as probe:
+        for dim_name, target in (('y', 200), ('x', 200)):
+            if dim_name in probe.dims and probe.dims[dim_name] > target:
+                chunk_spec[dim_name] = target
+        if 'time' not in probe.dims:
             raise ValueError(
                 f"Dataset has no 'time' dimension (required): {in_path}"
             )
-
-        # Validate full years: require 12 months per year
+    ds = xr.open_dataset(in_path, decode_times=True, chunks=chunk_spec)
+    try:
         months_per_year = ds['time'].dt.month.groupby('time.year').count()
         if int(months_per_year.min()) < 12 or int(months_per_year.max()) > 12:
             bad_years = months_per_year.where(months_per_year != 12, drop=True)
@@ -112,82 +122,51 @@ def annual_average(
                 'requires complete years. Offending years: '
                 f'{years_str or "unknown"}'
             )
-
-        # Month-length weights respecting calendars
-        w = ds['time'].dt.days_in_month
-
-        # Prepare list of variables to average (those with a 'time' dim)
+        w = ds['time'].dt.days_in_month.astype('float32')
         var_names = [
             name for name, da in ds.data_vars.items() if 'time' in da.dims
         ]
         if not var_names:
             raise ValueError(
-                (
-                    "No data variables with a 'time' dimension found in: "
-                    f'{in_path}'
-                )
+                "No data variables with a 'time' dimension found in: "
+                f'{in_path}'
             )
-
-        # Compute weighted annual means per variable
+        den = w.groupby('time.year').sum(dim='time')
         data_vars_out = {}
         for name in var_names:
             da = ds[name]
-            # Weighted sum over months within each year
+            if da.dtype == 'float64':
+                da = da.astype('float32')
             num = (da * w).groupby('time.year').sum(dim='time')
-            den = w.groupby('time.year').sum(dim='time')
-            ann = num / den
-            # rename 'year' -> 'time' (temporary, will set coordinate next)
-            ann = ann.rename({'year': 'time'})
-            # Preserve attributes from source variable
-            ann.attrs = dict(da.attrs)
+            ann = (num / den).rename({'year': 'time'})
+            ann.attrs = dict(ds[name].attrs)
             data_vars_out[name] = ann
-
-        # Build output dataset with averaged variables
         ds_out = xr.Dataset(data_vars=data_vars_out)
-
-        # Construct start-of-year time coordinate and bounds with
-        # source calendar
         years = ds['time'].dt.year.groupby('time.year').first().values
         calendar = _get_calendar(ds)
         times, tbnds = _build_time_and_bounds(years, calendar)
         ds_out['time'] = ('time', times)
         ds_out['time_bnds'] = (('time', 'bnds'), tbnds)
         ds_out['time'].attrs['bounds'] = 'time_bnds'
-
-        # Carry over non-time variables and coordinates as-is
         for cname, cda in ds.coords.items():
-            if cname == 'time':
-                continue
-            ds_out = ds_out.assign_coords({cname: cda})
-
+            if cname != 'time':
+                ds_out = ds_out.assign_coords({cname: cda})
         for vname, vda in ds.data_vars.items():
-            if vname in data_vars_out:
-                continue
-            # variables without time dimension: copy through unchanged
-            if 'time' not in vda.dims:
+            if vname not in data_vars_out and 'time' not in vda.dims:
                 ds_out[vname] = vda
-
-        # Preserve dataset-level attributes and append a history note
         ds_out.attrs = dict(ds.attrs)
-        history_note = (
+        note = (
             'Annual mean computed with month-length weights; time at '
             'start-of-year; time_bnds spans full year.'
         )
-        if 'history' in ds_out.attrs:
-            ds_out.attrs['history'] = (
-                ds_out.attrs['history'] + '\n' + history_note
-            )
-        else:
-            ds_out.attrs['history'] = history_note
-
-        # Ensure calendar is preserved during encoding
+        hist = ds_out.attrs.get('history')
+        ds_out.attrs['history'] = f'{hist}\n{note}' if hist else note
         if calendar is not None:
             ds_out['time'].encoding['calendar'] = calendar
             ds_out['time_bnds'].encoding['calendar'] = calendar
-
         write_netcdf(ds_out, out_path)
-
-    return outputs
+    finally:
+        ds.close()
 
 
 def main() -> None:
