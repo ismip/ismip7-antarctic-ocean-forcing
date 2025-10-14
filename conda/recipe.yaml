@@ -66,6 +66,16 @@ tests:
       test -x $PREFIX/bin/i7aof_extrap_horizontal
       test -x $PREFIX/bin/i7aof_extrap_vertical
 
+  - script:
+    - pytest -q tests
+    files:
+      source:
+        - tests/**
+        - pyproject.toml
+    requirements:
+      run:
+        - pytest
+
 about:
   summary: Antarctic ocean forcing tools (ISMIP7) with Fortran extrapolation executables.
   license: MIT

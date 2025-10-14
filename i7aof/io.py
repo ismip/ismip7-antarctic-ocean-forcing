@@ -62,17 +62,11 @@ def write_netcdf(
     var_names = list(ds.data_vars.keys()) + list(ds.coords.keys())
     for var_name in var_names:
         var = ds[var_name]
-        encoding_dict[var_name] = {}
-        fill = _decide_fill_value(
+        encoding = _var_encoding(
             var_name, var, numpy_fillvals, has_fill_values
         )
-        present_in_enc = '_FillValue' in var.encoding
-        present_in_attrs = '_FillValue' in var.attrs
-        if fill is not None or present_in_enc or present_in_attrs:
-            # Preserve explicit None to suppress backend auto-fill
-            encoding_dict[var_name]['_FillValue'] = var.encoding.get(
-                '_FillValue', var.attrs.get('_FillValue', fill)
-            )
+        if encoding:
+            encoding_dict[var_name] = encoding
 
     if 'time' in ds.dims:
         # make sure the time dimension is unlimited
@@ -162,3 +156,51 @@ def _decide_fill_value(var_name, var, numpy_fillvals, has_fill_values):
     except Exception:
         has_nan = False
     return candidate if has_nan else None
+
+
+def _var_encoding(var_name, var, numpy_fillvals, has_fill_values):
+    """Compute per-variable encoding for _FillValue.
+
+    - If directive is False, set ``_FillValue`` to None to suppress backend
+      defaults.
+    - If directive is True, set to the type-appropriate candidate, even if
+      NaNs are not present.
+    - Otherwise, detect NaNs lazily and set only when needed.
+    - Preserve explicit values from var.encoding/attrs.
+    """
+    encoding = {}
+
+    # Determine explicit directive
+    directive = None
+    if has_fill_values is not None:
+        if isinstance(has_fill_values, bool):
+            directive = has_fill_values
+        elif isinstance(has_fill_values, dict):
+            directive = has_fill_values.get(var_name)
+        elif callable(has_fill_values):
+            try:
+                directive = bool(has_fill_values(var_name, var))
+            except Exception:
+                directive = None
+
+    # Explicitly disabled: prevent backend default by setting None
+    if directive is False:
+        encoding['_FillValue'] = None
+        return encoding
+
+    # Explicitly enabled or default behavior
+    if directive is True:
+        fill = numpy_fillvals.get(getattr(var, 'dtype', None))
+    else:
+        # Default behavior uses detection without given directive
+        fill = _decide_fill_value(var_name, var, numpy_fillvals, None)
+
+    present_in_enc = '_FillValue' in var.encoding
+    present_in_attrs = '_FillValue' in var.attrs
+    if fill is not None or present_in_enc or present_in_attrs:
+        # Preserve explicit None to suppress backend auto-fill when present
+        encoding['_FillValue'] = var.encoding.get(
+            '_FillValue', var.attrs.get('_FillValue', fill)
+        )
+
+    return encoding

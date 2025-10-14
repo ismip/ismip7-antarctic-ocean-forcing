@@ -33,6 +33,10 @@ setuptools >=42
 pre-commit
 ruff
 
+# testing
+pytest
+pytest-cov
+
 # documentation
 furo >=2024.0.0
 linkify-it-py >=2.0

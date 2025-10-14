@@ -48,6 +48,12 @@ docs = [
     "sphinx-design>=0.6",
 ]
 
+# dependencies for running tests (PyPI)
+tests = [
+    "pytest>=7",
+    "pytest-cov>=4",
+]
+
 [tool.setuptools.packages.find]
 include = ["i7aof*"]
 
@@ -95,3 +101,11 @@ max-complexity = 18
 
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"
+
+[tool.pytest.ini_options]
+# Only collect tests from the unit-test suite
+testpaths = [
+    "tests"
+]
+# You can also ignore additional folders explicitly if needed
+# addopts = "--ignore=scripts"
