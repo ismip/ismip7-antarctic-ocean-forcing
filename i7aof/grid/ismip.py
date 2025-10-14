@@ -47,7 +47,8 @@ def write_ismip_grid(config):
     _add_vert_levels(ds, 'z', dz)
     _add_vert_levels(ds, 'z_extrap', dz_extrap)
 
-    write_netcdf(ds, out_filename)
+    # Grid variables should not have _FillValue in outputs
+    write_netcdf(ds, out_filename, has_fill_values=False)
 
 
 def get_ismip_grid_filename(config):
