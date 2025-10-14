@@ -77,6 +77,8 @@ def cmip_ct_sa_to_tf(
     # time chunk from config unless provided
     if time_chunk is None:
         time_chunk = _parse_time_chunk(config)
+    # use_poly from config (default True)
+    use_poly = _parse_use_poly(config)
 
     pairs = _collect_biascorr_ct_sa_pairs(in_dir, ismip_res_str)
     if not pairs:
@@ -96,6 +98,7 @@ def cmip_ct_sa_to_tf(
             grid_path=grid_path,
             out_nc=out_nc,
             time_chunk=time_chunk,
+            use_poly=use_poly,
             progress=progress,
         )
 
@@ -202,6 +205,7 @@ def clim_ct_sa_to_tf(
             grid_path=grid_path,
             out_nc=out_nc,
             time_chunk=None,
+            use_poly=_parse_use_poly(config),
             progress=progress,
         )
 
@@ -279,6 +283,13 @@ def _parse_time_chunk(config: MpasConfigParser) -> int | None:
     if raw in ('', 'None', 'none'):
         return None
     return int(raw)
+
+
+def _parse_use_poly(config: MpasConfigParser) -> bool:
+    if not config.has_option('ct_sa_to_tf', 'use_poly'):
+        return True
+    raw = str(config.get('ct_sa_to_tf', 'use_poly')).strip().lower()
+    return raw not in ('0', 'false', 'no', '')
 
 
 def _collect_biascorr_ct_sa_pairs(
@@ -396,6 +407,7 @@ def _process_ct_sa_pair(
     grid_path: str,
     out_nc: str,
     time_chunk: int | None,
+    use_poly: bool,
     progress: bool,
 ) -> None:
     # Open inputs
@@ -455,7 +467,7 @@ def _process_ct_sa_pair(
         # Compute CT_freezing at saturation_fraction=0.0 using precomputed
         # pressure to avoid recomputing p_from_z every chunk.
         ct_freeze = compute_ct_freezing(
-            sa=sa, z_or_p=p_da, lat=None, is_pressure=True
+            sa=sa, z_or_p=p_da, lat=None, is_pressure=True, use_poly=use_poly
         )
         tf = (ct - ct_freeze).astype('float32')
 

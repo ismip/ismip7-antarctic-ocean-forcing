@@ -219,6 +219,7 @@ def compute_ct_freezing(
     z_or_p: xr.DataArray,
     lat: xr.DataArray | None = None,
     is_pressure: bool = False,
+    use_poly: bool = True,
 ) -> xr.DataArray:
     """Compute Conservative Temperature at the freezing point (CT_freezing).
 
@@ -235,6 +236,10 @@ def compute_ct_freezing(
     is_pressure : bool, optional
         If True, interpret ``z_or_p`` as pressure (dbar). Otherwise, compute
         pressure from depth and latitude.
+    use_poly : bool, optional
+        If True (default), use the computationally efficient polynomial fit
+        gsw.CT_freezing_poly (approx error ~5e-4 to 6e-4 K). If False, use the
+        exact method gsw.CT_freezing (Newton-Raphson based).
 
     Returns
     -------
@@ -262,9 +267,14 @@ def compute_ct_freezing(
 
     # Compute CT at freezing using TEOS-10
     t2 = time.perf_counter()
-    ct_freezing_np = gsw.CT_freezing(
-        sa.values, np.asarray(p), saturation_fraction=0.0
-    )
+    if use_poly:
+        ct_freezing_np = gsw.CT_freezing_poly(
+            sa.values, np.asarray(p), saturation_fraction=0.0
+        )
+    else:
+        ct_freezing_np = gsw.CT_freezing(
+            sa.values, np.asarray(p), saturation_fraction=0.0
+        )
     _dbg(
         'CT_freezing: SA',
         tuple(sa.shape),
