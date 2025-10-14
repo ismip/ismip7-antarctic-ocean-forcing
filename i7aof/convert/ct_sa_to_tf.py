@@ -495,6 +495,8 @@ def _process_ct_sa_pair(
     # Finalize: convert Zarr to NetCDF (reapplying TF attrs) and remove store
     def _post(ds_final: xr.Dataset) -> xr.Dataset:
         if 'tf' in ds_final:
+            if ds_final['tf'].dtype != 'float32':
+                ds_final['tf'] = ds_final['tf'].astype('float32')
             ds_final['tf'].attrs = tf_attrs
         return ds_final
 
