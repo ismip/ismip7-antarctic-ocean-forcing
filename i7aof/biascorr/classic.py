@@ -16,7 +16,11 @@ import xarray as xr
 from mpas_tools.config import MpasConfigParser
 
 from i7aof.cmip import get_model_prefix
-from i7aof.grid.ismip import get_ismip_grid_filename, get_res_string
+from i7aof.grid.ismip import (
+    get_ismip_grid_filename,
+    get_res_string,
+    write_ismip_grid,
+)
 from i7aof.io import write_netcdf
 
 
@@ -56,7 +60,7 @@ def biascorr_cmip(
         extrap_dir,
         outdir,
         ismip_res_str,
-        _model_prefix,
+        grid_filename,
     ) = _load_config_and_paths(
         model=model,
         workdir=workdir,
@@ -79,6 +83,7 @@ def biascorr_cmip(
         model=model,
         ismip_res_str=ismip_res_str,
         clim_name=clim_name,
+        grid_filename=grid_filename,
     )
 
     # Apply actual correction
@@ -175,6 +180,8 @@ def _load_config_and_paths(
     assert workdir is not None, (
         'Internal error: workdir should be resolved to a string'
     )
+    # Persist workdir into config for downstream consumers (path resolution)
+    config.set('workdir', 'base_dir', workdir)
 
     extrap_dir = os.path.join(
         workdir, 'extrap', model, scenario, 'Omon', 'ct_sa'
@@ -187,8 +194,17 @@ def _load_config_and_paths(
     os.makedirs(outdir, exist_ok=True)
     os.chdir(workdir)
 
+    grid_filename = _ensure_ismip_grid(config, workdir)
+
     ismip_res_str = get_res_string(config, extrap=False)
-    return config, workdir, extrap_dir, outdir, ismip_res_str, model_prefix
+    return (
+        config,
+        workdir,
+        extrap_dir,
+        outdir,
+        ismip_res_str,
+        grid_filename,
+    )
 
 
 def _collect_extrap_outputs(
@@ -211,7 +227,9 @@ def _collect_extrap_outputs(
     return ct_files, sa_files
 
 
-def _compute_biases(config, workdir, model, ismip_res_str, clim_name):
+def _compute_biases(
+    config, workdir, model, ismip_res_str, clim_name, grid_filename
+):
     """Compute the bias if not already done"""
 
     biasdir = os.path.join(
@@ -270,9 +288,7 @@ def _compute_biases(config, workdir, model, ismip_res_str, clim_name):
         # Write out model climatology (preserve attrs) and overwrite
         # x/y/z (and bounds) from ISMIP grid
         ds_out = xr.Dataset()
-        ds_grid = xr.open_dataset(
-            get_ismip_grid_filename(config), decode_times=False
-        )
+        ds_grid = xr.open_dataset(grid_filename, decode_times=False)
         _assign_coord_with_bounds(ds_out, ds_grid, 'x')
         _assign_coord_with_bounds(ds_out, ds_grid, 'y')
         _assign_coord_with_bounds(ds_out, ds_grid, 'z')
@@ -389,6 +405,24 @@ def _apply_biascorrection(
             # Clean up
             ds_bias.close()
             ds_cmip.close()
+
+
+def _ensure_ismip_grid(config: MpasConfigParser, workdir: str) -> str:
+    grid_rel = get_ismip_grid_filename(config)
+    grid_abs = os.path.join(workdir, grid_rel)
+    if not os.path.exists(grid_abs):
+        cwd = os.getcwd()
+        try:
+            os.makedirs(os.path.dirname(grid_abs), exist_ok=True)
+            os.chdir(workdir)
+            write_ismip_grid(config)
+        finally:
+            os.chdir(cwd)
+        if not os.path.exists(grid_abs):  # pragma: no cover
+            raise FileNotFoundError(
+                f'Failed to generate ISMIP grid file: {grid_abs}'
+            )
+    return grid_abs
 
 
 # -----------------------------------------------------------------------------
