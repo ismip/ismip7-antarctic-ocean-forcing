@@ -42,6 +42,7 @@ def compute_cmip_annual_averages(
     workdir: str | None = None,
     user_config_filename: str | None = None,
     overwrite: bool = False,
+    progress: bool = True,
 ) -> List[str]:
     """
     Compute annual means for bias-corrected monthly CT, SA, and TF.
@@ -119,7 +120,9 @@ def compute_cmip_annual_averages(
     # Call per-file to avoid potential multi-file issues in annual_average.
     outputs: list[str] = []
     for path in in_files:
-        outs = annual_average([path], out_dir=out_dir, overwrite=overwrite)
+        outs = annual_average(
+            [path], out_dir=out_dir, overwrite=overwrite, progress=progress
+        )
         outputs.extend(outs)
     return outputs
 
@@ -151,6 +154,13 @@ def main() -> None:
     parser.add_argument(
         '--overwrite', action='store_true', help='Overwrite existing outputs.'
     )
+    parser.add_argument(
+        '--no-progress',
+        dest='progress',
+        action='store_false',
+        help='Disable progress bars while writing NetCDF files.',
+    )
+    parser.set_defaults(progress=True)
     args = parser.parse_args()
 
     outputs = compute_cmip_annual_averages(
@@ -160,6 +170,7 @@ def main() -> None:
         workdir=args.workdir,
         user_config_filename=args.config,
         overwrite=args.overwrite,
+        progress=args.progress,
     )
     for out_path in outputs:
         print(out_path)

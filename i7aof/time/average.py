@@ -3,8 +3,10 @@ Monthly-to-annual time averaging utilities and CLI.
 
 Features
 --------
-- Accepts one or more monthly input files and produces annual-mean outputs
-    with the suffix ``_ann`` inserted before the extension.
+- Accepts one or more monthly input files and produces annual-mean outputs.
+- Output naming: if the input basename contains ``Omon_``, it is replaced
+    with ``Oyr_``; otherwise, the suffix ``_ann`` is inserted before the
+    extension.
 - Averages all data variables that have a ``time`` dimension.
 - Weights months by their number of days via ``time.dt.days_in_month``,
     respecting model calendars (gregorian, noleap, 360_day, etc.).
@@ -48,6 +50,7 @@ def annual_average(
     in_files: Sequence[str] | Iterable[str],
     out_dir: str | None = None,
     overwrite: bool = False,
+    progress: bool = True,
 ) -> list[str]:
     """
     Compute weighted annual means from monthly inputs.
@@ -90,12 +93,16 @@ def annual_average(
         if os.path.exists(out_path) and not overwrite:
             print(f'Output exists, skipping: {out_path}')
             continue
-        _process_single_file_annual(in_path=in_path, out_path=out_path)
+        _process_single_file_annual(
+            in_path=in_path, out_path=out_path, progress=progress
+        )
 
     return outputs
 
 
-def _process_single_file_annual(*, in_path: str, out_path: str) -> None:
+def _process_single_file_annual(
+    *, in_path: str, out_path: str, progress: bool = True
+) -> None:
     """Process a single monthly file into annual means (memory-aware)."""
     # Heuristic chunking to avoid loading entire dataset
     chunk_spec: dict[str, int] = {'time': 12}
@@ -164,7 +171,7 @@ def _process_single_file_annual(*, in_path: str, out_path: str) -> None:
         if calendar is not None:
             ds_out['time'].encoding['calendar'] = calendar
             ds_out['time_bnds'].encoding['calendar'] = calendar
-        write_netcdf(ds_out, out_path)
+        write_netcdf(ds_out, out_path, progress_bar=progress)
     finally:
         ds.close()
 
@@ -196,6 +203,13 @@ def main() -> None:
         action='store_true',
         help='Overwrite existing outputs.',
     )
+    parser.add_argument(
+        '--no-progress',
+        dest='progress',
+        action='store_false',
+        help='Disable progress bars while writing NetCDF files.',
+    )
+    parser.set_defaults(progress=True)
     args = parser.parse_args()
 
     # Allow users to pass either explicit files or glob patterns
@@ -204,7 +218,10 @@ def main() -> None:
         raise SystemExit('No files found from provided arguments.')
 
     outputs = annual_average(
-        in_files, out_dir=args.outdir, overwrite=args.overwrite
+        in_files,
+        out_dir=args.outdir,
+        overwrite=args.overwrite,
+        progress=args.progress,
     )
     for out_path in outputs:
         print(out_path)
@@ -232,15 +249,20 @@ def _expand_files(files: Sequence[str] | Iterable[str]) -> list[str]:
 
 
 def _make_out_path(in_path: str, out_dir: str | None, suffix: str) -> str:
-    """Insert suffix before the last extension and optionally change
-    directory."""
+    """Determine annual-mean output path.
+
+    If the basename contains 'Omon_', replace it with 'Oyr_'. Otherwise,
+    insert the provided suffix before the last extension.
+    """
     base = os.path.basename(in_path)
-    root, ext = os.path.splitext(base)
-    # Handle files without an extension
-    if ext:
-        out_name = f'{root}{suffix}{ext}'
+    if 'Omon_' in base:
+        out_name = base.replace('Omon_', 'Oyr_')
     else:
-        out_name = f'{base}{suffix}'
+        root, ext = os.path.splitext(base)
+        if ext:
+            out_name = f'{root}{suffix}{ext}'
+        else:
+            out_name = f'{base}{suffix}'
     return os.path.join(out_dir or os.path.dirname(in_path), out_name)
 
 
