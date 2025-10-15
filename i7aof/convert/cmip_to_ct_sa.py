@@ -11,6 +11,7 @@ from tqdm import tqdm
 from i7aof.cmip import get_model_prefix
 from i7aof.convert.paths import get_ct_sa_output_paths
 from i7aof.convert.teos10 import convert_dataset_to_ct_sa
+from i7aof.io import read_dataset
 from i7aof.io_zarr import append_to_zarr, finalize_zarr_to_netcdf
 
 
@@ -208,8 +209,8 @@ def _process_file_pair(
     lon_var: str,
     time_chunk: int | None,
 ) -> None:
-    ds_thetao = xr.open_dataset(th_abs, decode_times=True, use_cftime=True)
-    ds_so = xr.open_dataset(so_abs, decode_times=True, use_cftime=True)
+    ds_thetao = read_dataset(th_abs)
+    ds_so = read_dataset(so_abs)
     ds_thetao, ds_so = xr.align(ds_thetao, ds_so, join='exact')
 
     time_indices = _compute_time_indices(ds_thetao, time_chunk)

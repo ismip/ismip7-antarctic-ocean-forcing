@@ -26,7 +26,6 @@ import logging
 import os
 import shutil
 
-import xarray as xr
 from mpas_tools.config import MpasConfigParser
 from mpas_tools.logging import LoggingContext
 
@@ -42,6 +41,7 @@ from i7aof.extrap.shared import (
     _vertically_resample_to_coarse_ismip_grid,
 )
 from i7aof.grid.ismip import get_res_string
+from i7aof.io import read_dataset
 
 __all__ = ['extrap_climatology', 'main']
 
@@ -123,9 +123,7 @@ def extrap_climatology(
         )
 
         for var in variables:
-            if var not in xr.open_dataset(
-                in_path, decode_times=True, use_cftime=True
-            ):
+            if var not in read_dataset(in_path):
                 logger.warning(
                     f"Variable '{var}' missing in input file; skipping."
                 )
@@ -301,7 +299,7 @@ def _ensure_extrapolated_file(
         raise FileNotFoundError(
             f'Expected vertical output missing: {vert_tmp}'
         )
-    ds_vert = xr.open_dataset(vert_tmp, decode_times=True, use_cftime=True)
+    ds_vert = read_dataset(vert_tmp)
     _finalize_output_with_grid(
         ds_in=ds_vert,
         grid_path=grid_file,

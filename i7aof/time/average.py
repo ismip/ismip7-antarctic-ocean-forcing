@@ -38,7 +38,7 @@ import cftime
 import numpy as np
 import xarray as xr
 
-from i7aof.io import write_netcdf
+from i7aof.io import read_dataset, write_netcdf
 
 __all__ = [
     'annual_average',
@@ -106,13 +106,13 @@ def _process_single_file_annual(
     """Process a single monthly file into annual means (memory-aware)."""
     # Heuristic chunking to avoid loading entire dataset
     chunk_spec: dict[str, int] = {'time': 12}
-    with xr.open_dataset(in_path, decode_times=True, use_cftime=True) as probe:
+    with read_dataset(in_path) as probe:
         if 'time' not in probe.sizes:
             raise ValueError(
                 f"Dataset has no 'time' dimension (required): {in_path}"
             )
     # Only chunk along time; allow spatial chunking to follow storage layout
-    ds = xr.open_dataset(in_path, decode_times=True, chunks=chunk_spec)
+    ds = read_dataset(in_path, chunks=chunk_spec)
     try:
         months_per_year = ds['time'].dt.month.groupby('time.year').count()
         if int(months_per_year.min()) < 12 or int(months_per_year.max()) > 12:

@@ -10,6 +10,7 @@ from i7aof.cmip import get_model_prefix
 from i7aof.convert.teos10 import _pressure_from_z, compute_ct_freezing
 from i7aof.extrap.shared import _ensure_ismip_grid
 from i7aof.grid.ismip import get_res_string
+from i7aof.io import read_dataset
 from i7aof.io_zarr import append_to_zarr, finalize_zarr_to_netcdf
 
 __all__ = ['cmip_ct_sa_to_tf', 'main_cmip', 'clim_ct_sa_to_tf', 'main_clim']
@@ -418,12 +419,12 @@ def _process_ct_sa_pair(
     progress: bool,
 ) -> None:
     # Open inputs
-    ds_ct = xr.open_dataset(ct_path, decode_times=True, use_cftime=True)
-    ds_sa = xr.open_dataset(sa_path, decode_times=True, use_cftime=True)
+    ds_ct = read_dataset(ct_path)
+    ds_sa = read_dataset(sa_path)
     ds_ct, ds_sa = xr.align(ds_ct, ds_sa, join='exact')
 
     # Load ISMIP grid for coords and lat/z (for pressure calc)
-    ds_grid = xr.open_dataset(grid_path, decode_times=True, use_cftime=True)
+    ds_grid = read_dataset(grid_path)
     lat = ds_grid['lat'] if 'lat' in ds_grid else None
     if lat is None:
         raise KeyError('ISMIP grid file missing required variable: lat')

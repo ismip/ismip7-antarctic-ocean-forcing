@@ -24,6 +24,7 @@ import xarray as xr
 from dask import config as dask_config
 from jinja2 import BaseLoader, Environment
 from mpas_tools.config import MpasConfigParser
+from xarray.coders import CFDatetimeCoder
 
 from i7aof.extrap import load_template_text
 from i7aof.grid.ismip import (
@@ -32,7 +33,7 @@ from i7aof.grid.ismip import (
     write_ismip_grid,
 )
 from i7aof.imbie.masks import make_imbie_masks
-from i7aof.io import write_netcdf
+from i7aof.io import read_dataset, write_netcdf
 from i7aof.io_zarr import append_to_zarr, finalize_zarr_to_netcdf
 from i7aof.topo import get_topo
 from i7aof.vert.resamp import VerticalResampler
@@ -190,8 +191,8 @@ def _prepare_input_single(
     The climatology driver later drops this singleton dimension from
     the final product so user-facing files remain time-less.
     """
-    ds_in = xr.open_dataset(in_path, decode_times=True, use_cftime=True)
-    ds_grid = xr.open_dataset(grid_path, decode_times=True, use_cftime=True)
+    ds_in = read_dataset(in_path)
+    ds_grid = read_dataset(grid_path)
 
     for dim in ('x', 'y'):
         if dim not in ds_in.dims:
@@ -328,7 +329,7 @@ def _finalize_output_with_grid(
     drop_singleton_time: bool = False,
 ) -> None:
     """Finalize a (single) vertical output by injecting grid variables."""
-    ds_grid = xr.open_dataset(grid_path, decode_times=True, use_cftime=True)
+    ds_grid = read_dataset(grid_path)
     coord_names = ['x', 'y']
     var_names = [
         'x_bnds',
@@ -401,10 +402,8 @@ def _apply_under_ice_mask_to_file(
         Logger for info messages.
     """
     log = logger or logging.getLogger(__name__)
-    ds_prep = xr.open_dataset(
-        prepared_path, decode_times=True, use_cftime=True
-    )
-    ds_topo = xr.open_dataset(topo_file, decode_times=True, use_cftime=True)
+    ds_prep = read_dataset(prepared_path)
+    ds_topo = read_dataset(topo_file)
 
     if 'ice_frac' not in ds_topo:
         raise KeyError(
@@ -477,9 +476,7 @@ def _vertically_resample_to_coarse_ismip_grid(
         return out_nc
 
     # Prepare resampler and optional z_bnds once
-    with xr.open_dataset(
-        grid_file, decode_times=True, use_cftime=True
-    ) as ds_grid:
+    with read_dataset(grid_file) as ds_grid:
         z_src = ds_grid['z_extrap']
         src_valid = xr.DataArray(
             np.ones(z_src.shape, dtype=np.float32),
@@ -508,7 +505,9 @@ def _vertically_resample_to_coarse_ismip_grid(
     first = True
     in_chunks = {'time': time_chunk} if time_chunk else None
     with xr.open_dataset(
-        in_path, decode_times=True, use_cftime=True, chunks=in_chunks
+        in_path,
+        decode_times=CFDatetimeCoder(use_cftime=True),
+        chunks=in_chunks,
     ) as ds_in:
         for i0, i1 in indices:
             ds_slice = (
@@ -587,9 +586,7 @@ def _capture_time_templates(
     Returns indices for time chunking along with the loaded time coordinate
     and optional time bounds DataArray (and its name) from the source file.
     """
-    with xr.open_dataset(
-        in_path, decode_times=True, use_cftime=True
-    ) as ds_meta:
+    with read_dataset(in_path) as ds_meta:
         time_template: xr.DataArray | None = None
         time_bounds_template: xr.DataArray | None = None
         time_bounds_name: str | None = None

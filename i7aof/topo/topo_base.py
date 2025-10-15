@@ -2,7 +2,7 @@ import numpy as np
 import xarray as xr
 
 from i7aof.grid.ismip import get_horiz_res_string
-from i7aof.io import write_netcdf
+from i7aof.io import read_dataset, write_netcdf
 
 
 class TopoBase:
@@ -44,7 +44,7 @@ class TopoBase:
         rename variables and define fraction fields). Then, they should call
         this method to check the results.
         """
-        ds = xr.open_dataset(self.get_preprocessed_topo_path())
+        ds = read_dataset(self.get_preprocessed_topo_path())
         self.check(ds)
 
     def get_preprocessed_topo_path(self):
@@ -105,7 +105,7 @@ class TopoBase:
             'ocean_masked_thickness': 'floating_frac',
         }
 
-        ds = xr.open_dataset(in_filename)
+        ds = read_dataset(in_filename)
 
         for field, frac in renorm_fields.items():
             attrs = ds[field].attrs

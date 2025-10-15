@@ -4,7 +4,7 @@ import numpy as np
 import xarray as xr
 
 from i7aof.grid.ismip import get_ismip_grid_filename
-from i7aof.io import write_netcdf
+from i7aof.io import read_dataset, write_netcdf
 from i7aof.remap import add_periodic_lon, remap_lat_lon_to_ismip
 from i7aof.vert.interp import VerticalInterpolator, fix_src_z_coord
 
@@ -61,7 +61,7 @@ def _vert_mask_interp_norm_multi(
         )
         return normalized_filename
 
-    ds_ismip = xr.open_dataset(get_ismip_grid_filename(config))
+    ds_ismip = read_dataset(get_ismip_grid_filename(config))
 
     lev, lev_bnds, src_valid = _prepare_vert_coords_and_mask(
         in_filename, variables
@@ -145,9 +145,7 @@ def _assign_coords_and_bounds(
 
 
 def _prepare_vert_coords_and_mask(in_filename, variables):
-    with xr.open_dataset(
-        in_filename, decode_times=True, use_cftime=True
-    ) as ds:
+    with read_dataset(in_filename) as ds:
         lev, lev_bnds = fix_src_z_coord(ds, 'lev', 'lev_bnds')
         ds = ds.assign_coords({'lev': ('lev', lev.data)})
         ds['lev'].attrs = lev.attrs
@@ -172,7 +170,7 @@ def _write_mask_stage(
     mask_filename,
     time_chunk,
 ):
-    ds = xr.open_dataset(in_filename, decode_times=True, use_cftime=True)
+    ds = read_dataset(in_filename)
     if 'time' in ds.dims:
         ds = ds.chunk({'time': time_chunk})
     ds_out = xr.Dataset()
@@ -205,7 +203,7 @@ def _write_interp_stage(
     interp_filename,
     time_chunk,
 ):
-    ds = xr.open_dataset(mask_filename, decode_times=True, use_cftime=True)
+    ds = read_dataset(mask_filename)
     if 'time' in ds.dims:
         ds = ds.chunk({'time': time_chunk})
     ds_out = xr.Dataset()
@@ -234,7 +232,7 @@ def _write_normalize_stage(
     normalized_filename,
     time_chunk,
 ):
-    ds = xr.open_dataset(interp_filename, decode_times=True, use_cftime=True)
+    ds = read_dataset(interp_filename)
     if 'time' in ds.dims:
         ds = ds.chunk({'time': time_chunk})
     ds_out = xr.Dataset()
@@ -325,9 +323,7 @@ def _remap_horiz(
     in_grid_name = model_prefix
 
     # Open dataset lazily
-    ds = xr.open_dataset(
-        in_filename, chunks={'time': 1}, decode_times=True, use_cftime=True
-    )
+    ds = read_dataset(in_filename, chunks={'time': 1})
     # Capture original time bounds metadata to re-attach if remapping drops it
     tbname, tbda = _capture_time_bounds_dataset(ds)
 
@@ -338,9 +334,7 @@ def _remap_horiz(
     input_mask_path = os.path.join(tmpdir, 'input_mask.nc')
     output_mask_path = os.path.join(tmpdir, 'output_mask.nc')
     if os.path.exists(output_mask_path):
-        ds_mask = xr.open_dataset(
-            output_mask_path, decode_times=True, use_cftime=True
-        )
+        ds_mask = read_dataset(output_mask_path)
     else:
         ds_mask = ds.copy()
         # Keep only src_frac_interp in the mask file
@@ -365,9 +359,7 @@ def _remap_horiz(
             lon_var=lon_var,
             lat_var=lat_var,
         )
-        ds_mask = xr.open_dataset(
-            output_mask_path, decode_times=True, use_cftime=True
-        )
+        ds_mask = read_dataset(output_mask_path)
 
     # If no time axis, do a single remap; otherwise chunk in time
     if 'time' not in ds.dims:
@@ -457,7 +449,7 @@ def _restore_time_bounds_dataset(ds, tbname, tbda):
 
 def _attach_ismip_xy_if_match(ds_final, config):
     try:
-        ds_ismip = xr.open_dataset(get_ismip_grid_filename(config))
+        ds_ismip = read_dataset(get_ismip_grid_filename(config))
         if (
             'y' in ds_final.dims
             and 'x' in ds_final.dims
@@ -536,9 +528,7 @@ def _remap_no_time(
         lat_var=lat_var,
         renormalize=renorm_threshold,
     )
-    remapped_chunk = xr.open_dataset(
-        output_chunk_path, decode_times=True, use_cftime=True
-    )
+    remapped_chunk = read_dataset(output_chunk_path)
     return [remapped_chunk]
 
 
@@ -571,11 +561,9 @@ def _remap_with_time(
                 f'Skipping remapping for chunk {i_start}-{i_end} '
                 f'(already exists).'
             )
-            remapped_chunk = xr.open_dataset(
+            remapped_chunk = read_dataset(
                 output_chunk_path,
                 chunks={'time': 1},
-                decode_times=True,
-                use_cftime=True,
             )
             remapped_chunks.append(remapped_chunk)
             continue
@@ -604,11 +592,9 @@ def _remap_with_time(
             renormalize=renorm_threshold,
         )
 
-        remapped_chunk = xr.open_dataset(
+        remapped_chunk = read_dataset(
             output_chunk_path,
             chunks={'time': 1},
-            decode_times=True,
-            use_cftime=True,
         )
         remapped_chunks.append(remapped_chunk)
 

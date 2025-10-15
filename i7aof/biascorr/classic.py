@@ -14,6 +14,7 @@ from typing import List, Tuple
 
 import xarray as xr
 from mpas_tools.config import MpasConfigParser
+from xarray.coders import CFDatetimeCoder
 
 from i7aof.cmip import get_model_prefix
 from i7aof.grid.ismip import (
@@ -21,7 +22,7 @@ from i7aof.grid.ismip import (
     get_res_string,
     write_ismip_grid,
 )
-from i7aof.io import write_netcdf
+from i7aof.io import read_dataset, write_netcdf
 
 
 def biascorr_cmip(
@@ -269,10 +270,12 @@ def _compute_biases(
         climfile = os.path.join(
             climdir, f'OI_Climatology_ismip{ismip_res_str}_{var}_extrap.nc'
         )
-        ds_clim = xr.open_dataset(climfile)
+        ds_clim = read_dataset(climfile)
 
         # Get historical file(s)
-        ds_hist = xr.open_mfdataset(hist_files, use_cftime=True)
+        ds_hist = xr.open_mfdataset(
+            hist_files, decode_times=CFDatetimeCoder(use_cftime=True)
+        )
 
         # Extract climatology period (only full annual for now)
         # TODO make dependent on clim
@@ -288,8 +291,8 @@ def _compute_biases(
         # Write out model climatology (preserve attrs) and overwrite
         # x/y/z (and bounds) from ISMIP grid
         ds_out = xr.Dataset()
-        ds_grid = xr.open_dataset(
-            grid_filename, decode_times=True, use_cftime=True
+        ds_grid = read_dataset(
+            grid_filename, decode_times=CFDatetimeCoder(use_cftime=True)
         )
         _assign_coord_with_bounds(ds_out, ds_grid, 'x')
         _assign_coord_with_bounds(ds_out, ds_grid, 'y')
@@ -315,10 +318,9 @@ def _compute_biases(
 
         # Write out bias (keep same attrs as variable) and coordinates
         ds_out = xr.Dataset()
-        ds_grid = xr.open_dataset(
+        ds_grid = read_dataset(
             get_ismip_grid_filename(config),
-            decode_times=True,
-            use_cftime=True,
+            decode_times=CFDatetimeCoder(use_cftime=True),
         )
         _assign_coord_with_bounds(ds_out, ds_grid, 'x')
         _assign_coord_with_bounds(ds_out, ds_grid, 'y')
@@ -362,10 +364,10 @@ def _apply_biascorrection(
         for var, file in zip(['ct', 'sa'], [ct_file, sa_file], strict=True):
             # Read biases
             biasfile = os.path.join(biasdir, f'bias_{var}.nc')
-            ds_bias = xr.open_dataset(biasfile)
+            ds_bias = read_dataset(biasfile)
 
             # Read CMIP files
-            ds_cmip = xr.open_dataset(file)
+            ds_cmip = read_dataset(file)
             da_cmip = ds_cmip[var].chunk({'time': time_chunk})
 
             # Define output filename
@@ -377,10 +379,9 @@ def _apply_biascorrection(
 
                 # Build dataset with ISMIP coordinates (and bounds) first
                 ds_out = xr.Dataset()
-                ds_grid = xr.open_dataset(
+                ds_grid = read_dataset(
                     get_ismip_grid_filename(config),
-                    decode_times=True,
-                    use_cftime=True,
+                    decode_times=CFDatetimeCoder(use_cftime=True),
                 )
                 _assign_coord_with_bounds(ds_out, ds_grid, 'x')
                 _assign_coord_with_bounds(ds_out, ds_grid, 'y')

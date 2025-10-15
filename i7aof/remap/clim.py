@@ -9,7 +9,7 @@ from mpas_tools.config import MpasConfigParser
 from mpas_tools.logging import LoggingContext
 
 from i7aof.grid.ismip import get_res_string, write_ismip_grid
-from i7aof.io import write_netcdf
+from i7aof.io import read_dataset, write_netcdf
 from i7aof.remap.shared import (
     _remap_horiz,
     _vert_mask_interp_norm_multi,
@@ -152,9 +152,7 @@ def remap_climatology(
     # dummy time dimension will be added as the slowest axis). This
     # keeps consistency with CMIP workflow expectations.
     if os.path.exists(out_filename):
-        ds_remap = xr.open_dataset(
-            out_filename, decode_times=True, use_cftime=True
-        )
+        ds_remap = read_dataset(out_filename)
         changed = False
         for var in ['ct', 'sa']:
             if var in ds_remap:
@@ -241,7 +239,7 @@ def _preprocess_climatology_input(config, in_filename, tmpdir):
     - Reorder variables to (lev, lat, lon)
     Returns path to a temporary preprocessed file.
     """
-    ds = xr.open_dataset(in_filename, decode_times=True, use_cftime=True)
+    ds = read_dataset(in_filename)
 
     lat_var = config.get('climatology', 'lat_var')
     lon_var = config.get('climatology', 'lon_var')
