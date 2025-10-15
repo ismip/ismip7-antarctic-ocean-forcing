@@ -123,7 +123,9 @@ def extrap_climatology(
         )
 
         for var in variables:
-            if var not in xr.open_dataset(in_path, decode_times=False):
+            if var not in xr.open_dataset(
+                in_path, decode_times=True, use_cftime=True
+            ):
                 logger.warning(
                     f"Variable '{var}' missing in input file; skipping."
                 )
@@ -299,7 +301,7 @@ def _ensure_extrapolated_file(
         raise FileNotFoundError(
             f'Expected vertical output missing: {vert_tmp}'
         )
-    ds_vert = xr.open_dataset(vert_tmp, decode_times=False)
+    ds_vert = xr.open_dataset(vert_tmp, decode_times=True, use_cftime=True)
     _finalize_output_with_grid(
         ds_in=ds_vert,
         grid_path=grid_file,

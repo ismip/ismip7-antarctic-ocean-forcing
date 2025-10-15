@@ -152,7 +152,9 @@ def remap_climatology(
     # dummy time dimension will be added as the slowest axis). This
     # keeps consistency with CMIP workflow expectations.
     if os.path.exists(out_filename):
-        ds_remap = xr.open_dataset(out_filename, decode_times=False)
+        ds_remap = xr.open_dataset(
+            out_filename, decode_times=True, use_cftime=True
+        )
         changed = False
         for var in ['ct', 'sa']:
             if var in ds_remap:
@@ -239,7 +241,7 @@ def _preprocess_climatology_input(config, in_filename, tmpdir):
     - Reorder variables to (lev, lat, lon)
     Returns path to a temporary preprocessed file.
     """
-    ds = xr.open_dataset(in_filename, decode_times=False)
+    ds = xr.open_dataset(in_filename, decode_times=True, use_cftime=True)
 
     lat_var = config.get('climatology', 'lat_var')
     lon_var = config.get('climatology', 'lon_var')

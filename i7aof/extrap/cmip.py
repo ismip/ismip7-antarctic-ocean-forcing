@@ -697,11 +697,13 @@ def _prepare_input_with_coords(
     """
     log = logger or logging.getLogger(__name__)
 
-    ds_in = xr.open_dataset(in_path, chunks={'time': 1}, decode_times=False)
+    ds_in = xr.open_dataset(
+        in_path, chunks={'time': 1}, decode_times=True, use_cftime=True
+    )
     if time_slice is not None and 'time' in ds_in.dims:
         i0, i1 = time_slice
         ds_in = ds_in.isel(time=slice(i0, i1))
-    ds_grid = xr.open_dataset(grid_path, decode_times=False)
+    ds_grid = xr.open_dataset(grid_path, decode_times=True, use_cftime=True)
 
     # Log dimensions early for debugging
     dims_repr = ', '.join(f'{k}={v}' for k, v in ds_in.sizes.items())
@@ -853,7 +855,9 @@ def _ensure_extrapolated_file(
         )
 
         # Open source input lazily to compute chunk indices
-        with xr.open_dataset(task.in_path, decode_times=False) as ds_meta:
+        with xr.open_dataset(
+            task.in_path, decode_times=True, use_cftime=True
+        ) as ds_meta:
             has_time = 'time' in ds_meta.dims
             if not has_time:
                 # No time dimension; process as a single synthetic chunk
@@ -887,11 +891,16 @@ def _ensure_extrapolated_file(
         vertical_chunks.sort(key=lambda t: t[0])
         if len(vertical_chunks) == 1:
             ds_final_in = xr.open_dataset(
-                vertical_chunks[0][2], decode_times=False
+                vertical_chunks[0][2], decode_times=True, use_cftime=True
             )
         else:
             ds_list = [
-                xr.open_dataset(path, decode_times=False, chunks={'time': 1})
+                xr.open_dataset(
+                    path,
+                    decode_times=True,
+                    use_cftime=True,
+                    chunks={'time': 1},
+                )
                 for (_i0, _i1, path) in vertical_chunks
             ]
             logger.info(

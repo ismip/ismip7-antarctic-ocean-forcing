@@ -418,12 +418,12 @@ def _process_ct_sa_pair(
     progress: bool,
 ) -> None:
     # Open inputs
-    ds_ct = xr.open_dataset(ct_path, decode_times=False)
-    ds_sa = xr.open_dataset(sa_path, decode_times=False)
+    ds_ct = xr.open_dataset(ct_path, decode_times=True, use_cftime=True)
+    ds_sa = xr.open_dataset(sa_path, decode_times=True, use_cftime=True)
     ds_ct, ds_sa = xr.align(ds_ct, ds_sa, join='exact')
 
     # Load ISMIP grid for coords and lat/z (for pressure calc)
-    ds_grid = xr.open_dataset(grid_path, decode_times=False)
+    ds_grid = xr.open_dataset(grid_path, decode_times=True, use_cftime=True)
     lat = ds_grid['lat'] if 'lat' in ds_grid else None
     if lat is None:
         raise KeyError('ISMIP grid file missing required variable: lat')

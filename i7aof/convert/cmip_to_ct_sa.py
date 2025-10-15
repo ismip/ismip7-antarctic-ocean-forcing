@@ -208,8 +208,8 @@ def _process_file_pair(
     lon_var: str,
     time_chunk: int | None,
 ) -> None:
-    ds_thetao = xr.open_dataset(th_abs, decode_times=False)
-    ds_so = xr.open_dataset(so_abs, decode_times=False)
+    ds_thetao = xr.open_dataset(th_abs, decode_times=True, use_cftime=True)
+    ds_so = xr.open_dataset(so_abs, decode_times=True, use_cftime=True)
     ds_thetao, ds_so = xr.align(ds_thetao, ds_so, join='exact')
 
     time_indices = _compute_time_indices(ds_thetao, time_chunk)

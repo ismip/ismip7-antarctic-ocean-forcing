@@ -525,7 +525,7 @@ def _compute_time_indices(
 
 def _copy_netcdf(src: str, dst: str) -> None:
     # Simple pass-through copy using project helper
-    with xr.open_dataset(src, decode_times=False) as ds:
+    with xr.open_dataset(src, decode_times=True, use_cftime=True) as ds:
         write_netcdf(ds, dst, progress_bar=True, has_fill_values=True)
 
 
@@ -541,8 +541,8 @@ def _process_ct_sa_clim_pair(
     Reads ct and sa datasets, computes thetao and so using TEOS-10,
     attaches ISMIP coordinates, and writes a single NetCDF file.
     """
-    ds_ct = xr.open_dataset(ct_path, decode_times=False)
-    ds_sa = xr.open_dataset(sa_path, decode_times=False)
+    ds_ct = xr.open_dataset(ct_path, decode_times=True, use_cftime=True)
+    ds_sa = xr.open_dataset(sa_path, decode_times=True, use_cftime=True)
     ds_ct, ds_sa = xr.align(ds_ct, ds_sa, join='exact')
 
     ds_grid, lat, lon, p = _open_grid_and_pressure(grid_path)
@@ -595,8 +595,8 @@ def _process_ct_sa_annual_pair(
     time_chunk_years: int | None,
     progress: bool,
 ) -> None:
-    ds_ct = xr.open_dataset(ct_path, decode_times=False)
-    ds_sa = xr.open_dataset(sa_path, decode_times=False)
+    ds_ct = xr.open_dataset(ct_path, decode_times=True, use_cftime=True)
+    ds_sa = xr.open_dataset(sa_path, decode_times=True, use_cftime=True)
     ds_ct, ds_sa = xr.align(ds_ct, ds_sa, join='exact')
 
     ds_grid, lat, lon, p = _open_grid_and_pressure(grid_path)
@@ -735,7 +735,7 @@ def _open_grid_and_pressure(
 
     Returns: (ds_grid, lat, lon, p)
     """
-    ds_grid = xr.open_dataset(grid_path, decode_times=False)
+    ds_grid = xr.open_dataset(grid_path, decode_times=True, use_cftime=True)
     for name in ('lat', 'lon', 'z'):
         if name not in ds_grid:
             raise KeyError(

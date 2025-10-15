@@ -288,7 +288,9 @@ def _compute_biases(
         # Write out model climatology (preserve attrs) and overwrite
         # x/y/z (and bounds) from ISMIP grid
         ds_out = xr.Dataset()
-        ds_grid = xr.open_dataset(grid_filename, decode_times=False)
+        ds_grid = xr.open_dataset(
+            grid_filename, decode_times=True, use_cftime=True
+        )
         _assign_coord_with_bounds(ds_out, ds_grid, 'x')
         _assign_coord_with_bounds(ds_out, ds_grid, 'y')
         _assign_coord_with_bounds(ds_out, ds_grid, 'z')
@@ -314,7 +316,9 @@ def _compute_biases(
         # Write out bias (keep same attrs as variable) and coordinates
         ds_out = xr.Dataset()
         ds_grid = xr.open_dataset(
-            get_ismip_grid_filename(config), decode_times=False
+            get_ismip_grid_filename(config),
+            decode_times=True,
+            use_cftime=True,
         )
         _assign_coord_with_bounds(ds_out, ds_grid, 'x')
         _assign_coord_with_bounds(ds_out, ds_grid, 'y')
@@ -374,7 +378,9 @@ def _apply_biascorrection(
                 # Build dataset with ISMIP coordinates (and bounds) first
                 ds_out = xr.Dataset()
                 ds_grid = xr.open_dataset(
-                    get_ismip_grid_filename(config), decode_times=False
+                    get_ismip_grid_filename(config),
+                    decode_times=True,
+                    use_cftime=True,
                 )
                 _assign_coord_with_bounds(ds_out, ds_grid, 'x')
                 _assign_coord_with_bounds(ds_out, ds_grid, 'y')

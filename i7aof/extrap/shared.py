@@ -190,8 +190,8 @@ def _prepare_input_single(
     The climatology driver later drops this singleton dimension from
     the final product so user-facing files remain time-less.
     """
-    ds_in = xr.open_dataset(in_path, decode_times=False)
-    ds_grid = xr.open_dataset(grid_path, decode_times=False)
+    ds_in = xr.open_dataset(in_path, decode_times=True, use_cftime=True)
+    ds_grid = xr.open_dataset(grid_path, decode_times=True, use_cftime=True)
 
     for dim in ('x', 'y'):
         if dim not in ds_in.dims:
@@ -328,7 +328,7 @@ def _finalize_output_with_grid(
     drop_singleton_time: bool = False,
 ) -> None:
     """Finalize a (single) vertical output by injecting grid variables."""
-    ds_grid = xr.open_dataset(grid_path, decode_times=False)
+    ds_grid = xr.open_dataset(grid_path, decode_times=True, use_cftime=True)
     coord_names = ['x', 'y']
     var_names = [
         'x_bnds',
@@ -401,8 +401,10 @@ def _apply_under_ice_mask_to_file(
         Logger for info messages.
     """
     log = logger or logging.getLogger(__name__)
-    ds_prep = xr.open_dataset(prepared_path, decode_times=False)
-    ds_topo = xr.open_dataset(topo_file, decode_times=False)
+    ds_prep = xr.open_dataset(
+        prepared_path, decode_times=True, use_cftime=True
+    )
+    ds_topo = xr.open_dataset(topo_file, decode_times=True, use_cftime=True)
 
     if 'ice_frac' not in ds_topo:
         raise KeyError(
@@ -475,7 +477,9 @@ def _vertically_resample_to_coarse_ismip_grid(
         return out_nc
 
     # Prepare resampler and optional z_bnds once
-    with xr.open_dataset(grid_file, decode_times=False) as ds_grid:
+    with xr.open_dataset(
+        grid_file, decode_times=True, use_cftime=True
+    ) as ds_grid:
         z_src = ds_grid['z_extrap']
         src_valid = xr.DataArray(
             np.ones(z_src.shape, dtype=np.float32),
@@ -504,7 +508,7 @@ def _vertically_resample_to_coarse_ismip_grid(
     first = True
     in_chunks = {'time': time_chunk} if time_chunk else None
     with xr.open_dataset(
-        in_path, decode_times=False, chunks=in_chunks
+        in_path, decode_times=True, use_cftime=True, chunks=in_chunks
     ) as ds_in:
         for i0, i1 in indices:
             ds_slice = (
@@ -583,7 +587,9 @@ def _capture_time_templates(
     Returns indices for time chunking along with the loaded time coordinate
     and optional time bounds DataArray (and its name) from the source file.
     """
-    with xr.open_dataset(in_path, decode_times=False) as ds_meta:
+    with xr.open_dataset(
+        in_path, decode_times=True, use_cftime=True
+    ) as ds_meta:
         time_template: xr.DataArray | None = None
         time_bounds_template: xr.DataArray | None = None
         time_bounds_name: str | None = None
