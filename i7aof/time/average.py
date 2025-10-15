@@ -107,13 +107,11 @@ def _process_single_file_annual(
     # Heuristic chunking to avoid loading entire dataset
     chunk_spec: dict[str, int] = {'time': 12}
     with xr.open_dataset(in_path, decode_times=True) as probe:
-        for dim_name, target in (('y', 200), ('x', 200)):
-            if dim_name in probe.dims and probe.dims[dim_name] > target:
-                chunk_spec[dim_name] = target
-        if 'time' not in probe.dims:
+        if 'time' not in probe.sizes:
             raise ValueError(
                 f"Dataset has no 'time' dimension (required): {in_path}"
             )
+    # Only chunk along time; allow spatial chunking to follow storage layout
     ds = xr.open_dataset(in_path, decode_times=True, chunks=chunk_spec)
     try:
         months_per_year = ds['time'].dt.month.groupby('time.year').count()
