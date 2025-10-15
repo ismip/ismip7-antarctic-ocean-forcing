@@ -33,14 +33,17 @@ def append_to_zarr(
 
     Returns the updated value for ``first`` (False after first write).
     """
+
+    ds_to_write = _sanitize_time_attrs(ds)
+
     if first:
         if os.path.isdir(zarr_store):
             shutil.rmtree(zarr_store, ignore_errors=True)
         with _suppress_zarr_warnings():
-            ds.to_zarr(zarr_store, mode='w')
+            ds_to_write.to_zarr(zarr_store, mode='w')
         return False
     with _suppress_zarr_warnings():
-        ds.to_zarr(zarr_store, mode='a', append_dim=append_dim)
+        ds_to_write.to_zarr(zarr_store, mode='a', append_dim=append_dim)
     return False
 
 
@@ -111,3 +114,23 @@ def _suppress_zarr_warnings():
             category=SerializationWarning,
         )
         yield
+
+
+def _sanitize_time_attrs(dsin: xr.Dataset) -> xr.Dataset:
+    """
+    Sanitize attrs on time-like coordinates to avoid conflicts where
+    Xarray encoding tries to set 'units'/'calendar' and they already
+    exist in attrs. Keep encoding fields only.
+    """
+    ds_work = dsin
+    for name in ['time', 'time_bnds']:
+        if name in ds_work:
+            da = ds_work[name]
+            # Remove reserved fields from attrs if present
+            for key in ('units', 'calendar'):
+                if key in da.attrs:
+                    # make a shallow copy first to avoid mutating input
+                    da = da.copy()
+                    da.attrs.pop(key, None)
+            ds_work[name] = da
+    return ds_work

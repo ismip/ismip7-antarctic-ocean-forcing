@@ -4,7 +4,55 @@ from pathlib import Path
 
 import netCDF4
 import numpy
+import xarray as xr
 from dask.diagnostics.progress import ProgressBar
+from xarray.coders import CFDatetimeCoder
+
+
+def read_dataset(path, **kwargs) -> xr.Dataset:
+    """Open a dataset with package defaults and fix time/time_bnds encodings.
+
+    - Ensures cftime decoding for robust non-standard calendars.
+    - If both ``time`` and ``time_bnds`` are present, propagate the same
+      units/calendar into ``time_bnds.encoding`` to satisfy CF expectations
+      and silence xarray warnings when writing.
+
+    Any extra keyword arguments are passed through to ``xarray.open_dataset``,
+    but ``decode_times`` will default to ``CFDatetimeCoder(use_cftime=True)``
+    unless explicitly overridden.
+    """
+    if 'decode_times' not in kwargs:
+        kwargs['decode_times'] = CFDatetimeCoder(use_cftime=True)
+
+    ds = xr.open_dataset(path, **kwargs)
+
+    try:
+        if 'time' in ds.variables and 'time_bnds' in ds.variables:
+            t = ds['time']
+            tb = ds['time_bnds']
+
+            # Derive units/calendar from time's encoding or attrs
+            t_units = None
+            t_cal = None
+            if hasattr(t, 'encoding'):
+                t_units = t.encoding.get('units')
+                t_cal = t.encoding.get('calendar')
+            if t_units is None:
+                t_units = t.attrs.get('units')
+            if t_cal is None:
+                t_cal = t.attrs.get('calendar')
+
+            # Only set when available; prefer encoding, avoid attrs to
+            # prevent conflicts during Zarr/NetCDF encoding.
+            if t_units is not None:
+                tb.encoding['units'] = t_units
+            if t_cal is not None:
+                tb.encoding['calendar'] = t_cal
+    except (KeyError, AttributeError, TypeError, ValueError):
+        # Be forgiving: reading should not fail due to metadata tweaks
+        pass
+
+    return ds
 
 
 def write_netcdf(
@@ -174,7 +222,7 @@ def _decide_fill_value(var_name, var, numpy_fillvals, has_fill_values):
             try:
                 choice = bool(has_fill_values(var_name, var))
                 return candidate if choice else None
-            except Exception:
+            except (TypeError, ValueError):
                 # Fall back to default behavior
                 pass
 
@@ -208,7 +256,7 @@ def _var_encoding(var_name, var, numpy_fillvals, has_fill_values):
         elif callable(has_fill_values):
             try:
                 directive = bool(has_fill_values(var_name, var))
-            except Exception:
+            except (TypeError, ValueError):
                 directive = None
 
     # Explicitly disabled: prevent backend default by setting None
