@@ -75,6 +75,34 @@ def write_netcdf(
         # make sure there are no unlimited dimensions
         ds.encoding['unlimited_dims'] = set()
 
+    # Standardize time encodings across the package to avoid warnings and
+    # ensure CF-consistent units between time and time_bnds.
+    # Use days since 1850-01-01 as the common reference.
+    default_time_units = 'days since 1850-01-01'
+    if 'time' in ds.variables:
+        time_var = ds['time']
+        # Determine calendar, prefer existing, otherwise default
+        calendar = (
+            time_var.encoding.get('calendar')
+            if hasattr(time_var, 'encoding')
+            else None
+        )
+        if calendar is None:
+            calendar = time_var.attrs.get('calendar')
+        if calendar is None:
+            calendar = 'proleptic_gregorian'
+
+        # Force units and calendar to be consistent for time and time_bnds
+        time_units = default_time_units
+        time_var.encoding['units'] = time_units
+        time_var.encoding['calendar'] = calendar
+
+        # Ensure time_bnds (if present) uses identical units/calendar
+        if 'time_bnds' in ds.variables:
+            tb = ds['time_bnds']
+            tb.encoding['units'] = time_units
+            tb.encoding['calendar'] = calendar
+
     # for performance, we have to handle this as a special case
     convert = format == 'NETCDF3_64BIT_DATA'
 
