@@ -185,7 +185,8 @@ def clim_ct_sa_to_tf(
     config.set('workdir', 'base_dir', workdir)
 
     in_dir = os.path.join(workdir, 'extrap', 'climatology', clim_name)
-    pairs = _collect_extrap_clim_ct_sa_pairs(in_dir)
+    ismip_res_str = get_res_string(config, extrap=False)
+    pairs = _collect_extrap_clim_ct_sa_pairs(in_dir, ismip_res_str)
     if not pairs:
         raise FileNotFoundError(
             'No extrapolated climatology ct/sa files found. Expected under: '
@@ -324,7 +325,9 @@ def _output_path_for_tf(ct_path: str, out_dir: str) -> str:
     return os.path.join(out_dir, tf_base)
 
 
-def _collect_extrap_clim_ct_sa_pairs(in_dir: str) -> List[Tuple[str, str]]:
+def _collect_extrap_clim_ct_sa_pairs(
+    in_dir: str, ismip_res_str: str
+) -> List[Tuple[str, str]]:
     """Collect pairs of extrapolated climatology ct/sa files in a folder.
 
     Looks for files matching patterns like:
@@ -337,6 +340,10 @@ def _collect_extrap_clim_ct_sa_pairs(in_dir: str) -> List[Tuple[str, str]]:
     sa_set: set[str] = set()
     for name in sorted(os.listdir(in_dir)):
         if not name.endswith('.nc'):
+            continue
+        # Only keep files corresponding to the post-vertical-resampling
+        # resolution (e.g., containing the ISMIP res string)
+        if ismip_res_str not in name:
             continue
         path = os.path.join(in_dir, name)
         if '_ct_extrap' in name:
