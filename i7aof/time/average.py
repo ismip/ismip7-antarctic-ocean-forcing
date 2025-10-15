@@ -106,7 +106,7 @@ def _process_single_file_annual(
     """Process a single monthly file into annual means (memory-aware)."""
     # Heuristic chunking to avoid loading entire dataset
     chunk_spec: dict[str, int] = {'time': 12}
-    with xr.open_dataset(in_path, decode_times=True) as probe:
+    with xr.open_dataset(in_path, decode_times=True, use_cftime=True) as probe:
         if 'time' not in probe.sizes:
             raise ValueError(
                 f"Dataset has no 'time' dimension (required): {in_path}"
