@@ -1,3 +1,4 @@
+import cftime
 import netCDF4
 import numpy as np
 import xarray as xr
@@ -103,3 +104,50 @@ def test_write_netcdf_has_fill_values_dict(tmp_path):
         assert '_FillValue' not in nc.variables['varf'].ncattrs()
         # vari should contain _FillValue even though it has no NaNs
         assert '_FillValue' in nc.variables['vari'].ncattrs()
+
+
+def test_time_and_time_bnds_units_alignment(tmp_path):
+    # Build a dataset with cftime noleap times covering 2000, 2001, 2002,
+    # and yearly bounds [start_of_year, start_of_next_year]
+    times = [
+        cftime.DatetimeNoLeap(2000, 1, 1),
+        cftime.DatetimeNoLeap(2001, 1, 1),
+        cftime.DatetimeNoLeap(2002, 1, 1),
+    ]
+
+    time_bnds = [
+        [cftime.DatetimeNoLeap(2000, 1, 1), cftime.DatetimeNoLeap(2001, 1, 1)],
+        [cftime.DatetimeNoLeap(2001, 1, 1), cftime.DatetimeNoLeap(2002, 1, 1)],
+        [cftime.DatetimeNoLeap(2002, 1, 1), cftime.DatetimeNoLeap(2003, 1, 1)],
+    ]
+
+    ds = xr.Dataset()
+    ds = ds.assign_coords(time=xr.DataArray(times, dims=('time',)))
+    ds['time'].attrs['bounds'] = 'time_bnds'
+    # Use encoding to indicate calendar to avoid xarray overwriting attrs
+    ds['time'].encoding['calendar'] = 'noleap'
+    ds = ds.assign({'time_bnds': xr.DataArray(time_bnds, dims=('time', 'nv'))})
+
+    out_time_units = 'days since 1850-01-01'
+
+    out_file = tmp_path / 'time_units.nc'
+    write_netcdf(ds, str(out_file), format='NETCDF4', engine='netcdf4')
+
+    # Validate: either time_bnds has same units as time, or time_bnds has no
+    # units but its lower bound values numerically equal time values.
+    with netCDF4.Dataset(out_file, mode='r') as nc:
+        time_var = nc.variables['time']
+        tb_var = nc.variables['time_bnds']
+
+        assert 'units' in time_var.ncattrs()
+        t_units = time_var.getncattr('units')
+        assert t_units == out_time_units
+        tb_has_units = 'units' in tb_var.ncattrs()
+        if tb_has_units:
+            assert tb_var.getncattr('units') == t_units
+        else:
+            # Compare numeric content: time[:] vs time_bnds[:, 0]
+            t_vals = np.array(time_var[:])
+            tb_lower = np.array(tb_var[:, 0])
+            # Use allclose to allow for float representation
+            assert np.allclose(t_vals, tb_lower)
