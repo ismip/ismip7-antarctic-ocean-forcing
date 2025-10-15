@@ -169,7 +169,12 @@ def _process_single_file_annual(
         if calendar is not None:
             ds_out['time'].encoding['calendar'] = calendar
             ds_out['time_bnds'].encoding['calendar'] = calendar
-        write_netcdf(ds_out, out_path, progress_bar=progress)
+        write_netcdf(
+            ds_out,
+            out_path,
+            progress_bar=progress,
+            has_fill_values=lambda name, v: name in var_names,
+        )
     finally:
         ds.close()
 
