@@ -60,6 +60,9 @@ def compute_sa(
     if normalize_lon:
         lon = _normalize_lon(lon)
 
+    # make sure we're not south of 85S
+    lat = _sanitize_lat(lat)
+
     # Prepare lon/lat arrays for broadcasting: ensure 2D (Y,X)
     lon_arr = lon.values
     lat_arr = lat.values
@@ -247,6 +250,7 @@ def compute_ct_freezing(
         Conservative Temperature at the freezing point (degC), aligned with
         ``sa`` and with attributes ``units`` and ``long_name`` set.
     """
+
     # Determine pressure array (dbar)
     if is_pressure:
         p = z_or_p.values
@@ -511,6 +515,9 @@ def _pressure_from_z(z_or_p: xr.DataArray, lat: xr.DataArray) -> np.ndarray:
     if z_arr.ndim == 1:
         z_arr = z_arr[:, None, None]
 
+    # make sure we're not south of 85S
+    lat = _sanitize_lat(lat)
+
     lat_arr = lat.values
     # If 1D latitude (Y,), reshape to (Y,1) to broadcast to (Y,X)
     if lat_arr.ndim == 1:
@@ -528,3 +535,24 @@ def _pressure_from_z(z_or_p: xr.DataArray, lat: xr.DataArray) -> np.ndarray:
     )
     _dbg(f'p_from_z (helper) time: {time.perf_counter() - t1:.3f}s')
     return p
+
+
+def _sanitize_lat(lat: xr.DataArray) -> xr.DataArray:
+    """
+    Ensure latitude is not south of 85 S. GSW functions misbehave close to
+    the South Pole.
+
+    Parameters
+    ----------
+    lat : xr.DataArray
+        Latitude values in degrees.
+
+    Returns
+    -------
+    xr.DataArray
+        Latitude values clipped to the range [-90, 90], same shape as input.
+    """
+    lat_vals = np.clip(lat.values, -85.0, 90.0)
+    lat_out = lat.copy()
+    lat_out.data = lat_vals
+    return lat_out

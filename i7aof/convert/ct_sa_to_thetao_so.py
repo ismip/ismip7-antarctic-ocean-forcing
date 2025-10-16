@@ -11,7 +11,7 @@ from mpas_tools.config import MpasConfigParser
 from tqdm import tqdm
 
 from i7aof.config import load_config
-from i7aof.convert.teos10 import _pressure_from_z
+from i7aof.convert.teos10 import _pressure_from_z, _sanitize_lat
 from i7aof.coords import (
     attach_grid_coords,
     dataset_with_var_and_bounds,
@@ -742,6 +742,9 @@ def _build_thetao_so_dataset(
     - Attaches x/y/z coords + lat/lon and their bounds from ds_grid
     - Carries time_bnds if provided
     """
+    # make sure we're not south of 85S
+    lat = _sanitize_lat(lat)
+
     sp_np = gsw.SP_from_SA(sa.values, np.asarray(p), lon.values, lat.values)
     thetao_np = gsw.pt_from_CT(sa.values, ct.values)
 
