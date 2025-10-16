@@ -6,10 +6,14 @@ import xarray as xr
 from mpas_tools.config import MpasConfigParser
 from tqdm import tqdm
 
-from i7aof.cmip import get_model_prefix
+from i7aof.config import load_config
 from i7aof.convert.teos10 import _pressure_from_z, compute_ct_freezing
-from i7aof.extrap.shared import _ensure_ismip_grid
-from i7aof.grid.ismip import get_res_string
+from i7aof.coords import (
+    attach_grid_coords,
+    propagate_time_from,
+    strip_fill_on_non_data,
+)
+from i7aof.grid.ismip import ensure_ismip_grid, get_res_string
 from i7aof.io import read_dataset
 from i7aof.io_zarr import append_to_zarr, finalize_zarr_to_netcdf
 
@@ -58,21 +62,24 @@ def cmip_ct_sa_to_tf(
     progress : bool, optional
         If True (default), show a tqdm progress bar over time chunks.
     """
-    config = _load_config(model, clim_name, user_config_filename)
-    workdir = _get_or_config_path(config, workdir, 'workdir')
-    config.set('workdir', 'base_dir', workdir)
+    config = load_config(
+        model=model,
+        clim_name=clim_name,
+        workdir=workdir,
+        user_config_filename=user_config_filename,
+    )
+    workdir_base: str = config.get('workdir', 'base_dir')
 
     # Input/output directories
     in_dir = os.path.join(
-        workdir, 'biascorr', model, scenario, clim_name, 'Omon', 'ct_sa'
+        workdir_base, 'biascorr', model, scenario, clim_name, 'Omon', 'ct_sa'
     )
     out_dir = os.path.join(
-        workdir, 'biascorr', model, scenario, clim_name, 'Omon', 'tf'
+        workdir_base, 'biascorr', model, scenario, clim_name, 'Omon', 'tf'
     )
     os.makedirs(out_dir, exist_ok=True)
 
     # Ensure ISMIP grid exists and get grid path; used for coords and lat/z
-    grid_path = _ensure_ismip_grid(config, workdir)
     ismip_res_str = get_res_string(config, extrap=False)
 
     # time chunk from config unless provided
@@ -96,7 +103,7 @@ def cmip_ct_sa_to_tf(
         _process_ct_sa_pair(
             ct_path=ct_path,
             sa_path=sa_path,
-            grid_path=grid_path,
+            config=config,
             out_nc=out_nc,
             time_chunk=time_chunk,
             use_poly=use_poly,
@@ -181,11 +188,15 @@ def clim_ct_sa_to_tf(
     and writes TF files next to them by replacing `_ct_extrap` with
     `_tf_extrap` in the filenames (preserving any `_z` suffix).
     """
-    config = _load_clim_config(clim_name, user_config_filename)
-    workdir = _get_or_config_path(config, workdir, 'workdir')
-    config.set('workdir', 'base_dir', workdir)
+    config = load_config(
+        model=None,
+        clim_name=clim_name,
+        workdir=workdir,
+        user_config_filename=user_config_filename,
+    )
+    workdir_base: str = config.get('workdir', 'base_dir')
 
-    in_dir = os.path.join(workdir, 'extrap', 'climatology', clim_name)
+    in_dir = os.path.join(workdir_base, 'extrap', 'climatology', clim_name)
     ismip_res_str = get_res_string(config, extrap=False)
     pairs = _collect_extrap_clim_ct_sa_pairs(in_dir, ismip_res_str)
     if not pairs:
@@ -194,7 +205,6 @@ def clim_ct_sa_to_tf(
             + in_dir
         )
 
-    grid_path = _ensure_ismip_grid(config, workdir)
     for ct_path, sa_path in pairs:
         out_nc = _output_path_for_extrap_tf(ct_path)
         if os.path.exists(out_nc):
@@ -204,7 +214,7 @@ def clim_ct_sa_to_tf(
         _process_ct_sa_pair(
             ct_path=ct_path,
             sa_path=sa_path,
-            grid_path=grid_path,
+            config=config,
             out_nc=out_nc,
             time_chunk=None,
             use_poly=_parse_use_poly(config),
@@ -245,36 +255,6 @@ def main_clim() -> None:
         workdir=args.workdir,
         user_config_filename=args.config,
         progress=not args.no_progress,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _load_config(
-    model: str, clim_name: str, user_cfg: str | None
-) -> MpasConfigParser:
-    config = MpasConfigParser()
-    config.add_from_package('i7aof', 'default.cfg')
-    config.add_from_package('i7aof.cmip', f'{get_model_prefix(model)}.cfg')
-    config.add_from_package('i7aof.clim', f'{clim_name}.cfg')
-    if user_cfg is not None:
-        config.add_user_config(user_cfg)
-    return config
-
-
-def _get_or_config_path(
-    config: MpasConfigParser, supplied: str | None, section: str
-) -> str:
-    if supplied is not None:
-        return supplied
-    if config.has_option(section, 'base_dir'):
-        return config.get(section, 'base_dir')
-    raise ValueError(
-        f'Missing configuration option: [{section}] base_dir. '
-        'Please supply a user config file that defines this option.'
     )
 
 
@@ -371,17 +351,6 @@ def _output_path_for_extrap_tf(ct_path: str) -> str:
     return os.path.join(os.path.dirname(ct_path), tf_base)
 
 
-def _load_clim_config(
-    clim_name: str, user_cfg: str | None
-) -> MpasConfigParser:
-    config = MpasConfigParser()
-    config.add_from_package('i7aof', 'default.cfg')
-    config.add_from_package('i7aof.clim', f'{clim_name}.cfg')
-    if user_cfg is not None:
-        config.add_user_config(user_cfg)
-    return config
-
-
 def _compute_time_indices(
     ds: xr.Dataset, time_chunk: int | None
 ) -> Sequence[Tuple[int, int]]:
@@ -394,25 +363,11 @@ def _compute_time_indices(
     return [(i0, min(i0 + chunk, nt)) for i0 in range(0, nt, chunk)]
 
 
-def _assign_coord_with_bounds(
-    ds_out: xr.Dataset, ds_grid: xr.Dataset, coord: str
-) -> None:
-    """Assign a 1D coordinate and its bounds to ds_out from ISMIP grid."""
-    if coord not in ds_grid:
-        return
-    ds_out[coord] = ds_grid[coord]
-    bname = ds_grid[coord].attrs.get('bounds', f'{coord}_bnds')
-    if bname in ds_grid:
-        ds_out[bname] = ds_grid[bname]
-        ds_out[bname].attrs = ds_grid[bname].attrs.copy()
-    ds_out[coord].attrs['bounds'] = bname
-
-
 def _process_ct_sa_pair(
     *,
     ct_path: str,
     sa_path: str,
-    grid_path: str,
+    config,
     out_nc: str,
     time_chunk: int | None,
     use_poly: bool,
@@ -424,6 +379,7 @@ def _process_ct_sa_pair(
     ds_ct, ds_sa = xr.align(ds_ct, ds_sa, join='exact')
 
     # Load ISMIP grid for coords and lat/z (for pressure calc)
+    grid_path = ensure_ismip_grid(config)
     ds_grid = read_dataset(grid_path)
     lat = ds_grid['lat'] if 'lat' in ds_grid else None
     if lat is None:
@@ -484,14 +440,7 @@ def _process_ct_sa_pair(
         # Copy monthly time bounds if present on inputs
         if 'time_bnds' in ds_ct_chunk:
             ds_out['time_bnds'] = ds_ct_chunk['time_bnds']
-        # Attach ISMIP coordinates and bounds
-        _assign_coord_with_bounds(ds_out, ds_grid, 'x')
-        _assign_coord_with_bounds(ds_out, ds_grid, 'y')
-        _assign_coord_with_bounds(ds_out, ds_grid, 'z')
-        # Include geodetic coordinates and their bounds from the grid
-        for name in ['lat', 'lon', 'lat_bnds', 'lon_bnds']:
-            if name in ds_grid:
-                ds_out[name] = ds_grid[name]
+        # Coordinates/bounds will be attached after consolidating chunks.
 
         # Variable attributes
         ds_out['tf'].attrs = tf_attrs
@@ -510,6 +459,11 @@ def _process_ct_sa_pair(
             if ds_final['tf'].dtype != 'float32':
                 ds_final['tf'] = ds_final['tf'].astype('float32')
             ds_final['tf'].attrs = tf_attrs
+        # Attach ISMIP grid coordinates with validation and propagate time
+        ds_final = attach_grid_coords(ds_final, config)
+        if 'time' in ds_ct.dims:
+            ds_final = propagate_time_from(ds_final, ds_ct)
+        ds_final = strip_fill_on_non_data(ds_final, data_vars=('tf',))
         return ds_final
 
     finalize_zarr_to_netcdf(
