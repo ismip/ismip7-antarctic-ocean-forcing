@@ -38,6 +38,7 @@ import cftime
 import numpy as np
 import xarray as xr
 
+from i7aof.coords import strip_fill_on_non_data
 from i7aof.io import read_dataset, write_netcdf
 
 __all__ = [
@@ -98,6 +99,62 @@ def annual_average(
         )
 
     return outputs
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description=(
+            'Average monthly files to annual means with month-length weights. '
+            "All data variables with a 'time' dimension are averaged."
+        )
+    )
+    parser.add_argument(
+        'files',
+        nargs='+',
+        help=(
+            "Input files or glob patterns. Example: '/path/to/*.nc' "
+            '(quotes recommended to avoid shell expansion issues).'
+        ),
+    )
+    parser.add_argument(
+        '-o',
+        '--outdir',
+        dest='outdir',
+        default=None,
+        help="Optional output directory (defaults to each input's directory).",
+    )
+    parser.add_argument(
+        '--overwrite',
+        action='store_true',
+        help='Overwrite existing outputs.',
+    )
+    parser.add_argument(
+        '--no-progress',
+        dest='progress',
+        action='store_false',
+        help='Disable progress bars while writing NetCDF files.',
+    )
+    parser.set_defaults(progress=True)
+    args = parser.parse_args()
+
+    # Allow users to pass either explicit files or glob patterns
+    in_files = _expand_files(args.files)
+    if not in_files:
+        raise SystemExit('No files found from provided arguments.')
+
+    outputs = annual_average(
+        in_files,
+        out_dir=args.outdir,
+        overwrite=args.overwrite,
+        progress=args.progress,
+    )
+    for out_path in outputs:
+        print(out_path)
+
+
+# ---------------------------
+# helpers (module-internal)
+# ---------------------------
 
 
 def _process_single_file_annual(
@@ -169,6 +226,8 @@ def _process_single_file_annual(
         if calendar is not None:
             ds_out['time'].encoding['calendar'] = calendar
             ds_out['time_bnds'].encoding['calendar'] = calendar
+        # Consistent with other workflows: no fill values on coords/bounds
+        ds_out = strip_fill_on_non_data(ds_out, data_vars=var_names)
         write_netcdf(
             ds_out,
             out_path,
@@ -177,62 +236,6 @@ def _process_single_file_annual(
         )
     finally:
         ds.close()
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description=(
-            'Average monthly files to annual means with month-length weights. '
-            "All data variables with a 'time' dimension are averaged."
-        )
-    )
-    parser.add_argument(
-        'files',
-        nargs='+',
-        help=(
-            "Input files or glob patterns. Example: '/path/to/*.nc' "
-            '(quotes recommended to avoid shell expansion issues).'
-        ),
-    )
-    parser.add_argument(
-        '-o',
-        '--outdir',
-        dest='outdir',
-        default=None,
-        help="Optional output directory (defaults to each input's directory).",
-    )
-    parser.add_argument(
-        '--overwrite',
-        action='store_true',
-        help='Overwrite existing outputs.',
-    )
-    parser.add_argument(
-        '--no-progress',
-        dest='progress',
-        action='store_false',
-        help='Disable progress bars while writing NetCDF files.',
-    )
-    parser.set_defaults(progress=True)
-    args = parser.parse_args()
-
-    # Allow users to pass either explicit files or glob patterns
-    in_files = _expand_files(args.files)
-    if not in_files:
-        raise SystemExit('No files found from provided arguments.')
-
-    outputs = annual_average(
-        in_files,
-        out_dir=args.outdir,
-        overwrite=args.overwrite,
-        progress=args.progress,
-    )
-    for out_path in outputs:
-        print(out_path)
-
-
-# ---------------------------
-# helpers (module-internal)
-# ---------------------------
 
 
 def _expand_files(files: Sequence[str] | Iterable[str]) -> list[str]:

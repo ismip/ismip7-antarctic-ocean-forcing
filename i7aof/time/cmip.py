@@ -23,9 +23,9 @@ import argparse
 import os
 from typing import List
 
-from mpas_tools.config import MpasConfigParser
-
-from i7aof.cmip import get_model_prefix
+from i7aof.config import load_config
+from i7aof.coords import attach_grid_coords, strip_fill_on_non_data
+from i7aof.io import read_dataset, write_netcdf
 from i7aof.time.average import annual_average
 
 __all__ = [
@@ -70,34 +70,25 @@ def compute_cmip_annual_averages(
     """
 
     # Load configuration to resolve default workdir
-    config = MpasConfigParser()
-    config.add_from_package('i7aof', 'default.cfg')
-    config.add_from_package('i7aof.cmip', f'{get_model_prefix(model)}.cfg')
-    config.add_from_package('i7aof.clim', f'{clim_name}.cfg')
-    if user_config_filename is not None:
-        config.add_user_config(user_config_filename)
-
-    if workdir is None:
-        if config.has_option('workdir', 'base_dir'):
-            workdir = config.get('workdir', 'base_dir')
-        else:
-            raise ValueError(
-                'Missing configuration option: [workdir] base_dir. '
-                'Please supply a user config file that defines this option.'
-            )
-    assert workdir is not None
+    config = load_config(
+        model=model,
+        clim_name=clim_name,
+        workdir=workdir,
+        user_config_filename=user_config_filename,
+    )
+    workdir_base: str = config.get('workdir', 'base_dir')
 
     # Monthly input directories (bias-corrected)
     ct_sa_dir = os.path.join(
-        workdir, 'biascorr', model, scenario, clim_name, 'Omon', 'ct_sa'
+        workdir_base, 'biascorr', model, scenario, clim_name, 'Omon', 'ct_sa'
     )
     tf_dir = os.path.join(
-        workdir, 'biascorr', model, scenario, clim_name, 'Omon', 'tf'
+        workdir_base, 'biascorr', model, scenario, clim_name, 'Omon', 'tf'
     )
 
     # Annual output directory (combined variables)
     out_dir = os.path.join(
-        workdir, 'biascorr', model, scenario, clim_name, 'Oyr', 'ct_sa_tf'
+        workdir_base, 'biascorr', model, scenario, clim_name, 'Oyr', 'ct_sa_tf'
     )
     os.makedirs(out_dir, exist_ok=True)
 
@@ -123,6 +114,21 @@ def compute_cmip_annual_averages(
         outs = annual_average(
             [path], out_dir=out_dir, overwrite=overwrite, progress=progress
         )
+        # Attach ISMIP grid coordinates/bounds and strip fills on non-data
+        for out_path in outs:
+            ds_ann = read_dataset(out_path)
+            ds_ann = attach_grid_coords(ds_ann, config)
+            data_vars = [
+                str(v) for v in ds_ann.data_vars if v not in ds_ann.coords
+            ]
+            ds_ann = strip_fill_on_non_data(ds_ann, data_vars=data_vars)
+            write_netcdf(
+                ds_ann,
+                out_path,
+                progress_bar=progress,
+                has_fill_values=lambda name, _v, dv=set(data_vars): name in dv,
+            )
+            ds_ann.close()
         outputs.extend(outs)
     return outputs
 
