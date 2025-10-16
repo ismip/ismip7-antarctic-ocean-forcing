@@ -10,10 +10,15 @@ import xarray as xr
 from mpas_tools.config import MpasConfigParser
 from tqdm import tqdm
 
-from i7aof.cmip import get_model_prefix
+from i7aof.config import load_config
 from i7aof.convert.teos10 import _pressure_from_z
-from i7aof.extrap.shared import _ensure_ismip_grid
-from i7aof.grid.ismip import get_res_string
+from i7aof.coords import (
+    attach_grid_coords,
+    dataset_with_var_and_bounds,
+    propagate_time_from,
+    strip_fill_on_non_data,
+)
+from i7aof.grid.ismip import ensure_ismip_grid, get_res_string
 from i7aof.io import read_dataset, write_netcdf
 from i7aof.io_zarr import append_to_zarr
 
@@ -83,16 +88,32 @@ def cmip_ct_sa_ann_to_thetao_so_tf(
     list of str
         Paths of output annual thetao/so/tf files created or found.
     """
-    config = _load_config(model, clim_name, user_config_filename)
-    workdir = _get_or_config_path(config, workdir, 'workdir')
-    config.set('workdir', 'base_dir', workdir)
+    config = load_config(
+        model=model,
+        clim_name=clim_name,
+        workdir=workdir,
+        user_config_filename=user_config_filename,
+    )
+    workdir_base: str = config.get('workdir', 'base_dir')
 
     # Directories
     in_dir = os.path.join(
-        workdir, 'biascorr', model, scenario, clim_name, 'Oyr', 'ct_sa_tf'
+        workdir_base,
+        'biascorr',
+        model,
+        scenario,
+        clim_name,
+        'Oyr',
+        'ct_sa_tf',
     )
     out_dir = os.path.join(
-        workdir, 'biascorr', model, scenario, clim_name, 'Oyr', 'thetao_so_tf'
+        workdir_base,
+        'biascorr',
+        model,
+        scenario,
+        clim_name,
+        'Oyr',
+        'thetao_so_tf',
     )
     os.makedirs(out_dir, exist_ok=True)
 
@@ -101,7 +122,6 @@ def cmip_ct_sa_ann_to_thetao_so_tf(
         time_chunk_years = _parse_time_chunk_years(config)
 
     # Ensure ISMIP grid for coordinates and for pressure/lat in SP_from_SA
-    grid_path = _ensure_ismip_grid(config, workdir)
     ismip_res_str = get_res_string(config, extrap=False)
 
     # Collect annual CT/SA pairs and TF files from input directory
@@ -146,7 +166,7 @@ def cmip_ct_sa_ann_to_thetao_so_tf(
         _process_ct_sa_annual_pair(
             ct_path=ct_path,
             sa_path=sa_path,
-            grid_path=grid_path,
+            config=config,
             out_thetao=out_thetao,
             out_so=out_so,
             time_chunk_years=time_chunk_years,
@@ -238,11 +258,15 @@ def clim_ct_sa_to_thetao_so(
 
     Returns list of output file paths created or found.
     """
-    config = _load_clim_config(clim_name, user_config_filename)
-    workdir = _get_or_config_path(config, workdir, 'workdir')
-    config.set('workdir', 'base_dir', workdir)
+    config = load_config(
+        model=None,
+        clim_name=clim_name,
+        workdir=workdir,
+        user_config_filename=user_config_filename,
+    )
+    workdir_base: str = config.get('workdir', 'base_dir')
 
-    in_dir = os.path.join(workdir, 'extrap', 'climatology', clim_name)
+    in_dir = os.path.join(workdir_base, 'extrap', 'climatology', clim_name)
     ismip_res_str = get_res_string(config, extrap=False)
     pairs = _collect_extrap_clim_ct_sa_pairs(in_dir, ismip_res_str)
     if not pairs:
@@ -251,7 +275,7 @@ def clim_ct_sa_to_thetao_so(
             + in_dir
         )
 
-    grid_path = _ensure_ismip_grid(config, workdir)
+    grid_path = ensure_ismip_grid(config)
     outputs: List[str] = []
     for ct_path, sa_path in pairs:
         out_thetao = _output_path_for_extrap_thetao(ct_path)
@@ -273,7 +297,7 @@ def clim_ct_sa_to_thetao_so(
             ct_path=ct_path,
             sa_path=sa_path,
             grid_path=grid_path,
-            progress=progress,
+            config=config,
         )
         if not thetao_exists:
             ds_write = _dataset_for_output(ds_out, 'thetao')
@@ -332,47 +356,6 @@ def main_clim() -> None:
     )
     for p in outs:
         print(p)
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _load_config(
-    model: str, clim_name: str, user_cfg: str | None
-) -> MpasConfigParser:
-    config = MpasConfigParser()
-    config.add_from_package('i7aof', 'default.cfg')
-    config.add_from_package('i7aof.cmip', f'{get_model_prefix(model)}.cfg')
-    config.add_from_package('i7aof.clim', f'{clim_name}.cfg')
-    if user_cfg is not None:
-        config.add_user_config(user_cfg)
-    return config
-
-
-def _load_clim_config(
-    clim_name: str, user_cfg: str | None
-) -> MpasConfigParser:
-    config = MpasConfigParser()
-    config.add_from_package('i7aof', 'default.cfg')
-    config.add_from_package('i7aof.clim', f'{clim_name}.cfg')
-    if user_cfg is not None:
-        config.add_user_config(user_cfg)
-    return config
-
-
-def _get_or_config_path(
-    config: MpasConfigParser, supplied: str | None, section: str
-) -> str:
-    if supplied is not None:
-        return supplied
-    if config.has_option(section, 'base_dir'):
-        return config.get(section, 'base_dir')
-    raise ValueError(
-        f'Missing configuration option: [{section}] base_dir. '
-        'Please supply a user config file that defines this option.'
-    )
 
 
 def _parse_time_chunk_years(config: MpasConfigParser) -> int | None:
@@ -534,7 +517,7 @@ def _process_ct_sa_clim_pair(
     ct_path: str,
     sa_path: str,
     grid_path: str,
-    progress: bool,
+    config: MpasConfigParser,
 ) -> xr.Dataset:
     """Process a CT/SA pair (no time) into combined thetao/so NetCDF.
 
@@ -545,7 +528,7 @@ def _process_ct_sa_clim_pair(
     ds_sa = read_dataset(sa_path)
     ds_ct, ds_sa = xr.align(ds_ct, ds_sa, join='exact')
 
-    ds_grid, lat, lon, p = _open_grid_and_pressure(grid_path)
+    lat, lon, p = _open_lat_lon_and_pressure(grid_path)
 
     ct = ds_ct['ct']
     sa = ds_sa['sa']
@@ -555,7 +538,7 @@ def _process_ct_sa_clim_pair(
         lat=lat,
         lon=lon,
         p=p,
-        ds_grid=ds_grid,
+        config=config,
         time_bnds=None,
     )
 
@@ -578,6 +561,7 @@ def _dataset_for_output(ds: xr.Dataset, var_name: str) -> xr.Dataset:
         'x_bnds',
         'y_bnds',
         'z_bnds',
+        'z_extrap_bnds',
         'lat_bnds',
         'lon_bnds',
     ]
@@ -589,7 +573,7 @@ def _process_ct_sa_annual_pair(
     *,
     ct_path: str,
     sa_path: str,
-    grid_path: str,
+    config: MpasConfigParser,
     out_thetao: str,
     out_so: str,
     time_chunk_years: int | None,
@@ -599,7 +583,8 @@ def _process_ct_sa_annual_pair(
     ds_sa = read_dataset(sa_path)
     ds_ct, ds_sa = xr.align(ds_ct, ds_sa, join='exact')
 
-    ds_grid, lat, lon, p = _open_grid_and_pressure(grid_path)
+    grid_path = ensure_ismip_grid(config)
+    lat, lon, p = _open_lat_lon_and_pressure(grid_path)
 
     # Determine Zarr store for this output (use thetao basename)
     out_dir = os.path.dirname(out_thetao)
@@ -635,7 +620,7 @@ def _process_ct_sa_annual_pair(
             lat=lat,
             lon=lon,
             p=p,
-            ds_grid=ds_grid,
+            config=config,
             time_bnds=(
                 ds_ct_chunk['time_bnds']
                 if 'time_bnds' in ds_ct_chunk
@@ -661,6 +646,10 @@ def _process_ct_sa_annual_pair(
             if ds_final['so'].dtype != 'float32':
                 ds_final['so'] = ds_final['so'].astype('float32')
             ds_final['so'].attrs = SO_ATTRS
+        # Attach ISMIP grid coords/lat-lon/bounds consistently
+        ds_final = attach_grid_coords(ds_final, config)
+        # Ensure no fills on coordinates/bounds
+        ds_final = strip_fill_on_non_data(ds_final, data_vars=('thetao', 'so'))
         return ds_final
 
     # Open Zarr, apply post, and write two separate NetCDF outputs
@@ -677,20 +666,12 @@ def _process_ct_sa_annual_pair(
     try:
         ds_final = _post(ds_final)
 
-        # Replace Zarr-derived time/time_bnds with original cftime-coordinates
-        # from the source NetCDF to avoid epoch-based units and dtype drift.
-        if 'time' in ds_final.dims and 'time' in ds_ct.dims:
-            if ds_final.sizes.get('time') == ds_ct.sizes.get('time'):
-                # Assign cftime time coord from source
-                ds_final = ds_final.assign_coords(time=ds_ct['time'])
-                # Carry bounds variable from source if available
-                if 'time_bnds' in ds_ct:
-                    ds_final['time_bnds'] = ds_ct['time_bnds']
-                    ds_final['time'].attrs['bounds'] = 'time_bnds'
+        # Propagate time/time_bnds from original NetCDF (bypassing Zarr quirks)
+        ds_final = propagate_time_from(ds_final, ds_ct)
 
         # Write thetao dataset (with bounds)
         if not os.path.exists(out_thetao):
-            ds_write = _dataset_for_output(ds_final, 'thetao')
+            ds_write = dataset_with_var_and_bounds(ds_final, 'thetao')
             write_netcdf(
                 ds_write,
                 out_thetao,
@@ -699,7 +680,7 @@ def _process_ct_sa_annual_pair(
             )
         # Write so dataset (with bounds)
         if not os.path.exists(out_so):
-            ds_write = _dataset_for_output(ds_final, 'so')
+            ds_write = dataset_with_var_and_bounds(ds_final, 'so')
             write_netcdf(
                 ds_write,
                 out_so,
@@ -711,29 +692,14 @@ def _process_ct_sa_annual_pair(
         shutil.rmtree(zarr_store, ignore_errors=True)
         ds_ct.close()
         ds_sa.close()
-        ds_grid.close()
 
 
-def _assign_coord_with_bounds(
-    ds_out: xr.Dataset, ds_grid: xr.Dataset, coord: str
-) -> None:
-    if coord not in ds_grid:
-        return
-    # set as a coordinate so it is kept when selecting variables
-    ds_out.coords[coord] = ds_grid[coord]
-    bname = ds_grid[coord].attrs.get('bounds', f'{coord}_bnds')
-    if bname in ds_grid:
-        ds_out[bname] = ds_grid[bname]
-        ds_out[bname].attrs = ds_grid[bname].attrs.copy()
-    ds_out[coord].attrs['bounds'] = bname
-
-
-def _open_grid_and_pressure(
+def _open_lat_lon_and_pressure(
     grid_path: str,
-) -> Tuple[xr.Dataset, xr.DataArray, xr.DataArray, xr.DataArray]:
+) -> Tuple[xr.DataArray, xr.DataArray, xr.DataArray]:
     """Open ISMIP grid once and compute pressure from z and lat.
 
-    Returns: (ds_grid, lat, lon, p)
+    Returns: (lat, lon, p)
     """
     ds_grid = read_dataset(grid_path)
     for name in ('lat', 'lon', 'z'):
@@ -756,7 +722,7 @@ def _open_grid_and_pressure(
         elif d in lat.coords:
             p_coords[d] = lat[d]
     p = xr.DataArray(p_np, dims=p_dims, coords=p_coords)
-    return ds_grid, lat, lon, p
+    return lat, lon, p
 
 
 def _build_thetao_so_dataset(
@@ -766,7 +732,7 @@ def _build_thetao_so_dataset(
     lat: xr.DataArray,
     lon: xr.DataArray,
     p: xr.DataArray,
-    ds_grid: xr.Dataset,
+    config: MpasConfigParser,
     time_bnds: xr.DataArray | None,
 ) -> xr.Dataset:
     """Compute thetao/so and build an output dataset with grid coords.
@@ -793,16 +759,6 @@ def _build_thetao_so_dataset(
     ds_out = xr.Dataset({'thetao': thetao, 'so': so})
     if time_bnds is not None:
         ds_out['time_bnds'] = time_bnds
-    _assign_coord_with_bounds(ds_out, ds_grid, 'x')
-    _assign_coord_with_bounds(ds_out, ds_grid, 'y')
-    _assign_coord_with_bounds(ds_out, ds_grid, 'z')
-    # Include geodetic coordinates and their bounds from the grid
-    if 'lat' in ds_grid:
-        ds_out.coords['lat'] = ds_grid['lat']
-        if 'lat_bnds' in ds_grid:
-            ds_out['lat_bnds'] = ds_grid['lat_bnds']
-    if 'lon' in ds_grid:
-        ds_out.coords['lon'] = ds_grid['lon']
-        if 'lon_bnds' in ds_grid:
-            ds_out['lon_bnds'] = ds_grid['lon_bnds']
+    # Attach geodetic and grid coordinates consistently using helper
+    ds_out = attach_grid_coords(ds_out, config)
     return ds_out
