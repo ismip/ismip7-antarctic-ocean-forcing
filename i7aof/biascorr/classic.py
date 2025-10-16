@@ -13,15 +13,15 @@ import os
 from typing import List, Tuple
 
 import xarray as xr
-from mpas_tools.config import MpasConfigParser
 from xarray.coders import CFDatetimeCoder
 
-from i7aof.cmip import get_model_prefix
-from i7aof.grid.ismip import (
-    get_ismip_grid_filename,
-    get_res_string,
-    write_ismip_grid,
+from i7aof.config import load_config
+from i7aof.coords import (
+    attach_grid_coords,
+    propagate_time_from,
+    strip_fill_on_non_data,
 )
+from i7aof.grid.ismip import ensure_ismip_grid, get_res_string
 from i7aof.io import read_dataset, write_netcdf
 
 
@@ -161,46 +161,32 @@ def _load_config_and_paths(
     scenario,
     clim_name,
 ):
-    model_prefix = get_model_prefix(model)
-
-    config = MpasConfigParser()
-    config.add_from_package('i7aof', 'default.cfg')
-    config.add_from_package('i7aof.cmip', f'{model_prefix}.cfg')
-    config.add_from_package('i7aof.clim', f'{clim_name}.cfg')
-    if user_config_filename is not None:
-        config.add_user_config(user_config_filename)
-
-    if workdir is None:
-        if config.has_option('workdir', 'base_dir'):
-            workdir = config.get('workdir', 'base_dir')
-        else:
-            raise ValueError(
-                'Missing configuration option: [workdir] base_dir. '
-                'Please supply a user config file that defines this option.'
-            )
-    assert workdir is not None, (
-        'Internal error: workdir should be resolved to a string'
+    config = load_config(
+        model=model,
+        clim_name=clim_name,
+        workdir=workdir,
+        user_config_filename=user_config_filename,
     )
-    # Persist workdir into config for downstream consumers (path resolution)
-    config.set('workdir', 'base_dir', workdir)
+
+    workdir_base: str = config.get('workdir', 'base_dir')
 
     extrap_dir = os.path.join(
-        workdir, 'extrap', model, scenario, 'Omon', 'ct_sa'
+        workdir_base, 'extrap', model, scenario, 'Omon', 'ct_sa'
     )
 
     outdir = os.path.join(
-        workdir, 'biascorr', model, scenario, clim_name, 'Omon', 'ct_sa'
+        workdir_base, 'biascorr', model, scenario, clim_name, 'Omon', 'ct_sa'
     )
 
     os.makedirs(outdir, exist_ok=True)
-    os.chdir(workdir)
+    os.chdir(workdir_base)
 
-    grid_filename = _ensure_ismip_grid(config, workdir)
+    grid_filename = ensure_ismip_grid(config)
 
     ismip_res_str = get_res_string(config, extrap=False)
     return (
         config,
-        workdir,
+        workdir_base,
         extrap_dir,
         outdir,
         ismip_res_str,
@@ -288,22 +274,11 @@ def _compute_biases(
         weightedsum = (da_hist * dpm).sum(dim='time')
         modclim = weightedsum / dpm.sum()
 
-        # Write out model climatology (preserve attrs) and overwrite
-        # x/y/z (and bounds) from ISMIP grid
-        ds_out = xr.Dataset()
-        ds_grid = read_dataset(
-            grid_filename, decode_times=CFDatetimeCoder(use_cftime=True)
-        )
-        _assign_coord_with_bounds(ds_out, ds_grid, 'x')
-        _assign_coord_with_bounds(ds_out, ds_grid, 'y')
-        _assign_coord_with_bounds(ds_out, ds_grid, 'z')
-        # Also include geodetic coordinates and their bounds
-        for name in ['lat', 'lon', 'lat_bnds', 'lon_bnds']:
-            if name in ds_grid:
-                ds_out[name] = ds_grid[name]
-        # data var with attrs
-        ds_out[var] = modclim
+        # Write out model climatology (preserve attrs) with ISMIP coords
+        ds_out = xr.Dataset({var: modclim})
         ds_out[var].attrs = ds_hist[var].attrs
+        ds_out = attach_grid_coords(ds_out, config)
+        ds_out = strip_fill_on_non_data(ds_out, data_vars=(var,))
         write_netcdf(
             ds_out,
             modclimfile,
@@ -311,25 +286,15 @@ def _compute_biases(
             has_fill_values=lambda name, _v, v=var: name == v,
         )
         ds_out.close()
-        ds_grid.close()
 
         # Compute bias in model climatology
         bias = modclim - ds_clim[var]
 
         # Write out bias (keep same attrs as variable) and coordinates
-        ds_out = xr.Dataset()
-        ds_grid = read_dataset(
-            get_ismip_grid_filename(config),
-            decode_times=CFDatetimeCoder(use_cftime=True),
-        )
-        _assign_coord_with_bounds(ds_out, ds_grid, 'x')
-        _assign_coord_with_bounds(ds_out, ds_grid, 'y')
-        _assign_coord_with_bounds(ds_out, ds_grid, 'z')
-        for name in ['lat', 'lon', 'lat_bnds', 'lon_bnds']:
-            if name in ds_grid:
-                ds_out[name] = ds_grid[name]
-        ds_out[var] = bias
+        ds_out = xr.Dataset({var: bias})
         ds_out[var].attrs = ds_hist[var].attrs
+        ds_out = attach_grid_coords(ds_out, config)
+        ds_out = strip_fill_on_non_data(ds_out, data_vars=(var,))
         write_netcdf(
             ds_out,
             biasfile,
@@ -337,7 +302,6 @@ def _compute_biases(
             has_fill_values=lambda name, _v, v=var: name == v,
         )
         ds_out.close()
-        ds_grid.close()
 
         ds_clim.close()
         ds_hist.close()
@@ -377,28 +341,15 @@ def _apply_biascorrection(
             else:
                 # Output file doesn't exist yet, write out
 
-                # Build dataset with ISMIP coordinates (and bounds) first
-                ds_out = xr.Dataset()
-                ds_grid = read_dataset(
-                    get_ismip_grid_filename(config),
-                    decode_times=CFDatetimeCoder(use_cftime=True),
-                )
-                _assign_coord_with_bounds(ds_out, ds_grid, 'x')
-                _assign_coord_with_bounds(ds_out, ds_grid, 'y')
-                _assign_coord_with_bounds(ds_out, ds_grid, 'z')
-                for name in ['lat', 'lon', 'lat_bnds', 'lon_bnds']:
-                    if name in ds_grid:
-                        ds_out[name] = ds_grid[name]
-                # time coord comes from source; bounds will be added
-                # after resample
-                ds_out['time'] = ds_cmip['time']
-
-                # Corrected variable and preserve attrs
-                ds_out[var] = da_cmip - ds_bias[var]
+                # Build dataset with corrected variable first
+                corrected = da_cmip - ds_bias[var]
+                ds_out = xr.Dataset({var: corrected})
                 ds_out[var].attrs = ds_cmip[var].attrs
-
-                # Re-apply variable attrs after resample (may be dropped)
-                ds_out[var].attrs = ds_cmip[var].attrs
+                ds_out = attach_grid_coords(ds_out, config)
+                # Propagate time coord and bounds from CMIP source
+                ds_out = propagate_time_from(ds_out, ds_cmip)
+                # Ensure coords/bounds have no fill values
+                ds_out = strip_fill_on_non_data(ds_out, data_vars=(var,))
 
                 write_netcdf(
                     ds_out,
@@ -407,51 +358,7 @@ def _apply_biascorrection(
                     has_fill_values=lambda name, _v, v=var: name == v,
                 )
                 ds_out.close()
-                ds_grid.close()
 
             # Clean up
             ds_bias.close()
             ds_cmip.close()
-
-
-def _ensure_ismip_grid(config: MpasConfigParser, workdir: str) -> str:
-    grid_rel = get_ismip_grid_filename(config)
-    grid_abs = os.path.join(workdir, grid_rel)
-    if not os.path.exists(grid_abs):
-        cwd = os.getcwd()
-        try:
-            os.makedirs(os.path.dirname(grid_abs), exist_ok=True)
-            os.chdir(workdir)
-            write_ismip_grid(config)
-        finally:
-            os.chdir(cwd)
-        if not os.path.exists(grid_abs):  # pragma: no cover
-            raise FileNotFoundError(
-                f'Failed to generate ISMIP grid file: {grid_abs}'
-            )
-    return grid_abs
-
-
-# -----------------------------------------------------------------------------
-# Helpers for attributes and CF bounds
-# -----------------------------------------------------------------------------
-
-
-def _assign_coord_with_bounds(
-    ds_out: xr.Dataset, ds_grid: xr.Dataset, coord: str
-) -> None:
-    """Assign a 1D coordinate and its bounds to ds_out from ISMIP grid.
-
-    - Copies the coordinate variable and its attributes from the canonical
-      ISMIP grid
-    - Copies the corresponding *_bnds variable and sets coord 'bounds'
-    """
-    if coord not in ds_grid:
-        return
-    ds_out[coord] = ds_grid[coord]
-    # Determine bounds variable name and copy over
-    bname = ds_grid[coord].attrs.get('bounds', f'{coord}_bnds')
-    if bname in ds_grid:
-        ds_out[bname] = ds_grid[bname]
-        ds_out[bname].attrs = ds_grid[bname].attrs.copy()
-    ds_out[coord].attrs['bounds'] = bname
