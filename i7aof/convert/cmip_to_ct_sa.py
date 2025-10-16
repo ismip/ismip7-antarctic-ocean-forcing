@@ -211,6 +211,9 @@ def _process_file_pair(
 ) -> None:
     ds_thetao = read_dataset(th_abs)
     ds_so = read_dataset(so_abs)
+    # Standardize time bounds name to 'time_bnds' (from e.g., 'time_bounds')
+    ds_thetao = _standardize_time_bounds_to_time_bnds(ds_thetao)
+    ds_so = _standardize_time_bounds_to_time_bnds(ds_so)
     ds_thetao, ds_so = xr.align(ds_thetao, ds_so, join='exact')
 
     time_indices = _compute_time_indices(ds_thetao, time_chunk)
@@ -259,6 +262,40 @@ def _process_file_pair(
     )
     ds_thetao.close()
     ds_so.close()
+
+
+def _standardize_time_bounds_to_time_bnds(ds: xr.Dataset) -> xr.Dataset:
+    """Rename any time bounds variable to 'time_bnds' and update attrs.
+
+    If the dataset has a time coordinate with a bounds attribute (commonly
+    'time_bounds'), this function renames that variable to 'time_bnds' and sets
+    ds['time'].attrs['bounds'] = 'time_bnds'. If no bounds are present, the
+    dataset is returned unchanged.
+    """
+    if 'time' not in ds:
+        return ds
+    tbname: str | None = None
+    tcoord = ds['time']
+    battr = tcoord.attrs.get('bounds') if hasattr(tcoord, 'attrs') else None
+    if isinstance(battr, str) and battr in ds:
+        tbname = battr
+    else:
+        # Fallback: common conventions
+        if 'time_bnds' in ds:
+            tbname = 'time_bnds'
+        elif 'time_bounds' in ds:
+            tbname = 'time_bounds'
+
+    if tbname is None:
+        return ds
+
+    if tbname != 'time_bnds':
+        ds = ds.rename({tbname: 'time_bnds'})
+    # Ensure the time coord points to the standardized name
+    t_attrs = dict(getattr(ds['time'], 'attrs', {}))
+    t_attrs['bounds'] = 'time_bnds'
+    ds['time'].attrs = t_attrs
+    return ds
 
 
 def _compute_time_indices(
