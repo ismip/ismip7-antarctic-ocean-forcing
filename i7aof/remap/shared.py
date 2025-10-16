@@ -3,6 +3,11 @@ import os
 import numpy as np
 import xarray as xr
 
+from i7aof.coords import (
+    attach_grid_coords,
+    propagate_time_from,
+    strip_fill_on_non_data,
+)
 from i7aof.grid.ismip import get_ismip_grid_filename
 from i7aof.io import read_dataset, write_netcdf
 from i7aof.remap import add_periodic_lon, remap_lat_lon_to_ismip
@@ -111,39 +116,6 @@ def _vert_mask_interp_norm_multi(
     return normalized_filename
 
 
-def _assign_coords_and_bounds(
-    ds_src: xr.Dataset,
-    ds_dest: xr.Dataset,
-    coord_names: tuple[str, ...] = ('lat', 'lon', 'time'),
-) -> xr.Dataset:
-    """Copy coordinates and their bounds variables from ds_src to ds_dest.
-
-    - Adds coord variables in coord_names if present in ds_src.
-    - Adds conventional ``<coord>_bnds`` variables when present.
-    - Honors CF ``bounds`` attribute to include non-conventional names like
-      ``time_bounds``.
-    - Does not overwrite variables already present in ds_dest.
-    """
-    ds_out = ds_dest
-    for cname in coord_names:
-        if cname in ds_src and cname not in ds_out:
-            ds_out[cname] = ds_src[cname]
-        # Conventional bounds variable (<coord>_bnds)
-        bname_conv = f'{cname}_bnds'
-        if bname_conv in ds_src and bname_conv not in ds_out:
-            ds_out[bname_conv] = ds_src[bname_conv]
-        # CF bounds attribute (supports time_bounds, etc.)
-        if cname in ds_src:
-            bname_attr = ds_src[cname].attrs.get('bounds')
-            if (
-                isinstance(bname_attr, str)
-                and bname_attr in ds_src
-                and bname_attr not in ds_out
-            ):
-                ds_out[bname_attr] = ds_src[bname_attr]
-    return ds_out
-
-
 def _prepare_vert_coords_and_mask(in_filename, variables):
     with read_dataset(in_filename) as ds:
         lev, lev_bnds = fix_src_z_coord(ds, 'lev', 'lev_bnds')
@@ -185,7 +157,6 @@ def _write_mask_stage(
         da_masked = interpolator.mask_and_sort(ds[var])
         ds_out[var] = da_masked.astype(np.float32)
     ds_out['src_valid'] = interpolator.src_valid.astype(np.float32)
-    ds_out = _assign_coords_and_bounds(ds, ds_out)
     write_netcdf(
         ds_out,
         mask_filename,
@@ -211,7 +182,6 @@ def _write_interp_stage(
         da_interp = interpolator.interp(ds[var])
         ds_out[var] = da_interp.astype(np.float32)
     ds_out['src_frac_interp'] = interpolator.src_frac_interp.astype(np.float32)
-    ds_out = _assign_coords_and_bounds(ds, ds_out)
     ds_out['z_extrap_bnds'] = ds_ismip['z_extrap_bnds']
     if 'lev' in ds_out:
         ds_out = ds_out.drop_vars(['lev'])
@@ -240,7 +210,6 @@ def _write_normalize_stage(
         da_norm = interpolator.normalize(ds[var])
         ds_out[var] = da_norm.astype(np.float32)
     ds_out['src_frac_interp'] = interpolator.src_frac_interp.astype(np.float32)
-    ds_out = _assign_coords_and_bounds(ds, ds_out)
     ds_out['z_extrap_bnds'] = ds_ismip['z_extrap_bnds']
     write_netcdf(
         ds_out,
@@ -324,8 +293,6 @@ def _remap_horiz(
 
     # Open dataset lazily
     ds = read_dataset(in_filename, chunks={'time': 1})
-    # Capture original time bounds metadata to re-attach if remapping drops it
-    tbname, tbda = _capture_time_bounds_dataset(ds)
 
     if method == 'bilinear':
         # ensure periodic longitude to avoid seam
@@ -410,11 +377,18 @@ def _remap_horiz(
     # attach horizontally remapped src_frac_interp (time-invariant)
     ds_final['src_frac_interp'] = ds_mask['src_frac_interp']
 
-    # Ensure x/y projection coordinates are present from the ISMIP grid
-    ds_final = _attach_ismip_xy_if_match(ds_final, config)
+    # Ensure ISMIP grid coordinates/lat-lon/bounds present on final output
+    ds_final = attach_grid_coords(ds_final, config)
 
-    # Ensure time bounds variable and attribute are present on final output
-    ds_final = _restore_time_bounds_dataset(ds_final, tbname, tbda)
+    # Ensure time coordinate and bounds are preserved from source dataset
+    if 'time' in ds.dims:
+        ds_final = propagate_time_from(ds_final, ds)
+
+    # Ensure no stray fill values on coordinates/bounds
+    data_vars = [
+        str(v) for v in ds_final.data_vars if v not in ds_final.coords
+    ]
+    ds_final = strip_fill_on_non_data(ds_final, data_vars=data_vars)
 
     write_netcdf(
         ds_final,
@@ -423,72 +397,6 @@ def _remap_horiz(
         has_fill_values=lambda name, var: name
         in set([v for v in ds_final.data_vars if v not in ds_final.coords]),
     )
-
-
-def _capture_time_bounds_dataset(ds):
-    tbname = None
-    tbda = None
-    if 'time' in ds and 'time' in ds.coords:
-        tbname_attr = ds['time'].attrs.get('bounds')
-        if isinstance(tbname_attr, str) and tbname_attr in ds:
-            tbname = tbname_attr
-            tbda = ds[tbname]
-    return tbname, tbda
-
-
-def _restore_time_bounds_dataset(ds, tbname, tbda):
-    if 'time' in ds and tbname is not None:
-        ds['time'].attrs['bounds'] = tbname
-        if tbname not in ds and tbda is not None:
-            if int(ds.sizes.get('time', -1)) == int(
-                tbda.sizes.get('time', -2)
-            ):
-                ds[tbname] = tbda
-    return ds
-
-
-def _attach_ismip_xy_if_match(ds_final, config):
-    try:
-        ds_ismip = read_dataset(get_ismip_grid_filename(config))
-        if (
-            'y' in ds_final.dims
-            and 'x' in ds_final.dims
-            and ds_final.sizes.get('y') == ds_ismip.sizes.get('y')
-            and ds_final.sizes.get('x') == ds_ismip.sizes.get('x')
-        ):
-            ds_final = ds_final.assign_coords(
-                {
-                    'x': ('x', ds_ismip['x'].values),
-                    'y': ('y', ds_ismip['y'].values),
-                }
-            )
-            ds_final['x'].attrs = ds_ismip['x'].attrs
-            ds_final['y'].attrs = ds_ismip['y'].attrs
-            if 'x_bnds' in ds_ismip and 'x_bnds' not in ds_final:
-                ds_final['x_bnds'] = ds_ismip['x_bnds']
-            if 'y_bnds' in ds_ismip and 'y_bnds' not in ds_final:
-                ds_final['y_bnds'] = ds_ismip['y_bnds']
-            # Also attach geodetic coordinates and their bounds so they
-            # persist through the workflow
-            if 'lat' in ds_ismip and 'lat' not in ds_final:
-                ds_final['lat'] = ds_ismip['lat']
-                # Preserve attrs including bounds attribute
-                ds_final['lat'].attrs = ds_ismip['lat'].attrs
-            if 'lon' in ds_ismip and 'lon' not in ds_final:
-                ds_final['lon'] = ds_ismip['lon']
-                ds_final['lon'].attrs = ds_ismip['lon'].attrs
-            if 'lat_bnds' in ds_ismip and 'lat_bnds' not in ds_final:
-                ds_final['lat_bnds'] = ds_ismip['lat_bnds']
-            if 'lon_bnds' in ds_ismip and 'lon_bnds' not in ds_final:
-                ds_final['lon_bnds'] = ds_ismip['lon_bnds']
-        else:
-            print(
-                'Warning: Could not attach x/y from ISMIP grid because '
-                'dimensions do not match expected (y, x).'
-            )
-    except Exception as exc:
-        print(f'Warning: failed to attach x/y from ISMIP grid: {exc}')
-    return ds_final
 
 
 def _remap_no_time(

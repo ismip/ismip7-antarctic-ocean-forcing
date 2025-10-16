@@ -3,10 +3,10 @@ import argparse
 import os
 import shutil
 
-from mpas_tools.config import MpasConfigParser
 from mpas_tools.logging import LoggingContext
 
 from i7aof.cmip import get_model_prefix
+from i7aof.config import load_config
 from i7aof.convert.paths import get_ct_sa_output_paths
 from i7aof.grid.ismip import get_res_string, write_ismip_grid
 from i7aof.remap.shared import (
@@ -152,27 +152,21 @@ def _load_config_and_paths(
 ):
     model_prefix = get_model_prefix(model)
 
-    config = MpasConfigParser()
-    config.add_from_package('i7aof', 'default.cfg')
-    config.add_from_package('i7aof.cmip', f'{model_prefix}.cfg')
-    if user_config_filename is not None:
-        config.add_user_config(user_config_filename)
+    config = load_config(
+        model=model,
+        workdir=workdir,
+        user_config_filename=user_config_filename,
+    )
 
-    if workdir is None:
-        if config.has_option('workdir', 'base_dir'):
-            workdir = config.get('workdir', 'base_dir')
-        else:
-            raise ValueError(
-                'Missing configuration option: [workdir] base_dir. '
-                'Please supply a user config file that defines this option.'
-            )
-
-    outdir = os.path.join(workdir, 'remap', model, scenario, 'Omon', 'ct_sa')
+    workdir_base: str = config.get('workdir', 'base_dir')
+    outdir = os.path.join(
+        workdir_base, 'remap', model, scenario, 'Omon', 'ct_sa'
+    )
     os.makedirs(outdir, exist_ok=True)
-    os.chdir(workdir)
+    os.chdir(workdir_base)
 
     ismip_res_str = get_res_string(config, extrap=True)
-    return config, workdir, outdir, ismip_res_str, model_prefix
+    return config, workdir_base, outdir, ismip_res_str, model_prefix
 
 
 def _build_io_lists(

@@ -5,9 +5,9 @@ import shutil
 import gsw
 import numpy as np
 import xarray as xr
-from mpas_tools.config import MpasConfigParser
 from mpas_tools.logging import LoggingContext
 
+from i7aof.config import load_config
 from i7aof.grid.ismip import get_res_string, write_ismip_grid
 from i7aof.io import read_dataset, write_netcdf
 from i7aof.remap.shared import (
@@ -59,31 +59,21 @@ def remap_climatology(
     overwrite : bool, optional
         Whether to overwrite the output file if it exists
     """
-    config = MpasConfigParser()
-    config.add_from_package('i7aof', 'default.cfg')
-    config.add_from_package('i7aof.clim', f'{clim_name}.cfg')
-    if user_config_filename is not None:
-        config.add_user_config(user_config_filename)
+    config = load_config(
+        model=None,
+        clim_name=clim_name,
+        inputdir=inputdir,
+        workdir=workdir,
+        user_config_filename=user_config_filename,
+    )
 
-    if workdir is None:
-        if config.has_option('workdir', 'base_dir'):
-            workdir = config.get('workdir', 'base_dir')
-        else:
-            raise ValueError(
-                'Missing configuration option: [workdir] base_dir. '
-                'Please supply a user config file that '
-                'defines this option.'
-            )
-
-    if inputdir is None:
-        if config.has_option('inputdir', 'base_dir'):
-            inputdir = config.get('inputdir', 'base_dir')
-        else:
-            raise ValueError(
-                'Missing configuration option: [inputdir] base_dir. '
-                'Please supply a user config file that '
-                'defines this option.'
-            )
+    if not config.has_option('inputdir', 'base_dir'):
+        raise ValueError(
+            'Missing configuration option: [inputdir] base_dir. '
+            'Please supply a user config file that defines this option.'
+        )
+    workdir = config.get('workdir', 'base_dir')
+    inputdir = config.get('inputdir', 'base_dir')
 
     outdir = os.path.join(workdir, 'remap', 'climatology', clim_name)
     os.makedirs(outdir, exist_ok=True)
