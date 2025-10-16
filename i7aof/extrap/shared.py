@@ -26,12 +26,13 @@ from jinja2 import BaseLoader, Environment
 from mpas_tools.config import MpasConfigParser
 from xarray.coders import CFDatetimeCoder
 
-from i7aof.extrap import load_template_text
-from i7aof.grid.ismip import (
-    get_horiz_res_string,
-    get_ismip_grid_filename,
-    write_ismip_grid,
+from i7aof.coords import (
+    attach_grid_coords,
+    propagate_time_from,
+    strip_fill_on_non_data,
 )
+from i7aof.extrap import load_template_text
+from i7aof.grid.ismip import get_horiz_res_string
 from i7aof.imbie.masks import make_imbie_masks
 from i7aof.io import read_dataset, write_netcdf
 from i7aof.io_zarr import append_to_zarr, finalize_zarr_to_netcdf
@@ -39,7 +40,6 @@ from i7aof.topo import get_topo
 from i7aof.vert.resamp import VerticalResampler
 
 __all__ = [
-    '_ensure_ismip_grid',
     '_ensure_imbie_masks',
     '_ensure_topography',
     '_render_namelist',
@@ -51,29 +51,9 @@ __all__ = [
 ]
 
 
-def _strip_fill_on_non_target(
-    ds: xr.Dataset, target_vars: set[str]
-) -> xr.Dataset:
-    """Remove _FillValue from attrs/encoding for all vars not in target_vars.
-
-    This avoids writing fill values on coordinate variables or auxiliary
-    variables where they are not desired, even if upstream processes added
-    such attributes or encodings. Returns a dataset with the modifications
-    applied in-place semantics (xarray may copy lazily under the hood).
-    """
-    for name in list(ds.data_vars) + list(ds.coords):
-        if name in target_vars:
-            continue
-        var = ds[name]
-        # Drop from encoding and attrs if present
-        if isinstance(var.encoding, dict) and '_FillValue' in var.encoding:
-            try:
-                del var.encoding['_FillValue']
-            except KeyError:
-                pass
-        if isinstance(var.attrs, dict) and '_FillValue' in var.attrs:
-            var.attrs.pop('_FillValue', None)
-    return ds
+##
+# Fill-value handling is centralized in i7aof.coords.strip_fill_on_non_data.
+# Use that helper instead of the local variant that used to live here.
 
 
 def _ensure_imbie_masks(config: MpasConfigParser, workdir: str) -> str:
@@ -120,24 +100,6 @@ def _ensure_topography(config: MpasConfigParser, workdir: str) -> str:
     finally:
         os.chdir(cwd)
     return os.path.join(workdir, topo_path)
-
-
-def _ensure_ismip_grid(config: MpasConfigParser, workdir: str) -> str:
-    grid_rel = get_ismip_grid_filename(config)
-    grid_abs = os.path.join(workdir, grid_rel)
-    if not os.path.exists(grid_abs):
-        cwd = os.getcwd()
-        try:
-            os.makedirs(os.path.dirname(grid_abs), exist_ok=True)
-            os.chdir(workdir)
-            write_ismip_grid(config)
-        finally:
-            os.chdir(cwd)
-        if not os.path.exists(grid_abs):  # pragma: no cover
-            raise FileNotFoundError(
-                f'Failed to generate ISMIP grid file: {grid_abs}'
-            )
-    return grid_abs
 
 
 def _render_namelist(
@@ -322,48 +284,17 @@ def _run_exe_capture(
 def _finalize_output_with_grid(
     *,
     ds_in: xr.Dataset,
-    grid_path: str,
+    config: MpasConfigParser,
     final_out_path: str,
     variable: str,
     logger: logging.Logger,
-    drop_singleton_time: bool = False,
 ) -> None:
     """Finalize a (single) vertical output by injecting grid variables."""
-    ds_grid = read_dataset(grid_path)
-    coord_names = ['x', 'y']
-    var_names = [
-        'x_bnds',
-        'y_bnds',
-        'lat',
-        'lon',
-        'lat_bnds',
-        'lon_bnds',
-        'crs',
-    ]
-    ds_out = ds_in
-    drop_list = [v for v in (coord_names + var_names) if v in ds_out]
-    if drop_list:
-        ds_out = ds_out.drop_vars(drop_list, errors='ignore')
-    to_add_coords = {v: ds_grid[v] for v in coord_names if v in ds_grid}
-    to_add_vars = {v: ds_grid[v] for v in var_names if v in ds_grid}
-    if to_add_coords:
-        ds_out = ds_out.assign_coords(to_add_coords)
-    if to_add_vars:
-        ds_out = ds_out.assign(to_add_vars)
+    # Attach standard ISMIP grid coordinate variables and lat/lon/crs
+    ds_out = attach_grid_coords(ds_in, config)
 
-    # Optionally remove a dummy singleton time dimension that may have
-    # been added during preparation for legacy Fortran executables.
-    if (
-        drop_singleton_time
-        and 'time' in ds_out.dims
-        and ds_out.sizes.get('time', 0) == 1
-    ):
-        ds_out = ds_out.isel(time=0, drop=True)
-        for tb in ('time_bnds', 'time_bounds'):
-            if tb in ds_out:
-                ds_out = ds_out.drop_vars(tb, errors='ignore')
     # Ensure no stray fill values on coords/aux variables
-    ds_out = _strip_fill_on_non_target(ds_out, target_vars={variable})
+    ds_out = strip_fill_on_non_data(ds_out, data_vars=(variable,))
     logger.info(f'Writing extrapolated output: {final_out_path}')
     write_netcdf(
         ds_out,
@@ -495,12 +426,19 @@ def _vertically_resample_to_coarse_ismip_grid(
 
     # Build chunk indices and capture original time coordinate (values + attrs)
     # so we can reattach metadata after the Zarr round-trip.
-    (
-        indices,
-        time_template,
-        time_bounds_name,
-        time_bounds_template,
-    ) = _capture_time_templates(in_path, time_chunk)
+    # Build time chunk indices directly; full span when no chunking
+    with read_dataset(in_path) as _ds_meta:
+        if 'time' in _ds_meta.dims:
+            n_time = int(_ds_meta.sizes['time'])
+            if time_chunk and time_chunk > 0:
+                indices = [
+                    (i0, min(i0 + time_chunk, n_time))
+                    for i0 in range(0, n_time, time_chunk)
+                ]
+            else:
+                indices = [(0, n_time)]
+        else:
+            indices = [(0, 1)]
 
     first = True
     in_chunks = {'time': time_chunk} if time_chunk else None
@@ -546,16 +484,21 @@ def _vertically_resample_to_coarse_ismip_grid(
     log.info('Converting Zarr to NetCDF...')
 
     def _post(ds_z: xr.Dataset) -> xr.Dataset:
-        ds_z = _restore_time_metadata(
-            ds_z,
-            time_template,
-            time_bounds_name,
-            time_bounds_template,
-            log,
-        )
+        # Reopen the original source and propagate time/time_bnds
+        try:
+            with read_dataset(
+                in_path,
+                decode_times=CFDatetimeCoder(use_cftime=True),
+            ) as _src:
+                ds_z = propagate_time_from(ds_z, _src)
+        except Exception as e:  # pragma: no cover - non-fatal
+            log.warning('Failed to propagate time metadata: %s', e)
+
+        # Attach ISMIP grid coordinates and geodetic coords; validate dims
+        ds_z = attach_grid_coords(ds_z, config)
 
         # Ensure coordinates and non-target variables do not carry _FillValue
-        ds_z = _strip_fill_on_non_target(ds_z, target_vars={variable})
+        ds_z = strip_fill_on_non_data(ds_z, data_vars=(variable,))
 
         var_da = ds_z[variable]
         chunks = getattr(var_da, 'chunks', None)
@@ -571,96 +514,3 @@ def _vertically_resample_to_coarse_ismip_grid(
         postprocess=_post,
     )
     return out_nc
-
-
-def _capture_time_templates(
-    in_path: str, time_chunk: int | None
-) -> tuple[
-    list[tuple[int, int]],
-    xr.DataArray | None,
-    str | None,
-    xr.DataArray | None,
-]:
-    """Capture time coordinate and bounds templates and build chunk indices.
-
-    Returns indices for time chunking along with the loaded time coordinate
-    and optional time bounds DataArray (and its name) from the source file.
-    """
-    with read_dataset(in_path) as ds_meta:
-        time_template: xr.DataArray | None = None
-        time_bounds_template: xr.DataArray | None = None
-        time_bounds_name: str | None = None
-
-        if 'time' in ds_meta.dims and time_chunk:
-            n_time = ds_meta.sizes['time']
-            indices = [
-                (i0, min(i0 + time_chunk, n_time))
-                for i0 in range(0, n_time, time_chunk)
-            ]
-            # Load to decouple from open file and preserve attrs/encoding
-            # load may raise ValueError/IOError-like; fallback keeps attrs
-            try:
-                time_template = ds_meta['time'].load()
-            except (ValueError, RuntimeError, OSError):
-                time_template = ds_meta['time'].copy(deep=True)
-        else:
-            indices = [(0, 1)]
-            if 'time' in ds_meta.dims:
-                try:
-                    time_template = ds_meta['time'].load()
-                except (ValueError, RuntimeError, OSError):
-                    time_template = ds_meta['time'].copy(deep=True)
-
-        # Capture time bounds if present
-        for cand in ('time_bnds', 'time_bounds'):
-            if cand in ds_meta:
-                time_bounds_name = cand
-                try:
-                    time_bounds_template = ds_meta[cand].load()
-                except (ValueError, RuntimeError, OSError):
-                    time_bounds_template = ds_meta[cand].copy(deep=True)
-                break
-
-    return (
-        indices,
-        time_template,
-        time_bounds_name,
-        time_bounds_template,
-    )
-
-
-def _restore_time_metadata(
-    ds: xr.Dataset,
-    time_template: xr.DataArray | None,
-    time_bounds_name: str | None,
-    time_bounds_template: xr.DataArray | None,
-    log: logging.Logger,
-) -> xr.Dataset:
-    """Restore time coordinate and bounds (values + attrs) onto dataset."""
-    if (
-        'time' in ds.dims
-        and 'time' in ds.variables
-        and time_template is not None
-    ):
-        if int(ds.sizes.get('time', -1)) == int(
-            time_template.sizes.get('time', -2)
-        ):
-            ds = ds.assign_coords(time=time_template)
-        else:
-            log.warning(
-                'Time length mismatch between Zarr (%s) and source (%s); '
-                'skipping time metadata restoration.',
-                ds.sizes.get('time'),
-                time_template.sizes.get('time'),
-            )
-
-    if (
-        time_bounds_name is not None
-        and time_bounds_template is not None
-        and 'time' in ds.dims
-        and int(ds.sizes.get('time', -1))
-        == int(time_bounds_template.sizes.get('time', -2))
-    ):
-        ds[time_bounds_name] = time_bounds_template
-
-    return ds

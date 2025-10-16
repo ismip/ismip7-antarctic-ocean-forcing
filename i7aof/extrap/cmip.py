@@ -71,6 +71,7 @@ from mpas_tools.logging import LoggingContext
 from xarray.coders import CFDatetimeCoder
 
 from i7aof.cmip import get_model_prefix
+from i7aof.config import load_config
 from i7aof.extrap.shared import (
     _apply_under_ice_mask_to_file,
     _ensure_imbie_masks,
@@ -308,31 +309,28 @@ def _prepare_paths_and_config(
     user_config_filename: str | None,
 ):
     model_prefix = get_model_prefix(model)
-    config = MpasConfigParser()
-    config.add_from_package('i7aof', 'default.cfg')
-    config.add_from_package('i7aof.cmip', f'{model_prefix}.cfg')
-    if user_config_filename is not None:
-        config.add_user_config(user_config_filename)
-    if workdir is None:
-        if config.has_option('workdir', 'base_dir'):
-            workdir = config.get('workdir', 'base_dir')
-        else:  # pragma: no cover
-            raise ValueError(
-                'Missing configuration option: [workdir] base_dir.'
-            )
-    # At this point workdir must be a concrete string for path joins
-    assert workdir is not None, (
-        'Internal error: workdir should be resolved to a string'
+    config = load_config(
+        model=model,
+        workdir=workdir,
+        user_config_filename=user_config_filename,
     )
-    # Persist workdir into config for downstream consumers (path resolution)
-    config.set('workdir', 'base_dir', workdir)
+    workdir_base: str = config.get('workdir', 'base_dir')
     remap_dir = os.path.join(
-        workdir, 'remap', model, scenario, 'Omon', 'ct_sa'
+        workdir_base, 'remap', model, scenario, 'Omon', 'ct_sa'
     )
-    out_dir = os.path.join(workdir, 'extrap', model, scenario, 'Omon', 'ct_sa')
+    out_dir = os.path.join(
+        workdir_base, 'extrap', model, scenario, 'Omon', 'ct_sa'
+    )
     os.makedirs(out_dir, exist_ok=True)
     ismip_res_str = get_res_string(config, extrap=True)
-    return config, workdir, remap_dir, out_dir, ismip_res_str, model_prefix
+    return (
+        config,
+        workdir_base,
+        remap_dir,
+        out_dir,
+        ismip_res_str,
+        model_prefix,
+    )
 
 
 def _collect_remap_outputs(remap_dir: str, ismip_res_str: str) -> List[str]:
@@ -916,11 +914,10 @@ def _ensure_extrapolated_file(
 
         _finalize_output_with_grid(
             ds_in=ds_final_in,
-            grid_path=grid_file,
+            config=config,
             final_out_path=task.out_path,
             variable=task.variable,
             logger=logger,
-            drop_singleton_time=False,
         )
 
         if not keep_intermediate:

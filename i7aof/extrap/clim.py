@@ -29,6 +29,7 @@ import shutil
 from mpas_tools.config import MpasConfigParser
 from mpas_tools.logging import LoggingContext
 
+from i7aof.config import load_config
 from i7aof.extrap.shared import (
     _apply_under_ice_mask_to_file,
     _ensure_imbie_masks,
@@ -69,25 +70,16 @@ def extrap_climatology(
     keep_intermediate : bool, optional
         Keep temporary directory if True.
     """
-    config = MpasConfigParser()
-    config.add_from_package('i7aof', 'default.cfg')
-    config.add_from_package('i7aof.clim', f'{clim_name}.cfg')
-    if user_config_filename is not None:
-        config.add_user_config(user_config_filename)
-
-    if workdir is None:
-        if config.has_option('workdir', 'base_dir'):
-            workdir = config.get('workdir', 'base_dir')
-        else:  # pragma: no cover
-            raise ValueError(
-                'Missing configuration option: [workdir] base_dir.'
-            )
-    assert workdir is not None
-    # Persist workdir into config for downstream consumers (path resolution)
-    config.set('workdir', 'base_dir', workdir)
+    config = load_config(
+        model=None,
+        clim_name=clim_name,
+        workdir=workdir,
+        user_config_filename=user_config_filename,
+    )
+    workdir_base: str = config.get('workdir', 'base_dir')
 
     # Locate remapped input file
-    remap_dir = os.path.join(workdir, 'remap', 'climatology', clim_name)
+    remap_dir = os.path.join(workdir_base, 'remap', 'climatology', clim_name)
     if not os.path.isdir(remap_dir):
         raise FileNotFoundError(
             f'Remapped climatology directory not found: {remap_dir}. '
@@ -109,12 +101,12 @@ def extrap_climatology(
         base_in = candidates[0]
     in_path = os.path.join(remap_dir, base_in)
 
-    out_dir = os.path.join(workdir, 'extrap', 'climatology', clim_name)
+    out_dir = os.path.join(workdir_base, 'extrap', 'climatology', clim_name)
     os.makedirs(out_dir, exist_ok=True)
 
-    basin_file = _ensure_imbie_masks(config, workdir)
-    grid_file = _ensure_ismip_grid(config, workdir)
-    topo_file = _ensure_topography(config, workdir)
+    basin_file = _ensure_imbie_masks(config, workdir_base)
+    grid_file = _ensure_ismip_grid(config, workdir_base)
+    topo_file = _ensure_topography(config, workdir_base)
 
     with LoggingContext(__name__):
         logger = logging.getLogger(__name__)
@@ -302,12 +294,10 @@ def _ensure_extrapolated_file(
     ds_vert = read_dataset(vert_tmp)
     _finalize_output_with_grid(
         ds_in=ds_vert,
-        grid_path=grid_file,
+        config=config,
         final_out_path=out_file,
         variable=variable,
         logger=logger,
-        # drop the dummy time dimension from final output
-        drop_singleton_time=True,
     )
     ds_vert.close()
 
