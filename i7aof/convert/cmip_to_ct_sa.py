@@ -8,7 +8,7 @@ import xarray as xr
 from mpas_tools.config import MpasConfigParser
 from tqdm import tqdm
 
-from i7aof.cmip import get_model_prefix
+from i7aof.config import load_config
 from i7aof.convert.paths import get_ct_sa_output_paths
 from i7aof.convert.teos10 import convert_dataset_to_ct_sa
 from i7aof.io import read_dataset
@@ -49,13 +49,25 @@ def convert_cmip_to_ct_sa(
         chunk sizes, etc.).
     """
 
-    config = _load_config(model, user_config_filename)
+    config = load_config(
+        model=model,
+        inputdir=inputdir,
+        workdir=workdir,
+        user_config_filename=user_config_filename,
+    )
 
-    workdir = _get_or_config_path(config, workdir, 'workdir')
-    inputdir = _get_or_config_path(config, inputdir, 'inputdir')
-    _ensure_config_base_dirs(config, workdir=workdir, inputdir=inputdir)
+    if not config.has_option('inputdir', 'base_dir'):
+        raise ValueError(
+            'Missing configuration option: [inputdir] base_dir. '
+            'Please supply a user config file or command-line option that '
+            'defines this option.'
+        )
+    workdir_base: str = config.get('workdir', 'base_dir')
+    inputdir_base: str = config.get('inputdir', 'base_dir')
 
-    outdir = os.path.join(workdir, 'convert', model, scenario, 'Omon', 'ct_sa')
+    outdir = os.path.join(
+        workdir_base, 'convert', model, scenario, 'Omon', 'ct_sa'
+    )
     os.makedirs(outdir, exist_ok=True)
 
     lat_var = config.get('cmip_dataset', 'lat_var')
@@ -79,7 +91,7 @@ def convert_cmip_to_ct_sa(
         config=config,
         model=model,
         scenario=scenario,
-        workdir=workdir,
+        workdir=workdir_base,
     )
 
     for th_rel, so_rel, out_abs in zip(
@@ -89,8 +101,8 @@ def convert_cmip_to_ct_sa(
             print(f'Converted file exists, skipping: {out_abs}')
             continue
         print(f'Converting to CT/SA: {os.path.basename(out_abs)}')
-        th_abs = os.path.join(inputdir, th_rel)
-        so_abs = os.path.join(inputdir, so_rel)
+        th_abs = os.path.join(inputdir_base, th_rel)
+        so_abs = os.path.join(inputdir_base, so_rel)
         _process_file_pair(
             th_abs,
             so_abs,
@@ -151,33 +163,6 @@ def main() -> None:
     )
 
 
-# ---------------------------------------------------------------------------
-# Helper functions
-# ---------------------------------------------------------------------------
-
-
-def _load_config(model: str, user_cfg: str | None) -> MpasConfigParser:
-    config = MpasConfigParser()
-    config.add_from_package('i7aof', 'default.cfg')
-    config.add_from_package('i7aof.cmip', f'{get_model_prefix(model)}.cfg')
-    if user_cfg is not None:
-        config.add_user_config(user_cfg)
-    return config
-
-
-def _get_or_config_path(
-    config: MpasConfigParser, supplied: str | None, section: str
-) -> str:
-    if supplied is not None:
-        return supplied
-    if config.has_option(section, 'base_dir'):
-        return config.get(section, 'base_dir')
-    raise ValueError(
-        f'Missing configuration option: [{section}] base_dir. '
-        'Please supply a user config file that defines this option.'
-    )
-
-
 def _parse_time_chunk(config: MpasConfigParser) -> int | None:
     if not config.has_option('convert_cmip', 'time_chunk'):
         return None
@@ -185,19 +170,6 @@ def _parse_time_chunk(config: MpasConfigParser) -> int | None:
     if raw in ('', 'None', 'none'):
         return None
     return int(raw)
-
-
-def _ensure_config_base_dirs(
-    config: MpasConfigParser,
-    *,
-    workdir: str | None = None,
-    inputdir: str | None = None,
-) -> None:
-    """Persist provided workdir/inputdir into config base_dir options."""
-    if workdir is not None:
-        config.set('workdir', 'base_dir', workdir)
-    if inputdir is not None:
-        config.set('inputdir', 'base_dir', inputdir)
 
 
 def _process_file_pair(
