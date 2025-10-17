@@ -33,7 +33,6 @@ from i7aof.config import load_config
 from i7aof.extrap.shared import (
     _apply_under_ice_mask_to_file,
     _ensure_imbie_masks,
-    _ensure_ismip_grid,
     _ensure_topography,
     _finalize_output_with_grid,
     _prepare_input_single,
@@ -41,7 +40,7 @@ from i7aof.extrap.shared import (
     _run_exe_capture,
     _vertically_resample_to_coarse_ismip_grid,
 )
-from i7aof.grid.ismip import get_res_string
+from i7aof.grid.ismip import ensure_ismip_grid, get_res_string
 from i7aof.io import read_dataset
 
 __all__ = ['extrap_climatology', 'main']
@@ -105,7 +104,7 @@ def extrap_climatology(
     os.makedirs(out_dir, exist_ok=True)
 
     basin_file = _ensure_imbie_masks(config, workdir_base)
-    grid_file = _ensure_ismip_grid(config, workdir_base)
+    grid_file = ensure_ismip_grid(config)
     topo_file = _ensure_topography(config, workdir_base)
 
     with LoggingContext(__name__):

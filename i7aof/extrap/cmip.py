@@ -75,14 +75,13 @@ from i7aof.config import load_config
 from i7aof.extrap.shared import (
     _apply_under_ice_mask_to_file,
     _ensure_imbie_masks,
-    _ensure_ismip_grid,
     _ensure_topography,
     _finalize_output_with_grid,
     _render_namelist,
     _run_exe_capture,
     _vertically_resample_to_coarse_ismip_grid,
 )
-from i7aof.grid.ismip import get_res_string
+from i7aof.grid.ismip import ensure_ismip_grid, get_res_string
 from i7aof.io import read_dataset, write_netcdf
 
 __all__ = ['extrap_cmip', 'main']
@@ -203,7 +202,7 @@ def extrap_cmip(
         )
 
     basin_file = _ensure_imbie_masks(config, workdir)
-    grid_file = _ensure_ismip_grid(config, workdir)
+    grid_file = ensure_ismip_grid(config)
     topo_file = _ensure_topography(config, workdir)
 
     for in_file in in_files:
