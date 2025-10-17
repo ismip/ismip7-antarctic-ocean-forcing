@@ -336,14 +336,20 @@ def ensure_cf_time_encoding(
     def _extract_calendar(obj: xr.Dataset) -> str | None:
         if 'time' not in obj:
             return None
-        tattrs = getattr(obj['time'], 'attrs', {}) or {}
-        # Common attribute names
+        t = obj['time']
+        # Prefer encoding (where xarray stores decoded meta), then attrs
+        if hasattr(t, 'encoding') and isinstance(t.encoding, dict):
+            cal_enc = t.encoding.get('calendar')
+            if isinstance(cal_enc, str) and cal_enc:
+                return cal_enc
+        tattrs = getattr(t, 'attrs', {}) or {}
         return tattrs.get('calendar') or tattrs.get('calendar_type')
 
     if cal is None and prefer_source is not None:
         cal = _extract_calendar(prefer_source)
     if cal is None:
         cal = _extract_calendar(ds)
+    # Only default if no calendar is discoverable from either dataset
     if cal is None:
         cal = 'proleptic_gregorian'
 

@@ -133,8 +133,9 @@ def test_time_and_time_bnds_units_alignment(tmp_path):
     out_file = tmp_path / 'time_units.nc'
     write_netcdf(ds, str(out_file), format='NETCDF4', engine='netcdf4')
 
-    # Validate: either time_bnds has same units as time, or time_bnds has no
-    # units but its lower bound values numerically equal time values.
+    # Validate: prefer time_bnds carrying the same units (and calendar) as
+    # time; otherwise accept no units if the lower bound values numerically
+    # equal the time values. Always check numeric alignment.
     with netCDF4.Dataset(out_file, mode='r') as nc:
         time_var = nc.variables['time']
         tb_var = nc.variables['time_bnds']
@@ -145,9 +146,14 @@ def test_time_and_time_bnds_units_alignment(tmp_path):
         tb_has_units = 'units' in tb_var.ncattrs()
         if tb_has_units:
             assert tb_var.getncattr('units') == t_units
-        else:
-            # Compare numeric content: time[:] vs time_bnds[:, 0]
-            t_vals = np.array(time_var[:])
-            tb_lower = np.array(tb_var[:, 0])
-            # Use allclose to allow for float representation
-            assert np.allclose(t_vals, tb_lower)
+            # If calendar is present on time, require it on time_bnds as well
+            if 'calendar' in time_var.ncattrs():
+                t_cal = time_var.getncattr('calendar')
+                assert 'calendar' in tb_var.ncattrs()
+                assert tb_var.getncattr('calendar') == t_cal
+
+        # Compare numeric content: time[:] vs time_bnds[:, 0]
+        t_vals = np.array(time_var[:])
+        tb_lower = np.array(tb_var[:, 0])
+        # Use allclose to allow for float representation
+        assert np.allclose(t_vals, tb_lower)

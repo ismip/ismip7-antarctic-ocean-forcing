@@ -179,10 +179,7 @@ def _apply_time_encoding(
     if 'time' not in ds.variables:
         return
     time_var = ds['time']
-    # Remove conflicting attrs that would cause xarray to raise when encoding
-    for key in ('units', 'calendar'):
-        time_var.attrs.pop(key, None)
-    # Determine calendar, prefer existing, otherwise default
+    # Determine calendar, prefer existing (encoding), then attrs, else default
     calendar = (
         time_var.encoding.get('calendar')
         if hasattr(time_var, 'encoding')
@@ -192,6 +189,11 @@ def _apply_time_encoding(
         calendar = time_var.attrs.get('calendar')
     if calendar is None:
         calendar = 'proleptic_gregorian'
+
+    # Now remove conflicting attrs that would cause xarray to raise when
+    # encoding. Keep the calendar value we just inferred.
+    for key in ('units', 'calendar'):
+        time_var.attrs.pop(key, None)
 
     # Force units and calendar to be consistent for time and time_bnds
     time_units = default_time_units
