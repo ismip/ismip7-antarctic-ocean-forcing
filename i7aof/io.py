@@ -106,15 +106,7 @@ def write_netcdf(
         if not filltype.startswith('S'):
             numpy_fillvals[numpy.dtype(filltype)] = fillvalue
 
-    encoding_dict = {}
-    var_names = list(ds.data_vars.keys()) + list(ds.coords.keys())
-    for var_name in var_names:
-        var = ds[var_name]
-        encoding = _var_encoding(
-            var_name, var, numpy_fillvals, has_fill_values
-        )
-        if encoding:
-            encoding_dict[var_name] = encoding
+    encoding_dict = _build_encoding_dict(ds, numpy_fillvals, has_fill_values)
 
     if 'time' in ds.dims:
         # make sure the time dimension is unlimited
@@ -126,30 +118,7 @@ def write_netcdf(
     # Standardize time encodings across the package to avoid warnings and
     # ensure CF-consistent units between time and time_bnds.
     # Use days since 1850-01-01 as the common reference.
-    default_time_units = 'days since 1850-01-01'
-    if 'time' in ds.variables:
-        time_var = ds['time']
-        # Determine calendar, prefer existing, otherwise default
-        calendar = (
-            time_var.encoding.get('calendar')
-            if hasattr(time_var, 'encoding')
-            else None
-        )
-        if calendar is None:
-            calendar = time_var.attrs.get('calendar')
-        if calendar is None:
-            calendar = 'proleptic_gregorian'
-
-        # Force units and calendar to be consistent for time and time_bnds
-        time_units = default_time_units
-        time_var.encoding['units'] = time_units
-        time_var.encoding['calendar'] = calendar
-
-        # Ensure time_bnds (if present) uses identical units/calendar
-        if 'time_bnds' in ds.variables:
-            tb = ds['time_bnds']
-            tb.encoding['units'] = time_units
-            tb.encoding['calendar'] = calendar
+    _apply_time_encoding(ds, encoding_dict)
 
     # for performance, we have to handle this as a special case
     convert = format == 'NETCDF3_64BIT_DATA'
@@ -197,6 +166,68 @@ def write_netcdf(
         )
         # delete the temporary NETCDF4 file
         os.remove(out_filename)
+
+
+def _apply_time_encoding(
+    ds: xr.Dataset,
+    encoding_dict: dict,
+    default_time_units: str = 'days since 1850-01-01',
+) -> None:
+    """
+    Ensure consistent time/time_bnds encodings and clear conflicting attrs.
+    """
+    if 'time' not in ds.variables:
+        return
+    time_var = ds['time']
+    # Remove conflicting attrs that would cause xarray to raise when encoding
+    for key in ('units', 'calendar'):
+        time_var.attrs.pop(key, None)
+    # Determine calendar, prefer existing, otherwise default
+    calendar = (
+        time_var.encoding.get('calendar')
+        if hasattr(time_var, 'encoding')
+        else None
+    )
+    if calendar is None:
+        calendar = time_var.attrs.get('calendar')
+    if calendar is None:
+        calendar = 'proleptic_gregorian'
+
+    # Force units and calendar to be consistent for time and time_bnds
+    time_units = default_time_units
+    time_var.encoding['units'] = time_units
+    time_var.encoding['calendar'] = calendar
+    # Also pass explicitly via encoding_dict to ensure backend sees it
+    encoding_dict.setdefault('time', {})
+    encoding_dict['time']['units'] = time_units
+    encoding_dict['time']['calendar'] = calendar
+
+    # Ensure time_bnds (if present) uses identical units/calendar
+    if 'time_bnds' in ds.variables:
+        tb = ds['time_bnds']
+        for key in ('units', 'calendar'):
+            tb.attrs.pop(key, None)
+        tb.encoding['units'] = time_units
+        tb.encoding['calendar'] = calendar
+        encoding_dict.setdefault('time_bnds', {})
+        encoding_dict['time_bnds']['units'] = time_units
+        encoding_dict['time_bnds']['calendar'] = calendar
+
+
+def _build_encoding_dict(
+    dataset: xr.Dataset, numpy_fillvals: dict, has_fill_values
+) -> dict:
+    """Build encoding dict for variables, including _FillValue decisions."""
+    enc: dict = {}
+    var_names_local = list(dataset.data_vars.keys()) + list(
+        dataset.coords.keys()
+    )
+    for vn in var_names_local:
+        var = dataset[vn]
+        enc_v = _var_encoding(vn, var, numpy_fillvals, has_fill_values)
+        if enc_v:
+            enc[vn] = enc_v
+    return enc
 
 
 def _decide_fill_value(var_name, var, numpy_fillvals, has_fill_values):

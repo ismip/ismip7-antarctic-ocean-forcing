@@ -350,23 +350,18 @@ def ensure_cf_time_encoding(
     # Ensure dtype is numeric on write; double precision is standard
     enc_common = {'units': units, 'calendar': cal, 'dtype': 'float64'}
 
+    # Remove any conflicting attrs; xarray will set these during encoding
+    for key in ('units', 'calendar'):
+        ds['time'].attrs.pop(key, None)
     # Update encodings on time and time_bnds if present
     ds['time'].encoding = {**getattr(ds['time'], 'encoding', {}), **enc_common}
-    # Also mirror attrs for clarity in-memory (writing uses encoding)
-    t_attrs = dict(getattr(ds['time'], 'attrs', {}) or {})
-    t_attrs['units'] = enc_common['units']
-    if cal is not None:
-        t_attrs['calendar'] = cal
-    ds['time'].attrs = t_attrs
     if 'time_bnds' in ds:
+        # Remove conflicting attrs to avoid safe_setitem errors
+        for key in ('units', 'calendar'):
+            ds['time_bnds'].attrs.pop(key, None)
         ds['time_bnds'].encoding = {
             **getattr(ds['time_bnds'], 'encoding', {}),
             **enc_common,
         }
-        tb_attrs = dict(getattr(ds['time_bnds'], 'attrs', {}) or {})
-        tb_attrs['units'] = enc_common['units']
-        if cal is not None:
-            tb_attrs['calendar'] = cal
-        ds['time_bnds'].attrs = tb_attrs
 
     return ds
