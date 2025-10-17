@@ -10,7 +10,7 @@ Workflow
 
 import argparse
 import os
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 import xarray as xr
 from xarray.coders import CFDatetimeCoder
@@ -21,7 +21,7 @@ from i7aof.coords import (
     propagate_time_from,
     strip_fill_on_non_data,
 )
-from i7aof.grid.ismip import ensure_ismip_grid, get_res_string
+from i7aof.grid.ismip import get_res_string
 from i7aof.io import read_dataset, write_netcdf
 
 
@@ -61,7 +61,6 @@ def biascorr_cmip(
         extrap_dir,
         outdir,
         ismip_res_str,
-        grid_filename,
     ) = _load_config_and_paths(
         model=model,
         workdir=workdir,
@@ -78,23 +77,20 @@ def biascorr_cmip(
         )
 
     # Compute bias over historical period
-    _compute_biases(
+    bias_files = _compute_biases(
         config=config,
         workdir=workdir,
         model=model,
         ismip_res_str=ismip_res_str,
         clim_name=clim_name,
-        grid_filename=grid_filename,
     )
 
     # Apply actual correction
     _apply_biascorrection(
         config=config,
-        workdir=workdir,
-        model=model,
-        clim_name=clim_name,
         ct_files=ct_files,
         sa_files=sa_files,
+        bias_files=bias_files,
         outdir=outdir,
     )
 
@@ -181,8 +177,6 @@ def _load_config_and_paths(
     os.makedirs(outdir, exist_ok=True)
     os.chdir(workdir_base)
 
-    grid_filename = ensure_ismip_grid(config)
-
     ismip_res_str = get_res_string(config, extrap=False)
     return (
         config,
@@ -190,7 +184,6 @@ def _load_config_and_paths(
         extrap_dir,
         outdir,
         ismip_res_str,
-        grid_filename,
     )
 
 
@@ -214,17 +207,13 @@ def _collect_extrap_outputs(
     return ct_files, sa_files
 
 
-def _compute_biases(
-    config, workdir, model, ismip_res_str, clim_name, grid_filename
-):
+def _compute_biases(config, workdir, model, ismip_res_str, clim_name):
     """Compute the bias if not already done"""
 
-    biasdir = os.path.join(
-        workdir, 'biascorr', model, 'intermediate', clim_name
-    )
+    biasdir = os.path.join(workdir, 'biascorr', model, 'bias', clim_name)
     os.makedirs(biasdir, exist_ok=True)
 
-    modclimdir = os.path.join(workdir, 'biascorr', model, 'intermediate')
+    modclimdir = os.path.join(workdir, 'biascorr', model, 'climatology')
 
     climdir = os.path.join(workdir, 'extrap', 'climatology', clim_name)
 
@@ -233,6 +222,11 @@ def _compute_biases(
     )
 
     time_chunk = config.get('biascorr', 'time_chunk')
+
+    start_year = config.getint('climatology', 'start_year')
+    end_year = config.getint('climatology', 'end_year')
+
+    bias_files: Dict[str, str] = {}
 
     for var in ['ct', 'sa']:
         # Get historical files
@@ -245,12 +239,22 @@ def _compute_biases(
                 f'No historical extrapolated files available for {var}'
             )
 
+        basename = os.path.basename(hist_files[0])
+        # remove "Omon" and years from filename
+        basename = basename.replace('_Omon', '')[0 : basename.rfind('_')]
+        # add climatology years and months
+        ref_filename = f'{basename}_{start_year}01-{end_year}12.nc'
+
         # Define filename for bias and skip if it's already present
-        biasfile = os.path.join(biasdir, f'bias_{var}.nc')
+        biasfile = os.path.join(
+            biasdir, ref_filename.replace('historical', 'bias')
+        )
         if os.path.exists(biasfile):
             print(f'Bias file already exists, skipping: {biasfile}')
             continue
-        modclimfile = os.path.join(modclimdir, f'model_clim_{var}.nc')
+        modclimfile = os.path.join(
+            modclimdir, ref_filename.replace('historical', 'climatology')
+        )
 
         # Get climatology file for this variable
         climfile = os.path.join(
@@ -264,8 +268,9 @@ def _compute_biases(
         )
 
         # Extract climatology period (only full annual for now)
-        # TODO make dependent on clim
-        ds_hist = ds_hist.sel(time=slice('1995-01-01', '2015-01-01'))
+        ds_hist = ds_hist.sel(
+            time=slice(f'{start_year}-01-01', f'{end_year + 1}-01-01')
+        )
         # chunk just the variable because of issues chunking whole dataset
         da_hist = ds_hist[var].chunk({'time': time_chunk})
 
@@ -305,29 +310,26 @@ def _compute_biases(
 
         ds_clim.close()
         ds_hist.close()
+        bias_files[var] = biasfile
+
+    return bias_files
 
 
 def _apply_biascorrection(
     config,
-    workdir,
-    model,
-    clim_name,
     ct_files,
     sa_files,
+    bias_files,
     outdir,
 ):
     """Apply bias correction to all in_files"""
-
-    biasdir = os.path.join(
-        workdir, 'biascorr', model, 'intermediate', clim_name
-    )
 
     time_chunk = config.get('biascorr', 'time_chunk')
 
     for ct_file, sa_file in zip(ct_files, sa_files, strict=True):
         for var, file in zip(['ct', 'sa'], [ct_file, sa_file], strict=True):
             # Read biases
-            biasfile = os.path.join(biasdir, f'bias_{var}.nc')
+            biasfile = bias_files[var]
             ds_bias = read_dataset(biasfile)
 
             # Read CMIP files
