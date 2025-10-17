@@ -462,7 +462,12 @@ def _process_ct_sa_pair(
         # Attach ISMIP grid coordinates with validation and propagate time
         ds_final = attach_grid_coords(ds_final, config)
         if 'time' in ds_ct.dims:
-            ds_final = propagate_time_from(ds_final, ds_ct)
+            ds_final = propagate_time_from(
+                ds_final,
+                ds_ct,
+                apply_cf_encoding=True,
+                units='days since 1850-01-01 00:00:00',
+            )
         ds_final = strip_fill_on_non_data(ds_final, data_vars=('tf',))
         return ds_final
 

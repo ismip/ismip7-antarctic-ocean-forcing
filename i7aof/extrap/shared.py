@@ -492,7 +492,12 @@ def _vertically_resample_to_coarse_ismip_grid(
                 in_path,
                 decode_times=CFDatetimeCoder(use_cftime=True),
             ) as _src:
-                ds_z = propagate_time_from(ds_z, _src)
+                ds_z = propagate_time_from(
+                    ds_z,
+                    _src,
+                    apply_cf_encoding=True,
+                    units='days since 1850-01-01 00:00:00',
+                )
         except Exception as e:  # pragma: no cover - non-fatal
             log.warning('Failed to propagate time metadata: %s', e)
 

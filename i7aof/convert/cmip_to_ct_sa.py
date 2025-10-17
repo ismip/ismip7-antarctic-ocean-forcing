@@ -11,6 +11,7 @@ from tqdm import tqdm
 from i7aof.config import load_config
 from i7aof.convert.paths import get_ct_sa_output_paths
 from i7aof.convert.teos10 import convert_dataset_to_ct_sa
+from i7aof.coords import ensure_cf_time_encoding
 from i7aof.io import read_dataset
 from i7aof.io_zarr import append_to_zarr, finalize_zarr_to_netcdf
 
@@ -230,6 +231,13 @@ def _process_file_pair(
 
     def _post(ds_z: xr.Dataset) -> xr.Dataset:
         _inject_bounds(ds_z, ds_thetao, bounds_records, time_bounds)
+        # Ensure CF-consistent encodings for time/time_bnds so units "stick"
+        ensure_cf_time_encoding(
+            ds_z,
+            units='days since 1850-01-01 00:00:00',
+            calendar=None,
+            prefer_source=ds_thetao,
+        )
         return ds_z
 
     finalize_zarr_to_netcdf(
@@ -270,6 +278,20 @@ def _standardize_time_bounds_to_time_bnds(ds: xr.Dataset) -> xr.Dataset:
 
     if tbname != 'time_bnds':
         ds = ds.rename({tbname: 'time_bnds'})
+    # Normalize the second dimension name to 'bnds' for consistency
+    if 'time_bnds' in ds:
+        bnds_var = ds['time_bnds']
+        dims = list(bnds_var.dims)
+        if len(dims) == 2:
+            _time_dim, second_dim = dims
+            if second_dim != 'bnds':
+                second_size = ds.sizes.get(second_dim)
+                # Rename only if no conflicting 'bnds' dimension exists
+                if (
+                    'bnds' not in ds.dims
+                    or ds.sizes.get('bnds') == second_size
+                ):
+                    ds = ds.rename({second_dim: 'bnds'})
     # Ensure the time coord points to the standardized name
     t_attrs = dict(getattr(ds['time'], 'attrs', {}))
     t_attrs['bounds'] = 'time_bnds'

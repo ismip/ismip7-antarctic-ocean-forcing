@@ -667,7 +667,12 @@ def _process_ct_sa_annual_pair(
         ds_final = _post(ds_final)
 
         # Propagate time/time_bnds from original NetCDF (bypassing Zarr quirks)
-        ds_final = propagate_time_from(ds_final, ds_ct)
+        ds_final = propagate_time_from(
+            ds_final,
+            ds_ct,
+            apply_cf_encoding=True,
+            units='days since 1850-01-01 00:00:00',
+        )
 
         # Write thetao dataset (with bounds)
         if not os.path.exists(out_thetao):

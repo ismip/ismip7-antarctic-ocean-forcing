@@ -349,7 +349,12 @@ def _apply_biascorrection(
                 ds_out[var].attrs = ds_cmip[var].attrs
                 ds_out = attach_grid_coords(ds_out, config)
                 # Propagate time coord and bounds from CMIP source
-                ds_out = propagate_time_from(ds_out, ds_cmip)
+                ds_out = propagate_time_from(
+                    ds_out,
+                    ds_cmip,
+                    apply_cf_encoding=True,
+                    units='days since 1850-01-01 00:00:00',
+                )
                 # Ensure coords/bounds have no fill values
                 ds_out = strip_fill_on_non_data(ds_out, data_vars=(var,))
 

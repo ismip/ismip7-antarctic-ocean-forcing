@@ -382,7 +382,12 @@ def _remap_horiz(
 
     # Ensure time coordinate and bounds are preserved from source dataset
     if 'time' in ds.dims:
-        ds_final = propagate_time_from(ds_final, ds)
+        ds_final = propagate_time_from(
+            ds_final,
+            ds,
+            apply_cf_encoding=True,
+            units='days since 1850-01-01 00:00:00',
+        )
 
     # Ensure no stray fill values on coordinates/bounds
     data_vars = [
