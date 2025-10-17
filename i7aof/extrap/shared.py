@@ -59,11 +59,13 @@ __all__ = [
 def _ensure_imbie_masks(config: MpasConfigParser, workdir: str) -> str:
     """Ensure IMBIE basin mask file exists under ``workdir`` and return it."""
     res = get_horiz_res_string(config)
-    basin_file = os.path.join(workdir, 'imbie', f'basinNumbers_{res}.nc')
+    basin_file = os.path.join(
+        workdir, 'imbie2', f'basin_numbers_ismip{res}.nc'
+    )
     if not os.path.exists(basin_file):
         cwd = os.getcwd()
         try:
-            os.makedirs(os.path.join(workdir, 'imbie'), exist_ok=True)
+            os.makedirs(os.path.join(workdir, 'imbie2'), exist_ok=True)
             os.chdir(workdir)
             make_imbie_masks(config)
         finally:

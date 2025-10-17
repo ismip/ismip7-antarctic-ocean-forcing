@@ -30,10 +30,12 @@ def make_imbie_masks(config):
     """
     res = get_horiz_res_string(config)
     ismip_grid_filename = get_ismip_grid_filename(config)
-    basin_file_name = 'imbie/ANT_Basins_IMBIE2_v1.6/ANT_Basins_IMBIE2_v1.6.shp'
-    out_file_name = f'imbie/basinNumbers_{res}.nc'
+    basin_file_name = (
+        'imbie2/ANT_Basins_IMBIE2_v1.6/ANT_Basins_IMBIE2_v1.6.shp'
+    )
+    out_file_name = f'imbie2/basin_numbers_ismip{res}.nc'
 
-    os.makedirs('imbie', exist_ok=True)
+    os.makedirs('imbie2', exist_ok=True)
     download_imbie()
 
     if os.path.exists(out_file_name):
