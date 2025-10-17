@@ -49,6 +49,8 @@ def convert_cmip_to_ct_sa(
         chunk sizes, etc.).
     """
 
+    print(f'Converting CMIP model "{model}" scenario "{scenario}" to CT/SA.')
+
     config = load_config(
         model=model,
         inputdir=inputdir,
@@ -65,10 +67,15 @@ def convert_cmip_to_ct_sa(
     workdir_base: str = config.get('workdir', 'base_dir')
     inputdir_base: str = config.get('inputdir', 'base_dir')
 
+    print(f'Using input directory: {inputdir_base}')
+    print(f'Using working directory: {workdir_base}')
+
     outdir = os.path.join(
         workdir_base, 'convert', model, scenario, 'Omon', 'ct_sa'
     )
     os.makedirs(outdir, exist_ok=True)
+
+    print(f'Using output directory: {outdir}')
 
     lat_var = config.get('cmip_dataset', 'lat_var')
     lon_var = config.get('cmip_dataset', 'lon_var')
@@ -100,9 +107,9 @@ def convert_cmip_to_ct_sa(
         if os.path.exists(out_abs):
             print(f'Converted file exists, skipping: {out_abs}')
             continue
-        print(f'Converting to CT/SA: {os.path.basename(out_abs)}')
         th_abs = os.path.join(inputdir_base, th_rel)
         so_abs = os.path.join(inputdir_base, so_rel)
+        print(f'Converting to CT/SA:\n{th_abs}\n{so_abs}\n{out_abs}')
         _process_file_pair(
             th_abs,
             so_abs,
