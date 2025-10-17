@@ -26,7 +26,7 @@ import xarray as xr
 from mpas_tools.config import MpasConfigParser
 
 from i7aof.grid.ismip import ensure_ismip_grid
-from i7aof.io import read_dataset
+from i7aof.io import _ensure_cftime_time, read_dataset
 
 __all__ = [
     'attach_grid_coords',
@@ -353,21 +353,28 @@ def ensure_cf_time_encoding(
     if cal is None:
         cal = 'proleptic_gregorian'
 
-    # Ensure dtype is numeric on write; double precision is standard
-    enc_common = {'units': units, 'calendar': cal, 'dtype': 'float64'}
+    # Ensure values are cftime objects for predictable CF encoding
+    _ensure_cftime_time(ds, cal)
 
-    # Remove any conflicting attrs; xarray will set these during encoding
-    for key in ('units', 'calendar'):
-        ds['time'].attrs.pop(key, None)
-    # Update encodings on time and time_bnds if present
-    ds['time'].encoding = {**getattr(ds['time'], 'encoding', {}), **enc_common}
+    # Place units/calendar in encoding for CF encoding; remove from attrs
+    # to avoid safe_setitem conflicts during serialization.
+    t = ds['time']
+    if isinstance(getattr(t, 'attrs', None), dict):
+        t.attrs.pop('units', None)
+        t.attrs.pop('calendar', None)
+    if isinstance(getattr(t, 'encoding', None), dict):
+        t.encoding['units'] = units
+        t.encoding['calendar'] = cal
+        t.encoding['dtype'] = 'float64'
+
     if 'time_bnds' in ds:
-        # Remove conflicting attrs to avoid safe_setitem errors
-        for key in ('units', 'calendar'):
-            ds['time_bnds'].attrs.pop(key, None)
-        ds['time_bnds'].encoding = {
-            **getattr(ds['time_bnds'], 'encoding', {}),
-            **enc_common,
-        }
+        tb = ds['time_bnds']
+        if isinstance(getattr(tb, 'attrs', None), dict):
+            tb.attrs.pop('units', None)
+            tb.attrs.pop('calendar', None)
+        if isinstance(getattr(tb, 'encoding', None), dict):
+            tb.encoding['units'] = units
+            tb.encoding['calendar'] = cal
+            tb.encoding['dtype'] = 'float64'
 
     return ds

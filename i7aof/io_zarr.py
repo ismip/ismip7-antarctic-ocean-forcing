@@ -22,7 +22,7 @@ import numpy as np
 import xarray as xr
 from xarray.coding.common import SerializationWarning
 
-from i7aof.io import write_netcdf
+from i7aof.io import _ensure_cftime_time, write_netcdf
 
 __all__ = ['append_to_zarr', 'finalize_zarr_to_netcdf']
 
@@ -102,6 +102,63 @@ def finalize_zarr_to_netcdf(
         _mark_zarr_ready(zarr_store)
         if postprocess is not None:
             ds = postprocess(ds)
+        # Ensure deterministic CF-time encoding: cftime values and matching
+        # units/calendar for time and time_bnds right before NetCDF write.
+        if 'time' in ds:
+            t = ds['time']
+            cal = (
+                (
+                    t.encoding.get('calendar')
+                    if isinstance(t.encoding, dict)
+                    else None
+                )
+                or t.attrs.get('calendar')
+                or 'proleptic_gregorian'
+            )
+            _ensure_cftime_time(ds, cal)
+            # Force-convert to numeric days since 1850 for both time and
+            # time_bnds to avoid backend-specific unit choices.
+            tunits = 'days since 1850-01-01 00:00:00'
+            import cftime as _cftime
+            import numpy as _np
+
+            # time
+            tvals = _np.array(
+                _cftime.date2num(
+                    list(ds['time'].values), tunits, calendar=cal
+                ),
+                dtype=_np.float64,
+            )
+            ds['time'] = xr.DataArray(tvals, dims=ds['time'].dims)
+            ds['time'].attrs['units'] = tunits
+            ds['time'].attrs['calendar'] = cal
+            if isinstance(ds['time'].encoding, dict):
+                ds['time'].encoding.clear()
+
+            # time_bnds
+            if 'time_bnds' in ds:
+                tb_vals = ds['time_bnds'].values
+                # vectorize over both columns
+                tb0 = _np.array(
+                    _cftime.date2num(
+                        list(tb_vals[:, 0]), tunits, calendar=cal
+                    ),
+                    dtype=_np.float64,
+                )
+                tb1 = _np.array(
+                    _cftime.date2num(
+                        list(tb_vals[:, 1]), tunits, calendar=cal
+                    ),
+                    dtype=_np.float64,
+                )
+                tb_num = _np.stack([tb0, tb1], axis=1)
+                ds['time_bnds'] = xr.DataArray(
+                    tb_num, dims=ds['time_bnds'].dims
+                )
+                ds['time_bnds'].attrs['units'] = tunits
+                ds['time_bnds'].attrs['calendar'] = cal
+                if isinstance(ds['time_bnds'].encoding, dict):
+                    ds['time_bnds'].encoding.clear()
         # Write NetCDF to a temporary path first, then atomically move to the
         # final destination on success. This avoids leaving a partially-
         # written NetCDF when failures occur and removes the need for a
