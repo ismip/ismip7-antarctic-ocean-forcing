@@ -18,6 +18,7 @@ import warnings
 from collections.abc import Callable
 from contextlib import contextmanager
 
+import numpy as np
 import xarray as xr
 from xarray.coding.common import SerializationWarning
 
@@ -34,6 +35,11 @@ def append_to_zarr(
     Returns the updated value for ``first`` (False after first write).
     """
 
+    # If a previous run marked the Zarr store as ready (or legacy complete
+    # marker exists), skip re-writing/append to keep idempotent behavior.
+    if _zarr_is_ready(zarr_store) or _zarr_is_complete(zarr_store):
+        return False
+
     ds_to_write = _sanitize_time_attrs(ds)
 
     if first:
@@ -43,7 +49,20 @@ def append_to_zarr(
             ds_to_write.to_zarr(zarr_store, mode='w')
         return False
     with _suppress_zarr_warnings():
-        ds_to_write.to_zarr(zarr_store, mode='a', append_dim=append_dim)
+        if append_dim is None:
+            # Idempotency: if the store already exists and there's no
+            # append dimension, assume the segment is present and skip
+            if os.path.isdir(zarr_store):
+                return False
+            ds_to_write.to_zarr(zarr_store, mode='w')
+        else:
+            # If the segment's coord values along append_dim are already
+            # fully present in the store, skip appending to keep idempotent
+            if os.path.isdir(zarr_store) and _segment_already_present(
+                zarr_store, append_dim, ds_to_write[append_dim].values
+            ):
+                return False
+            ds_to_write.to_zarr(zarr_store, mode='a', append_dim=append_dim)
     return False
 
 
@@ -77,11 +96,20 @@ def finalize_zarr_to_netcdf(
     with _suppress_zarr_warnings():
         ds = xr.open_zarr(zarr_store, consolidated=False)
     try:
+        # Mark Zarr as ready as soon as we can successfully open it. If the
+        # subsequent NetCDF write fails, this allows reruns to skip the Zarr
+        # append phase and retry conversion only.
+        _mark_zarr_ready(zarr_store)
         if postprocess is not None:
             ds = postprocess(ds)
+        # Write NetCDF to a temporary path first, then atomically move to the
+        # final destination on success. This avoids leaving a partially-
+        # written NetCDF when failures occur and removes the need for a
+        # ".complete" file.
+        out_tmp = f'{out_nc}.tmp'
         write_netcdf(
             ds,
-            out_nc,
+            out_tmp,
             has_fill_values=(
                 has_fill_values if has_fill_values else (lambda *_: False)
             ),
@@ -89,7 +117,12 @@ def finalize_zarr_to_netcdf(
         )
     finally:
         ds.close()
+    # Finalize atomically: move tmp -> final, then remove Zarr store and any
+    # legacy external marker if present.
+    if os.path.isfile(out_tmp):
+        os.replace(out_tmp, out_nc)
         shutil.rmtree(zarr_store, ignore_errors=True)
+        _cleanup_legacy_complete_marker(zarr_store)
 
 
 @contextmanager
@@ -114,6 +147,80 @@ def _suppress_zarr_warnings():
             category=SerializationWarning,
         )
         yield
+
+
+def _zarr_complete_marker(zarr_store: str) -> str:
+    """Legacy external marker path (created by older versions).
+
+    Still recognized to keep reruns idempotent, but no longer created.
+    """
+    return f'{zarr_store}.complete'
+
+
+def _cleanup_legacy_complete_marker(zarr_store: str) -> None:
+    """Remove legacy external marker file if it exists."""
+    marker = _zarr_complete_marker(zarr_store)
+    try:
+        if os.path.isfile(marker):
+            os.remove(marker)
+    except OSError:
+        # Non-fatal cleanup failure
+        pass
+
+
+def _zarr_is_complete(zarr_store: str) -> bool:
+    marker = _zarr_complete_marker(zarr_store)
+    return os.path.isfile(marker)
+
+
+def _zarr_ready_marker(zarr_store: str) -> str:
+    """Return path to the in-store marker indicating Zarr is ready.
+
+    Using a hidden file inside the Zarr store avoids cluttering the parent
+    directory and ensures automatic cleanup when the store is removed.
+    """
+    return os.path.join(zarr_store, '.i7aof_zarr_ready')
+
+
+def _mark_zarr_ready(zarr_store: str) -> None:
+    """Create/refresh the internal ready marker inside the Zarr store."""
+    marker = _zarr_ready_marker(zarr_store)
+    try:
+        # Ensure the directory exists; if it doesn't, just skip quietly
+        if os.path.isdir(zarr_store):
+            with open(marker, 'w', encoding='utf-8') as f:
+                f.write('ready\n')
+    except OSError:
+        # Non-fatal: inability to write marker shouldn't fail the pipeline
+        pass
+
+
+def _zarr_is_ready(zarr_store: str) -> bool:
+    """Return True if the internal ready marker exists inside the store."""
+    marker = _zarr_ready_marker(zarr_store)
+    return os.path.isfile(marker)
+
+
+def _segment_already_present(
+    zarr_store: str, append_dim: str, new_coords: np.ndarray
+) -> bool:
+    """Return True if all values in new_coords already exist in the store."""
+    with _suppress_zarr_warnings():
+        ds = xr.open_zarr(zarr_store, consolidated=False)
+    try:
+        if append_dim not in ds:
+            return False
+        existing = ds[append_dim].values
+        # Fast path: if last new coord is less/equal to last existing and
+        # first new coord is >= first existing, it's likely contained;
+        # confirm via set inclusion to be safe.
+        if existing.size == 0 or new_coords.size == 0:
+            return False
+        if new_coords[0] < existing[0] or new_coords[-1] > existing[-1]:
+            return False
+        return bool(np.all(np.isin(new_coords, existing)))
+    finally:
+        ds.close()
 
 
 def _sanitize_time_attrs(dsin: xr.Dataset) -> xr.Dataset:
