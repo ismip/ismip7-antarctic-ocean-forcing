@@ -485,6 +485,8 @@ def _vertically_resample_to_coarse_ismip_grid(
     # Convert Zarr to NetCDF once using shared helper; preserve chunk encoding
     log.info('Converting Zarr to NetCDF...')
 
+    # Intentionally nested: captures in_path and config from outer scope
+    # to avoid threading multiple parameters through the finalize call.
     def _post(ds_z: xr.Dataset) -> xr.Dataset:
         # Reopen the original source and propagate time/time_bnds
         try:

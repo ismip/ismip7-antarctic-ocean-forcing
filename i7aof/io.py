@@ -210,6 +210,9 @@ def _apply_time_encoding(  # noqa: C901
     # CF encoding expects units/calendar declared for consistent serialization.
     time_units = default_time_units
 
+    # Intentionally nested helpers: these are only used within
+    # _apply_time_encoding; keeping them local reduces clutter and avoids
+    # expanding the module surface area.
     def _units_in(var: xr.DataArray):
         u = None
         if isinstance(getattr(var, 'attrs', None), dict):
@@ -373,11 +376,11 @@ def _is_cftime_array(var: xr.DataArray) -> bool:
     try:
         if not numpy.issubdtype(dt, numpy.dtype('O')):
             return False
-    except Exception:
+    except (TypeError, ValueError):
         return False
     try:
         v0 = var.values.flat[0]
-    except Exception:
+    except (AttributeError, IndexError, TypeError, ValueError):
         return False
     # Prefer direct isinstance when available
     if isinstance(v0, cftime.datetime):

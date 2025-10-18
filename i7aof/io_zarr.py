@@ -18,6 +18,7 @@ import warnings
 from collections.abc import Callable
 from contextlib import contextmanager
 
+import cftime
 import numpy as np
 import xarray as xr
 from xarray.coding.common import SerializationWarning
@@ -119,15 +120,11 @@ def finalize_zarr_to_netcdf(
             # Force-convert to numeric days since 1850 for both time and
             # time_bnds to avoid backend-specific unit choices.
             tunits = 'days since 1850-01-01 00:00:00'
-            import cftime as _cftime
-            import numpy as _np
 
             # time
-            tvals = _np.array(
-                _cftime.date2num(
-                    list(ds['time'].values), tunits, calendar=cal
-                ),
-                dtype=_np.float64,
+            tvals = np.array(
+                cftime.date2num(list(ds['time'].values), tunits, calendar=cal),
+                dtype=np.float64,
             )
             ds['time'] = xr.DataArray(tvals, dims=ds['time'].dims)
             ds['time'].attrs['units'] = tunits
@@ -139,19 +136,15 @@ def finalize_zarr_to_netcdf(
             if 'time_bnds' in ds:
                 tb_vals = ds['time_bnds'].values
                 # vectorize over both columns
-                tb0 = _np.array(
-                    _cftime.date2num(
-                        list(tb_vals[:, 0]), tunits, calendar=cal
-                    ),
-                    dtype=_np.float64,
+                tb0 = np.array(
+                    cftime.date2num(list(tb_vals[:, 0]), tunits, calendar=cal),
+                    dtype=np.float64,
                 )
-                tb1 = _np.array(
-                    _cftime.date2num(
-                        list(tb_vals[:, 1]), tunits, calendar=cal
-                    ),
-                    dtype=_np.float64,
+                tb1 = np.array(
+                    cftime.date2num(list(tb_vals[:, 1]), tunits, calendar=cal),
+                    dtype=np.float64,
                 )
-                tb_num = _np.stack([tb0, tb1], axis=1)
+                tb_num = np.stack([tb0, tb1], axis=1)
                 ds['time_bnds'] = xr.DataArray(
                     tb_num, dims=ds['time_bnds'].dims
                 )

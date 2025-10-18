@@ -637,6 +637,8 @@ def _process_ct_sa_annual_pair(
         )
 
     # Prepare postprocess to enforce dtype/attrs
+    # Intentionally nested: uses variables from outer scope (config, etc.)
+    # to reduce function parameters for the finalize stage.
     def _post(ds_final: xr.Dataset) -> xr.Dataset:
         if 'thetao' in ds_final:
             if ds_final['thetao'].dtype != 'float32':

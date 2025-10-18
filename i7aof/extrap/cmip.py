@@ -469,7 +469,7 @@ def _execute_time_chunks(
                         f.cancel()
                     logger.error(str(ce))
                     raise
-                except BaseException as e:
+                except Exception as e:
                     # Unexpected worker exception; include chunk indices
                     # if known
                     i0i1 = fut_to_idx.get(fut, ('?', '?'))
@@ -548,7 +548,7 @@ def _run_chunk_worker(
         fh_fault.write('== faulthandler enabled ==\n')
         fh_fault.flush()
         faulthandler.enable(file=fh_fault, all_threads=True)
-    except Exception:
+    except (OSError, RuntimeError):
         # Don't fail if faulthandler can't be enabled; continue
         pass
 
@@ -643,7 +643,7 @@ def _run_chunk_worker(
                 f'Expected vertical output missing: {vertical_tmp}'
             )
         return (i0, i1, vertical_tmp)
-    except BaseException as err:
+    except Exception as err:
         # Append traceback to per-chunk log for easier debugging
         try:
             with open(log_path, 'a', encoding='utf-8') as lf:

@@ -229,6 +229,8 @@ def _process_file_pair(
             append_dim='time' if 'time' in ds_ctsa.dims else None,
         )
 
+    # Intentionally nested: captures ds_thetao and ensures CF encoding
+    # without widening the helper API.
     def _post(ds_z: xr.Dataset) -> xr.Dataset:
         _inject_bounds(ds_z, ds_thetao, bounds_records, time_bounds)
         # Ensure CF-consistent encodings for time/time_bnds so units "stick"

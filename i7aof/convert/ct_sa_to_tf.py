@@ -454,6 +454,8 @@ def _process_ct_sa_pair(
         )
 
     # Finalize: convert Zarr to NetCDF (reapplying TF attrs) and remove store
+    # Intentionally nested: captures config and ensures local closure
+    # without expanding the module's public API.
     def _post(ds_final: xr.Dataset) -> xr.Dataset:
         if 'tf' in ds_final:
             if ds_final['tf'].dtype != 'float32':
