@@ -111,6 +111,12 @@ class ChunkFailed(Exception):
     log_path: str
     message: str
 
+    def __post_init__(self) -> None:  # ensure picklable across processes
+        # BaseException pickling reconstructs via type(self)(*self.args).
+        # Without setting args, unpickling will call ChunkFailed() with no
+        # arguments, causing a TypeError. Populate args with our fields.
+        super().__init__(self.i0, self.i1, self.log_path, self.message)
+
     def __str__(self) -> str:  # pragma: no cover - formatting helper
         return (
             f'Chunk {self.i0}:{self.i1} failed: {self.message} '
@@ -398,7 +404,6 @@ def _execute_time_chunks(
     topo_file: str,
     time_indices: List[Tuple[int, int]],
     num_workers: int,
-    has_time: bool,
     logger,
     mask_enabled: bool,
     mask_threshold: float,
@@ -420,7 +425,6 @@ def _execute_time_chunks(
                 topo_file=topo_file,
                 variable=task.variable,
                 tmp_dir=task.tmp_dir,
-                has_time=has_time,
                 mask_enabled=mask_enabled,
                 mask_threshold=mask_threshold,
             )
@@ -454,7 +458,6 @@ def _execute_time_chunks(
                 topo_file=topo_file,
                 variable=task.variable,
                 tmp_dir=task.tmp_dir,
-                has_time=has_time,
                 mask_enabled=mask_enabled,
                 mask_threshold=mask_threshold,
             )
@@ -516,7 +519,6 @@ def _run_chunk_worker(
     topo_file: str,
     variable: str,
     tmp_dir: str,
-    has_time: bool,
     mask_enabled: bool,
     mask_threshold: float,
 ) -> Tuple[int, int, str]:
@@ -569,7 +571,7 @@ def _run_chunk_worker(
                     grid_file,
                     input_chunk,
                     variable,
-                    time_slice=(i0, i1) if has_time else None,
+                    time_slice=(i0, i1),
                     logger=chunk_logger,
                 )
                 # Apply under-ice mask before marking prepare done.
@@ -860,16 +862,18 @@ def _ensure_extrapolated_file(
         with read_dataset(
             task.in_path, decode_times=CFDatetimeCoder(use_cftime=True)
         ) as ds_meta:
-            has_time = 'time' in ds_meta.dims
-            if not has_time:
-                # No time dimension; process as a single synthetic chunk
-                time_indices = [(0, 1)]
-            else:
-                n_time = ds_meta.sizes['time']
-                time_indices = [
-                    (i0, min(i0 + time_chunk, n_time))
-                    for i0 in range(0, n_time, time_chunk)
-                ]
+            if 'time' not in ds_meta.dims:
+                raise ValueError(
+                    'Extrapolation CMIP input is missing a time dimension. '
+                    'This usually indicates a diagnostic or manually edited '
+                    'file (e.g., a single-time slice saved without time). '
+                    f'Path: {task.in_path}'
+                )
+            n_time = ds_meta.sizes['time']
+            time_indices = [
+                (i0, min(i0 + time_chunk, n_time))
+                for i0 in range(0, n_time, time_chunk)
+            ]
 
         # Determine masking options from config
         mask_enabled = config.getboolean('extrap', 'mask_under_ice')
@@ -883,7 +887,7 @@ def _ensure_extrapolated_file(
             topo_file=topo_file,
             time_indices=time_indices,
             num_workers=num_workers,
-            has_time=has_time,
+            # has_time=has_time,  # Removed has_time parameter
             logger=logger,
             mask_enabled=mask_enabled,
             mask_threshold=mask_threshold,
