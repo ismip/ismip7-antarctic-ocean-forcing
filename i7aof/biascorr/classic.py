@@ -214,6 +214,7 @@ def _compute_biases(config, workdir, model, ismip_res_str, clim_name):
     os.makedirs(biasdir, exist_ok=True)
 
     modclimdir = os.path.join(workdir, 'biascorr', model, 'climatology')
+    os.makedirs(modclimdir, exist_ok=True)
 
     climdir = os.path.join(workdir, 'extrap', 'climatology', clim_name)
 
