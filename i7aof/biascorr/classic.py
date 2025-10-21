@@ -250,6 +250,7 @@ def _compute_biases(config, workdir, model, ismip_res_str, clim_name):
         biasfile = os.path.join(
             biasdir, ref_filename.replace('historical', 'bias')
         )
+        bias_files[var] = biasfile
         if os.path.exists(biasfile):
             print(f'Bias file already exists, skipping: {biasfile}')
             continue
@@ -311,7 +312,6 @@ def _compute_biases(config, workdir, model, ismip_res_str, clim_name):
 
         ds_clim.close()
         ds_hist.close()
-        bias_files[var] = biasfile
 
     return bias_files
 
