@@ -170,7 +170,7 @@ def main():
     )
     parser.add_argument(
         '-n',
-        '--clim_name',
+        '--clim',
         dest='clim_name',
         required=True,
         help='Climatology name used in remap step (required).',

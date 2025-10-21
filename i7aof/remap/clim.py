@@ -169,7 +169,7 @@ def main():
     )
     parser.add_argument(
         '-n',
-        '--clim_name',
+        '--clim',
         dest='clim_name',
         type=str,
         required=True,
