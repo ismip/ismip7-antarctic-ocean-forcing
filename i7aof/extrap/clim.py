@@ -291,6 +291,16 @@ def _ensure_extrapolated_file(
             f'Expected vertical output missing: {vert_tmp}'
         )
     ds_vert = read_dataset(vert_tmp)
+    # Drop the dummy singleton time dimension added for Fortran, but only
+    # in the climatology workflow.
+
+    if 'time' in ds_vert.dims:
+        # Remove the singleton dim and clean up time variables/bounds
+        ds_vert = ds_vert.isel(time=0, drop=True)
+        # Drop any leftover scalar coord/variable and common bounds names
+        for var in ['time', 'time_bnds']:
+            if var in ds_vert.coords or var in ds_vert.data_vars:
+                ds_vert = ds_vert.drop_vars([var], errors='ignore')
     _finalize_output_with_grid(
         ds_in=ds_vert,
         config=config,
