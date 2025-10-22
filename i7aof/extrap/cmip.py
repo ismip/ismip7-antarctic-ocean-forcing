@@ -887,7 +887,6 @@ def _ensure_extrapolated_file(
             topo_file=topo_file,
             time_indices=time_indices,
             num_workers=num_workers,
-            # has_time=has_time,  # Removed has_time parameter
             logger=logger,
             mask_enabled=mask_enabled,
             mask_threshold=mask_threshold,
@@ -921,6 +920,7 @@ def _ensure_extrapolated_file(
             final_out_path=task.out_path,
             variable=task.variable,
             logger=logger,
+            src_attr_path=task.in_path,
         )
 
         if not keep_intermediate:

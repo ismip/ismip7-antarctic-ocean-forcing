@@ -290,10 +290,16 @@ def _finalize_output_with_grid(
     final_out_path: str,
     variable: str,
     logger: logging.Logger,
+    src_attr_path: str,
 ) -> None:
     """Finalize a (single) vertical output by injecting grid variables."""
     # Attach standard ISMIP grid coordinate variables and lat/lon/crs
     ds_out = attach_grid_coords(ds_in, config)
+
+    # Copy over original variable attributes from source input
+    with read_dataset(src_attr_path) as src:
+        # Preserve a shallow copy to avoid sharing references
+        ds_out[variable].attrs = dict(src[variable].attrs)
 
     # Ensure no stray fill values on coords/aux variables
     ds_out = strip_fill_on_non_data(ds_out, data_vars=(variable,))

@@ -307,6 +307,7 @@ def _ensure_extrapolated_file(
         final_out_path=out_file,
         variable=variable,
         logger=logger,
+        src_attr_path=in_path,
     )
     ds_vert.close()
 
