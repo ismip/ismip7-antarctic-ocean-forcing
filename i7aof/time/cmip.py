@@ -15,12 +15,17 @@ writes results into a common directory:
     workdir/biascorr/<model>/<scenario>/<clim_name>/Oyr/ct_sa_tf
 
 Output filenames insert the suffix "_ann" before the extension.
+
+To avoid read/write conflicts and enable safe resumption after interruptions,
+outputs are written to a temporary file in the same directory and then
+atomically renamed to the final filename once the write completes.
 """
 
 from __future__ import annotations
 
 import argparse
 import os
+import uuid
 from typing import List
 
 from i7aof.config import load_config
@@ -116,19 +121,48 @@ def compute_cmip_annual_averages(
         )
         # Attach ISMIP grid coordinates/bounds and strip fills on non-data
         for out_path in outs:
-            ds_ann = read_dataset(out_path)
-            ds_ann = attach_grid_coords(ds_ann, config)
-            data_vars = [
-                str(v) for v in ds_ann.data_vars if v not in ds_ann.coords
-            ]
-            ds_ann = strip_fill_on_non_data(ds_ann, data_vars=data_vars)
-            write_netcdf(
-                ds_ann,
-                out_path,
-                progress_bar=progress,
-                has_fill_values=lambda name, _v, dv=set(data_vars): name in dv,
-            )
-            ds_ann.close()
+            tmp_path = f'{out_path}.tmp.{os.getpid()}.{uuid.uuid4().hex}'
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            ds_ann = None
+            wrote_tmp = False
+            try:
+                ds_ann = read_dataset(out_path)
+                ds_ann = attach_grid_coords(ds_ann, config)
+                data_vars = [
+                    str(v) for v in ds_ann.data_vars if v not in ds_ann.coords
+                ]
+                ds_ann = strip_fill_on_non_data(ds_ann, data_vars=data_vars)
+                # Only 'ct', 'sa', and 'tf' should carry _FillValue; all
+                # others (including coords and bounds) should not.
+                fill_true = {'ct', 'sa', 'tf'}
+                hv: dict[str, bool] = {}
+                all_names = list(ds_ann.data_vars.keys()) + list(
+                    ds_ann.coords.keys()
+                )
+                for vn in all_names:
+                    hv[vn] = vn in fill_true
+                write_netcdf(
+                    ds_ann,
+                    tmp_path,
+                    progress_bar=progress,
+                    has_fill_values=hv,
+                )
+                wrote_tmp = True
+            finally:
+                try:
+                    if ds_ann is not None:
+                        ds_ann.close()
+                finally:
+                    if wrote_tmp:
+                        # After successful write, atomically replace the target
+                        os.replace(tmp_path, out_path)
+                    elif os.path.exists(tmp_path):
+                        # Clean up a partial temp file on failure
+                        try:
+                            os.remove(tmp_path)
+                        except OSError:
+                            pass
         outputs.extend(outs)
     return outputs
 

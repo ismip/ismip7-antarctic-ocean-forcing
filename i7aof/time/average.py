@@ -7,6 +7,9 @@ Features
 - Output naming: if the input basename contains ``Omon_``, it is replaced
     with ``Oyr_``; otherwise, the suffix ``_ann`` is inserted before the
     extension.
+- Safe writes: outputs are written to a temporary file in the same directory
+    and atomically renamed to the final filename upon success, avoiding
+    partial files and allowing interrupted workflows to resume.
 - Averages all data variables that have a ``time`` dimension.
 - Weights months by their number of days via ``time.dt.days_in_month``,
     respecting model calendars (gregorian, noleap, 360_day, etc.).
@@ -32,6 +35,7 @@ from __future__ import annotations
 import argparse
 import glob
 import os
+import uuid
 from typing import Iterable, Sequence
 
 import cftime
@@ -228,12 +232,37 @@ def _process_single_file_annual(
             ds_out['time_bnds'].encoding['calendar'] = calendar
         # Consistent with other workflows: no fill values on coords/bounds
         ds_out = strip_fill_on_non_data(ds_out, data_vars=var_names)
-        write_netcdf(
-            ds_out,
-            out_path,
-            progress_bar=progress,
-            has_fill_values=lambda name, v: name in var_names,
-        )
+        # Build explicit fill-value policy: only 'ct', 'sa', and 'tf'
+        # should carry _FillValue; all others (including coords/bounds)
+        # should not. This avoids backend defaults and scanning.
+        fill_true = {'ct', 'sa', 'tf'}
+        hv: dict[str, bool] = {}
+        for vn in list(ds_out.data_vars.keys()) + list(ds_out.coords.keys()):
+            hv[vn] = vn in fill_true
+
+        # Write to a temporary file in the same directory, then atomically
+        # replace the final file. This avoids read/write conflicts and leaves
+        # no partial files if interrupted.
+        tmp_path = f'{out_path}.tmp.{os.getpid()}.{uuid.uuid4().hex}'
+        # Clean up a stale temp file path if it already exists
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            write_netcdf(
+                ds_out,
+                tmp_path,
+                progress_bar=progress,
+                has_fill_values=hv,
+            )
+            # After successful write, replace/overwrite atomically
+            os.replace(tmp_path, out_path)
+        finally:
+            # Ensure temp is removed if something went wrong
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
     finally:
         ds.close()
 
