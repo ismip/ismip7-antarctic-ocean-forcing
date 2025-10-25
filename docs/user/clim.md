@@ -37,7 +37,7 @@ Command-line example:
 
 ```bash
 ismip7-antarctic-remap-clim \
-	--clim_name zhou_annual_30_sep \
+	--clim zhou_annual_30_sep \
 	--config my-config.cfg
 ```
 
@@ -55,7 +55,7 @@ output.
 
 ```bash
 ismip7-antarctic-extrap-clim \
-	--clim_name zhou_annual_30_sep \
+	--clim zhou_annual_30_sep \
 	--config my-config.cfg
 ```
 

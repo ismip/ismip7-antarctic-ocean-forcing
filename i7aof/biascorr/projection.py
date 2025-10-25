@@ -8,6 +8,7 @@ import xarray as xr
 from tqdm import tqdm
 
 from i7aof.biascorr.timeslice import Timeslice
+from i7aof.io import read_dataset
 
 
 def status(process_name):
@@ -159,11 +160,11 @@ class Projection:
             assert os.path.isfile(so_file), f'No so file for {thetao_file}'
 
             # Create datasets for output
-            ds = xr.open_dataset(thetao_file)
+            ds = read_dataset(thetao_file)
             dsT = ds.copy()
             ds.close()
             dsT.thetao[:] = np.nan
-            ds = xr.open_dataset(so_file)
+            ds = read_dataset(so_file)
             dsS = ds.copy()
             dsS.so[:] = np.nan
             ds.close()
@@ -211,10 +212,10 @@ class Projection:
         over the continental shelf
         """
 
-        ds_topo = xr.open_dataset(self.filename_topo)
+        ds_topo = read_dataset(self.filename_topo)
         ds_topo.close()
 
-        ds_imbie = xr.open_dataset(self.filename_imbie)
+        ds_imbie = read_dataset(self.filename_imbie)
         self.basinNumber = ds_imbie.basinNumber.values
         self.basins = np.unique(ds_imbie.basinNumber.values)
 

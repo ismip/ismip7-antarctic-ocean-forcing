@@ -24,20 +24,22 @@ import xarray as xr
 from dask import config as dask_config
 from jinja2 import BaseLoader, Environment
 from mpas_tools.config import MpasConfigParser
+from xarray.coders import CFDatetimeCoder
 
-from i7aof.extrap import load_template_text
-from i7aof.grid.ismip import (
-    get_horiz_res_string,
-    get_ismip_grid_filename,
-    write_ismip_grid,
+from i7aof.coords import (
+    attach_grid_coords,
+    propagate_time_from,
+    strip_fill_on_non_data,
 )
+from i7aof.extrap import load_template_text
+from i7aof.grid.ismip import get_horiz_res_string
 from i7aof.imbie.masks import make_imbie_masks
-from i7aof.io import write_netcdf
+from i7aof.io import read_dataset, write_netcdf
+from i7aof.io_zarr import append_to_zarr, finalize_zarr_to_netcdf
 from i7aof.topo import get_topo
 from i7aof.vert.resamp import VerticalResampler
 
 __all__ = [
-    '_ensure_ismip_grid',
     '_ensure_imbie_masks',
     '_ensure_topography',
     '_render_namelist',
@@ -49,14 +51,21 @@ __all__ = [
 ]
 
 
+##
+# Fill-value handling is centralized in i7aof.coords.strip_fill_on_non_data.
+# Use that helper instead of the local variant that used to live here.
+
+
 def _ensure_imbie_masks(config: MpasConfigParser, workdir: str) -> str:
     """Ensure IMBIE basin mask file exists under ``workdir`` and return it."""
     res = get_horiz_res_string(config)
-    basin_file = os.path.join(workdir, 'imbie', f'basinNumbers_{res}.nc')
+    basin_file = os.path.join(
+        workdir, 'imbie2', f'basin_numbers_ismip{res}.nc'
+    )
     if not os.path.exists(basin_file):
         cwd = os.getcwd()
         try:
-            os.makedirs(os.path.join(workdir, 'imbie'), exist_ok=True)
+            os.makedirs(os.path.join(workdir, 'imbie2'), exist_ok=True)
             os.chdir(workdir)
             make_imbie_masks(config)
         finally:
@@ -93,24 +102,6 @@ def _ensure_topography(config: MpasConfigParser, workdir: str) -> str:
     finally:
         os.chdir(cwd)
     return os.path.join(workdir, topo_path)
-
-
-def _ensure_ismip_grid(config: MpasConfigParser, workdir: str) -> str:
-    grid_rel = get_ismip_grid_filename(config)
-    grid_abs = os.path.join(workdir, grid_rel)
-    if not os.path.exists(grid_abs):
-        cwd = os.getcwd()
-        try:
-            os.makedirs(os.path.dirname(grid_abs), exist_ok=True)
-            os.chdir(workdir)
-            write_ismip_grid(config)
-        finally:
-            os.chdir(cwd)
-        if not os.path.exists(grid_abs):  # pragma: no cover
-            raise FileNotFoundError(
-                f'Failed to generate ISMIP grid file: {grid_abs}'
-            )
-    return grid_abs
 
 
 def _render_namelist(
@@ -164,8 +155,8 @@ def _prepare_input_single(
     The climatology driver later drops this singleton dimension from
     the final product so user-facing files remain time-less.
     """
-    ds_in = xr.open_dataset(in_path, decode_times=False)
-    ds_grid = xr.open_dataset(grid_path, decode_times=False)
+    ds_in = read_dataset(in_path)
+    ds_grid = read_dataset(grid_path)
 
     for dim in ('x', 'y'):
         if dim not in ds_in.dims:
@@ -242,7 +233,7 @@ def _prepare_input_single(
     try:
         if os.path.exists(tmp_out):
             os.remove(tmp_out)
-    except Exception:  # pragma: no cover - best effort
+    except OSError:  # pragma: no cover - best effort
         pass
     with dask_config.set(scheduler='synchronous'):
         write_netcdf(
@@ -295,46 +286,23 @@ def _run_exe_capture(
 def _finalize_output_with_grid(
     *,
     ds_in: xr.Dataset,
-    grid_path: str,
+    config: MpasConfigParser,
     final_out_path: str,
     variable: str,
     logger: logging.Logger,
-    drop_singleton_time: bool = False,
+    src_attr_path: str,
 ) -> None:
     """Finalize a (single) vertical output by injecting grid variables."""
-    ds_grid = xr.open_dataset(grid_path, decode_times=False)
-    coord_names = ['x', 'y']
-    var_names = [
-        'x_bnds',
-        'y_bnds',
-        'lat',
-        'lon',
-        'lat_bnds',
-        'lon_bnds',
-        'crs',
-    ]
-    ds_out = ds_in
-    drop_list = [v for v in (coord_names + var_names) if v in ds_out]
-    if drop_list:
-        ds_out = ds_out.drop_vars(drop_list, errors='ignore')
-    to_add_coords = {v: ds_grid[v] for v in coord_names if v in ds_grid}
-    to_add_vars = {v: ds_grid[v] for v in var_names if v in ds_grid}
-    if to_add_coords:
-        ds_out = ds_out.assign_coords(to_add_coords)
-    if to_add_vars:
-        ds_out = ds_out.assign(to_add_vars)
+    # Attach standard ISMIP grid coordinate variables and lat/lon/crs
+    ds_out = attach_grid_coords(ds_in, config)
 
-    # Optionally remove a dummy singleton time dimension that may have
-    # been added during preparation for legacy Fortran executables.
-    if (
-        drop_singleton_time
-        and 'time' in ds_out.dims
-        and ds_out.sizes.get('time', 0) == 1
-    ):
-        ds_out = ds_out.isel(time=0, drop=True)
-        for tb in ('time_bnds', 'time_bounds'):
-            if tb in ds_out:
-                ds_out = ds_out.drop_vars(tb, errors='ignore')
+    # Copy over original variable attributes from source input
+    with read_dataset(src_attr_path) as src:
+        # Preserve a shallow copy to avoid sharing references
+        ds_out[variable].attrs = dict(src[variable].attrs)
+
+    # Ensure no stray fill values on coords/aux variables
+    ds_out = strip_fill_on_non_data(ds_out, data_vars=(variable,))
     logger.info(f'Writing extrapolated output: {final_out_path}')
     write_netcdf(
         ds_out,
@@ -373,8 +341,8 @@ def _apply_under_ice_mask_to_file(
         Logger for info messages.
     """
     log = logger or logging.getLogger(__name__)
-    ds_prep = xr.open_dataset(prepared_path, decode_times=False)
-    ds_topo = xr.open_dataset(topo_file, decode_times=False)
+    ds_prep = read_dataset(prepared_path)
+    ds_topo = read_dataset(topo_file)
 
     if 'ice_frac' not in ds_topo:
         raise KeyError(
@@ -397,7 +365,7 @@ def _apply_under_ice_mask_to_file(
     try:
         if os.path.exists(tmp_out):
             os.remove(tmp_out)
-    except Exception:  # best effort
+    except OSError:  # best effort
         pass
 
     log.info(
@@ -405,8 +373,6 @@ def _apply_under_ice_mask_to_file(
         f'-> {prepared_path}'
     )
     # Write atomically; ensure only target var has fill value
-    from dask import config as dask_config  # local import to avoid cycles
-
     with dask_config.set(scheduler='synchronous'):
         write_netcdf(
             ds_prep,
@@ -449,7 +415,7 @@ def _vertically_resample_to_coarse_ismip_grid(
         return out_nc
 
     # Prepare resampler and optional z_bnds once
-    with xr.open_dataset(grid_file, decode_times=False) as ds_grid:
+    with read_dataset(grid_file) as ds_grid:
         z_src = ds_grid['z_extrap']
         src_valid = xr.DataArray(
             np.ones(z_src.shape, dtype=np.float32),
@@ -464,25 +430,30 @@ def _vertically_resample_to_coarse_ismip_grid(
         )
         z_bnds = ds_grid['z_bnds'] if 'z_bnds' in ds_grid else None
 
-    # Clean any old store
-    if os.path.isdir(zarr_store):
-        shutil.rmtree(zarr_store)
+    # Zarr store will be recreated on first append if it exists
 
-    # Build chunk indices
-    with xr.open_dataset(in_path, decode_times=False) as ds_meta:
-        if 'time' in ds_meta.dims and time_chunk:
-            n_time = ds_meta.sizes['time']
-            indices = [
-                (i0, min(i0 + time_chunk, n_time))
-                for i0 in range(0, n_time, time_chunk)
-            ]
+    # Build chunk indices and capture original time coordinate (values + attrs)
+    # so we can reattach metadata after the Zarr round-trip.
+    # Build time chunk indices directly; full span when no chunking
+    with read_dataset(in_path) as _ds_meta:
+        if 'time' in _ds_meta.dims:
+            n_time = int(_ds_meta.sizes['time'])
+            if time_chunk and time_chunk > 0:
+                indices = [
+                    (i0, min(i0 + time_chunk, n_time))
+                    for i0 in range(0, n_time, time_chunk)
+                ]
+            else:
+                indices = [(0, n_time)]
         else:
             indices = [(0, 1)]
 
     first = True
     in_chunks = {'time': time_chunk} if time_chunk else None
     with xr.open_dataset(
-        in_path, decode_times=False, chunks=in_chunks
+        in_path,
+        decode_times=CFDatetimeCoder(use_cftime=True),
+        chunks=in_chunks,
     ) as ds_in:
         for i0, i1 in indices:
             ds_slice = (
@@ -495,6 +466,8 @@ def _vertically_resample_to_coarse_ismip_grid(
                     f"Variable '{variable}' not found in {in_path}."
                 )
             da_out = resampler.resample(ds_slice[variable])
+            # Preserve original variable attributes (units, long_name, etc.)
+            da_out.attrs = dict(ds_slice[variable].attrs)
             ds_res = ds_slice.copy()
             ds_res[variable] = da_out.astype(ds_slice[variable].dtype)
             if 'z_extrap' in ds_res:
@@ -505,38 +478,54 @@ def _vertically_resample_to_coarse_ismip_grid(
             if 'time' in ds_res.dims:
                 ds_res = ds_res.chunk({'time': max(i1 - i0, 1)})
 
-            # Write/append to Zarr
+            # Write/append to Zarr using shared helper
             if first:
                 log.info(f'Creating Zarr store: {zarr_store}')
-                ds_res.to_zarr(zarr_store, mode='w', consolidated=False)
-            else:
-                ds_res.to_zarr(
-                    zarr_store,
-                    mode='a',
-                    append_dim='time' if 'time' in ds_res.dims else None,
-                    consolidated=False,
-                )
-            first = False
+            first = append_to_zarr(
+                ds=ds_res,
+                zarr_store=zarr_store,
+                first=first,
+                append_dim='time' if 'time' in ds_res.dims else None,
+            )
 
-    # Convert Zarr to NetCDF once
+    # Convert Zarr to NetCDF once using shared helper; preserve chunk encoding
     log.info('Converting Zarr to NetCDF...')
-    ds_z = xr.open_zarr(zarr_store, consolidated=False)
-    try:
+
+    # Intentionally nested: captures in_path and config from outer scope
+    # to avoid threading multiple parameters through the finalize call.
+    def _post(ds_z: xr.Dataset) -> xr.Dataset:
+        # Reopen the original source and propagate time/time_bnds
+        try:
+            with read_dataset(
+                in_path,
+                decode_times=CFDatetimeCoder(use_cftime=True),
+            ) as _src:
+                ds_z = propagate_time_from(
+                    ds_z,
+                    _src,
+                    apply_cf_encoding=True,
+                    units='days since 1850-01-01 00:00:00',
+                )
+        except Exception as e:  # pragma: no cover - non-fatal
+            log.warning('Failed to propagate time metadata: %s', e)
+
+        # Attach ISMIP grid coordinates and geodetic coords; validate dims
+        ds_z = attach_grid_coords(ds_z, config)
+
+        # Ensure coordinates and non-target variables do not carry _FillValue
+        ds_z = strip_fill_on_non_data(ds_z, data_vars=(variable,))
+
         var_da = ds_z[variable]
         chunks = getattr(var_da, 'chunks', None)
         if chunks and all(c is not None for c in chunks):
             var_da.encoding['chunksizes'] = tuple(chunks)
-        write_netcdf(
-            ds_z,
-            out_nc,
-            has_fill_values=lambda name, v, _v=variable: name == _v,
-            progress_bar=True,
-        )
-    finally:
-        ds_z.close()
-    # Cleanup Zarr on success
-    try:
-        shutil.rmtree(zarr_store)
-    except OSError:
-        log.warning(f'Failed to remove Zarr store: {zarr_store}')
+        return ds_z
+
+    finalize_zarr_to_netcdf(
+        zarr_store=zarr_store,
+        out_nc=out_nc,
+        has_fill_values=lambda name, v, _v=variable: name == _v,
+        progress_bar=True,
+        postprocess=_post,
+    )
     return out_nc

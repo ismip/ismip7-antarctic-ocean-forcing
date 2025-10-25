@@ -51,6 +51,58 @@ def write_ismip_grid(config):
     write_netcdf(ds, out_filename, has_fill_values=False)
 
 
+def ensure_ismip_grid(config) -> str:
+    """
+    Ensure the ISMIP grid NetCDF file exists beneath the configured workdir
+    and return its absolute path.
+
+    Parameters
+    ----------
+    config : mpas_tools.config.MpasConfigParser
+        Configuration object. Uses ``[workdir]`` option ``base_dir`` as the
+        root directory and ``[ismip_grid]`` options to determine the grid
+        filename and resolution.
+
+    Returns
+    -------
+    str
+        Absolute path to the ISMIP grid file on disk.
+
+    Notes
+    -----
+    If the grid file does not exist, it will be created by calling
+    :func:`write_ismip_grid` with the current working directory temporarily
+    changed to ``[workdir] base_dir`` so the file is written under that tree.
+
+    Raises
+    ------
+    ValueError
+        If ``[workdir] base_dir`` is not defined in the configuration.
+    FileNotFoundError
+        If the grid file could not be created for any reason.
+    """
+    if config.has_option('workdir', 'base_dir'):
+        base_dir = config.get('workdir', 'base_dir')
+    else:  # pragma: no cover
+        raise ValueError(
+            'Missing [workdir] base_dir; cannot resolve ISMIP grid path.'
+        )
+    rel = get_ismip_grid_filename(config)
+    path = os.path.join(base_dir, rel)
+    if os.path.exists(path):
+        return path
+    cwd = os.getcwd()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        os.chdir(base_dir)
+        write_ismip_grid(config)
+    finally:
+        os.chdir(cwd)
+    if not os.path.exists(path):  # pragma: no cover
+        raise FileNotFoundError(f'Failed to generate ISMIP grid file: {path}')
+    return path
+
+
 def get_ismip_grid_filename(config):
     """
     Get the ISMIP grid filename from the configuration.

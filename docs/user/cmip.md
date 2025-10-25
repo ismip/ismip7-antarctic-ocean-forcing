@@ -4,9 +4,11 @@ Guidance on obtaining and preparing CMIP6/CMIP7 data for `i7aof`.
 
 - Variables: `thetao`, `so`, and `zos`.
 - Convert `thetao`/`so` to TEOS-10 `ct`/`sa` on the native grid first using
-  `i7aof.convert.cmip` or the `ismip7-antarctic-convert-cmip` CLI, then
+  `i7aof.convert.cmip_to_ct_sa` or the
+  `ismip7-antarctic-convert-cmip-to-ct-sa` CLI, then
   remap to ISMIP grids with `i7aof.remap.cmip` or the
   `ismip7-antarctic-remap-cmip` CLI.
+  After bias correction, compute TF with `ismip7-antarctic-cmip-ct-sa-to-tf`.
 - Configure paths and patterns in your `.cfg` files.
 
 ## Tips

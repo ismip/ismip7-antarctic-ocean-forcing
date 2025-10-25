@@ -15,3 +15,10 @@ Bias-correction utilities and workflows. See {doc}`../dev/packages/biascorr` for
    :undoc-members:
    :show-inheritance:
 ```
+
+```{eval-rst}
+.. automodule:: i7aof.biascorr.classic
+   :members:
+   :undoc-members:
+   :show-inheritance:
+```

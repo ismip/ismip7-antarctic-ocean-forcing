@@ -3,8 +3,13 @@ import os
 import numpy as np
 import xarray as xr
 
+from i7aof.coords import (
+    attach_grid_coords,
+    propagate_time_from,
+    strip_fill_on_non_data,
+)
 from i7aof.grid.ismip import get_ismip_grid_filename
-from i7aof.io import write_netcdf
+from i7aof.io import read_dataset, write_netcdf
 from i7aof.remap import add_periodic_lon, remap_lat_lon_to_ismip
 from i7aof.vert.interp import VerticalInterpolator, fix_src_z_coord
 
@@ -61,7 +66,7 @@ def _vert_mask_interp_norm_multi(
         )
         return normalized_filename
 
-    ds_ismip = xr.open_dataset(get_ismip_grid_filename(config))
+    ds_ismip = read_dataset(get_ismip_grid_filename(config))
 
     lev, lev_bnds, src_valid = _prepare_vert_coords_and_mask(
         in_filename, variables
@@ -112,7 +117,7 @@ def _vert_mask_interp_norm_multi(
 
 
 def _prepare_vert_coords_and_mask(in_filename, variables):
-    with xr.open_dataset(in_filename, decode_times=False) as ds:
+    with read_dataset(in_filename) as ds:
         lev, lev_bnds = fix_src_z_coord(ds, 'lev', 'lev_bnds')
         ds = ds.assign_coords({'lev': ('lev', lev.data)})
         ds['lev'].attrs = lev.attrs
@@ -137,7 +142,7 @@ def _write_mask_stage(
     mask_filename,
     time_chunk,
 ):
-    ds = xr.open_dataset(in_filename, decode_times=False)
+    ds = read_dataset(in_filename)
     if 'time' in ds.dims:
         ds = ds.chunk({'time': time_chunk})
     ds_out = xr.Dataset()
@@ -152,13 +157,13 @@ def _write_mask_stage(
         da_masked = interpolator.mask_and_sort(ds[var])
         ds_out[var] = da_masked.astype(np.float32)
     ds_out['src_valid'] = interpolator.src_valid.astype(np.float32)
-    for var in ['lat', 'lon', 'time']:
-        if var in ds:
-            ds_out[var] = ds[var]
-        var_bnds = f'{var}_bnds'
-        if var_bnds in ds:
-            ds_out[var_bnds] = ds[var_bnds]
-    write_netcdf(ds_out, mask_filename, progress_bar=True)
+    write_netcdf(
+        ds_out,
+        mask_filename,
+        progress_bar=True,
+        has_fill_values=lambda name, var: name
+        in set(variables + ['src_valid']),
+    )
 
 
 def _write_interp_stage(
@@ -169,7 +174,7 @@ def _write_interp_stage(
     interp_filename,
     time_chunk,
 ):
-    ds = xr.open_dataset(mask_filename, decode_times=False)
+    ds = read_dataset(mask_filename)
     if 'time' in ds.dims:
         ds = ds.chunk({'time': time_chunk})
     ds_out = xr.Dataset()
@@ -177,16 +182,16 @@ def _write_interp_stage(
         da_interp = interpolator.interp(ds[var])
         ds_out[var] = da_interp.astype(np.float32)
     ds_out['src_frac_interp'] = interpolator.src_frac_interp.astype(np.float32)
-    for var in ['lat', 'lon', 'time']:
-        if var in ds:
-            ds_out[var] = ds[var]
-        var_bnds = f'{var}_bnds'
-        if var_bnds in ds:
-            ds_out[var_bnds] = ds[var_bnds]
     ds_out['z_extrap_bnds'] = ds_ismip['z_extrap_bnds']
     if 'lev' in ds_out:
         ds_out = ds_out.drop_vars(['lev'])
-    write_netcdf(ds_out, interp_filename, progress_bar=True)
+    write_netcdf(
+        ds_out,
+        interp_filename,
+        progress_bar=True,
+        has_fill_values=lambda name, var: name
+        in set(variables + ['src_frac_interp']),
+    )
 
 
 def _write_normalize_stage(
@@ -197,7 +202,7 @@ def _write_normalize_stage(
     normalized_filename,
     time_chunk,
 ):
-    ds = xr.open_dataset(interp_filename, decode_times=False)
+    ds = read_dataset(interp_filename)
     if 'time' in ds.dims:
         ds = ds.chunk({'time': time_chunk})
     ds_out = xr.Dataset()
@@ -205,14 +210,14 @@ def _write_normalize_stage(
         da_norm = interpolator.normalize(ds[var])
         ds_out[var] = da_norm.astype(np.float32)
     ds_out['src_frac_interp'] = interpolator.src_frac_interp.astype(np.float32)
-    for var in ['lat', 'lon', 'time']:
-        if var in ds:
-            ds_out[var] = ds[var]
-        var_bnds = f'{var}_bnds'
-        if var_bnds in ds:
-            ds_out[var_bnds] = ds[var_bnds]
     ds_out['z_extrap_bnds'] = ds_ismip['z_extrap_bnds']
-    write_netcdf(ds_out, normalized_filename, progress_bar=True)
+    write_netcdf(
+        ds_out,
+        normalized_filename,
+        progress_bar=True,
+        has_fill_values=lambda name, var: name
+        in set(variables + ['src_frac_interp']),
+    )
 
 
 def _remap_horiz(
@@ -265,25 +270,29 @@ def _remap_horiz(
     renorm_threshold = config.getfloat('remap', 'threshold')
 
     # Determine coordinate var/dim names
-    def _get_opt(section, option, default=None):
-        try:
-            if config.has_option(section, option):
-                return config.get(section, option)
-        except Exception:
-            pass
-        return default
-
     if lat_var is None:
-        lat_var = _get_opt('cmip_dataset', 'lat_var', default='lat')
+        lat_var = (
+            config.get('cmip_dataset', 'lat_var')
+            if config.has_option('cmip_dataset', 'lat_var')
+            else 'lat'
+        )
     if lon_var is None:
-        lon_var = _get_opt('cmip_dataset', 'lon_var', default='lon')
+        lon_var = (
+            config.get('cmip_dataset', 'lon_var')
+            if config.has_option('cmip_dataset', 'lon_var')
+            else 'lon'
+        )
     if lon_dim is None:
-        lon_dim = _get_opt('cmip_dataset', 'lon_dim', default='lon')
+        lon_dim = (
+            config.get('cmip_dataset', 'lon_dim')
+            if config.has_option('cmip_dataset', 'lon_dim')
+            else 'lon'
+        )
 
     in_grid_name = model_prefix
 
     # Open dataset lazily
-    ds = xr.open_dataset(in_filename, chunks={'time': 1}, decode_times=False)
+    ds = read_dataset(in_filename, chunks={'time': 1})
 
     if method == 'bilinear':
         # ensure periodic longitude to avoid seam
@@ -292,13 +301,18 @@ def _remap_horiz(
     input_mask_path = os.path.join(tmpdir, 'input_mask.nc')
     output_mask_path = os.path.join(tmpdir, 'output_mask.nc')
     if os.path.exists(output_mask_path):
-        ds_mask = xr.open_dataset(output_mask_path, decode_times=False)
+        ds_mask = read_dataset(output_mask_path)
     else:
         ds_mask = ds.copy()
         # Keep only src_frac_interp in the mask file
         keep_vars = ['src_frac_interp']
         ds_mask = ds_mask[keep_vars]
-        write_netcdf(ds_mask, input_mask_path, progress_bar=True)
+        write_netcdf(
+            ds_mask,
+            input_mask_path,
+            progress_bar=True,
+            has_fill_values=lambda name, var: name == 'src_frac_interp',
+        )
 
         # remap the mask without renormalizing
         remap_lat_lon_to_ismip(
@@ -312,7 +326,7 @@ def _remap_horiz(
             lon_var=lon_var,
             lat_var=lat_var,
         )
-        ds_mask = xr.open_dataset(output_mask_path, decode_times=False)
+        ds_mask = read_dataset(output_mask_path)
 
     # If no time axis, do a single remap; otherwise chunk in time
     if 'time' not in ds.dims:
@@ -363,36 +377,31 @@ def _remap_horiz(
     # attach horizontally remapped src_frac_interp (time-invariant)
     ds_final['src_frac_interp'] = ds_mask['src_frac_interp']
 
-    # Ensure x/y projection coordinates are present from the ISMIP grid
-    try:
-        ds_ismip = xr.open_dataset(get_ismip_grid_filename(config))
-        if (
-            'y' in ds_final.dims
-            and 'x' in ds_final.dims
-            and ds_final.sizes.get('y') == ds_ismip.sizes.get('y')
-            and ds_final.sizes.get('x') == ds_ismip.sizes.get('x')
-        ):
-            ds_final = ds_final.assign_coords(
-                {
-                    'x': ('x', ds_ismip['x'].values),
-                    'y': ('y', ds_ismip['y'].values),
-                }
-            )
-            ds_final['x'].attrs = ds_ismip['x'].attrs
-            ds_final['y'].attrs = ds_ismip['y'].attrs
-            if 'x_bnds' in ds_ismip and 'x_bnds' not in ds_final:
-                ds_final['x_bnds'] = ds_ismip['x_bnds']
-            if 'y_bnds' in ds_ismip and 'y_bnds' not in ds_final:
-                ds_final['y_bnds'] = ds_ismip['y_bnds']
-        else:
-            print(
-                'Warning: Could not attach x/y from ISMIP grid because '
-                'dimensions do not match expected (y, x).'
-            )
-    except Exception as exc:
-        print(f'Warning: failed to attach x/y from ISMIP grid: {exc}')
+    # Ensure ISMIP grid coordinates/lat-lon/bounds present on final output
+    ds_final = attach_grid_coords(ds_final, config)
 
-    write_netcdf(ds_final, out_filename, progress_bar=True)
+    # Ensure time coordinate and bounds are preserved from source dataset
+    if 'time' in ds.dims:
+        ds_final = propagate_time_from(
+            ds_final,
+            ds,
+            apply_cf_encoding=True,
+            units='days since 1850-01-01 00:00:00',
+        )
+
+    # Ensure no stray fill values on coordinates/bounds
+    data_vars = [
+        str(v) for v in ds_final.data_vars if v not in ds_final.coords
+    ]
+    ds_final = strip_fill_on_non_data(ds_final, data_vars=data_vars)
+
+    write_netcdf(
+        ds_final,
+        out_filename,
+        progress_bar=True,
+        has_fill_values=lambda name, var: name
+        in set([v for v in ds_final.data_vars if v not in ds_final.coords]),
+    )
 
 
 def _remap_no_time(
@@ -412,7 +421,13 @@ def _remap_no_time(
     subset = ds
     if 'src_frac_interp' in subset:
         subset = subset.drop_vars(['src_frac_interp'])
-    write_netcdf(subset, input_chunk_path, progress_bar=True)
+    write_netcdf(
+        subset,
+        input_chunk_path,
+        progress_bar=True,
+        has_fill_values=lambda name, var, _subset=subset: name
+        in set([v for v in _subset.data_vars if v not in _subset.coords]),
+    )
 
     remap_lat_lon_to_ismip(
         in_filename=input_chunk_path,
@@ -426,7 +441,7 @@ def _remap_no_time(
         lat_var=lat_var,
         renormalize=renorm_threshold,
     )
-    remapped_chunk = xr.open_dataset(output_chunk_path, decode_times=False)
+    remapped_chunk = read_dataset(output_chunk_path)
     return [remapped_chunk]
 
 
@@ -459,10 +474,9 @@ def _remap_with_time(
                 f'Skipping remapping for chunk {i_start}-{i_end} '
                 f'(already exists).'
             )
-            remapped_chunk = xr.open_dataset(
+            remapped_chunk = read_dataset(
                 output_chunk_path,
                 chunks={'time': 1},
-                decode_times=False,
             )
             remapped_chunks.append(remapped_chunk)
             continue
@@ -470,7 +484,13 @@ def _remap_with_time(
         subset = ds.isel(time=slice(i_start, i_end))
         if 'src_frac_interp' in subset:
             subset = subset.drop_vars(['src_frac_interp'])
-        write_netcdf(subset, input_chunk_path, progress_bar=True)
+        write_netcdf(
+            subset,
+            input_chunk_path,
+            progress_bar=True,
+            has_fill_values=lambda name, var, _subset=subset: name
+            in set([v for v in _subset.data_vars if v not in _subset.coords]),
+        )
 
         remap_lat_lon_to_ismip(
             in_filename=input_chunk_path,
@@ -485,8 +505,9 @@ def _remap_with_time(
             renormalize=renorm_threshold,
         )
 
-        remapped_chunk = xr.open_dataset(
-            output_chunk_path, chunks={'time': 1}, decode_times=False
+        remapped_chunk = read_dataset(
+            output_chunk_path,
+            chunks={'time': 1},
         )
         remapped_chunks.append(remapped_chunk)
 

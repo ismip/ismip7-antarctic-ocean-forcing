@@ -68,20 +68,21 @@ import xarray as xr
 from dask import config as dask_config
 from mpas_tools.config import MpasConfigParser
 from mpas_tools.logging import LoggingContext
+from xarray.coders import CFDatetimeCoder
 
 from i7aof.cmip import get_model_prefix
+from i7aof.config import load_config
 from i7aof.extrap.shared import (
     _apply_under_ice_mask_to_file,
     _ensure_imbie_masks,
-    _ensure_ismip_grid,
     _ensure_topography,
     _finalize_output_with_grid,
     _render_namelist,
     _run_exe_capture,
     _vertically_resample_to_coarse_ismip_grid,
 )
-from i7aof.grid.ismip import get_res_string
-from i7aof.io import write_netcdf
+from i7aof.grid.ismip import ensure_ismip_grid, get_res_string
+from i7aof.io import read_dataset, write_netcdf
 
 __all__ = ['extrap_cmip', 'main']
 
@@ -109,6 +110,12 @@ class ChunkFailed(Exception):
     i1: int
     log_path: str
     message: str
+
+    def __post_init__(self) -> None:  # ensure picklable across processes
+        # BaseException pickling reconstructs via type(self)(*self.args).
+        # Without setting args, unpickling will call ChunkFailed() with no
+        # arguments, causing a TypeError. Populate args with our fields.
+        super().__init__(self.i0, self.i1, self.log_path, self.message)
 
     def __str__(self) -> str:  # pragma: no cover - formatting helper
         return (
@@ -201,7 +208,7 @@ def extrap_cmip(
         )
 
     basin_file = _ensure_imbie_masks(config, workdir)
-    grid_file = _ensure_ismip_grid(config, workdir)
+    grid_file = ensure_ismip_grid(config)
     topo_file = _ensure_topography(config, workdir)
 
     for in_file in in_files:
@@ -307,31 +314,28 @@ def _prepare_paths_and_config(
     user_config_filename: str | None,
 ):
     model_prefix = get_model_prefix(model)
-    config = MpasConfigParser()
-    config.add_from_package('i7aof', 'default.cfg')
-    config.add_from_package('i7aof.cmip', f'{model_prefix}.cfg')
-    if user_config_filename is not None:
-        config.add_user_config(user_config_filename)
-    if workdir is None:
-        if config.has_option('workdir', 'base_dir'):
-            workdir = config.get('workdir', 'base_dir')
-        else:  # pragma: no cover
-            raise ValueError(
-                'Missing configuration option: [workdir] base_dir.'
-            )
-    # At this point workdir must be a concrete string for path joins
-    assert workdir is not None, (
-        'Internal error: workdir should be resolved to a string'
+    config = load_config(
+        model=model,
+        workdir=workdir,
+        user_config_filename=user_config_filename,
     )
-    # Persist workdir into config for downstream consumers (path resolution)
-    config.set('workdir', 'base_dir', workdir)
+    workdir_base: str = config.get('workdir', 'base_dir')
     remap_dir = os.path.join(
-        workdir, 'remap', model, scenario, 'Omon', 'ct_sa'
+        workdir_base, 'remap', model, scenario, 'Omon', 'ct_sa'
     )
-    out_dir = os.path.join(workdir, 'extrap', model, scenario, 'Omon', 'ct_sa')
+    out_dir = os.path.join(
+        workdir_base, 'extrap', model, scenario, 'Omon', 'ct_sa'
+    )
     os.makedirs(out_dir, exist_ok=True)
     ismip_res_str = get_res_string(config, extrap=True)
-    return config, workdir, remap_dir, out_dir, ismip_res_str, model_prefix
+    return (
+        config,
+        workdir_base,
+        remap_dir,
+        out_dir,
+        ismip_res_str,
+        model_prefix,
+    )
 
 
 def _collect_remap_outputs(remap_dir: str, ismip_res_str: str) -> List[str]:
@@ -400,7 +404,6 @@ def _execute_time_chunks(
     topo_file: str,
     time_indices: List[Tuple[int, int]],
     num_workers: int,
-    has_time: bool,
     logger,
     mask_enabled: bool,
     mask_threshold: float,
@@ -422,7 +425,6 @@ def _execute_time_chunks(
                 topo_file=topo_file,
                 variable=task.variable,
                 tmp_dir=task.tmp_dir,
-                has_time=has_time,
                 mask_enabled=mask_enabled,
                 mask_threshold=mask_threshold,
             )
@@ -456,7 +458,6 @@ def _execute_time_chunks(
                 topo_file=topo_file,
                 variable=task.variable,
                 tmp_dir=task.tmp_dir,
-                has_time=has_time,
                 mask_enabled=mask_enabled,
                 mask_threshold=mask_threshold,
             )
@@ -518,7 +519,6 @@ def _run_chunk_worker(
     topo_file: str,
     variable: str,
     tmp_dir: str,
-    has_time: bool,
     mask_enabled: bool,
     mask_threshold: float,
 ) -> Tuple[int, int, str]:
@@ -550,7 +550,7 @@ def _run_chunk_worker(
         fh_fault.write('== faulthandler enabled ==\n')
         fh_fault.flush()
         faulthandler.enable(file=fh_fault, all_threads=True)
-    except Exception:
+    except (OSError, RuntimeError):
         # Don't fail if faulthandler can't be enabled; continue
         pass
 
@@ -571,7 +571,7 @@ def _run_chunk_worker(
                     grid_file,
                     input_chunk,
                     variable,
-                    time_slice=(i0, i1) if has_time else None,
+                    time_slice=(i0, i1),
                     logger=chunk_logger,
                 )
                 # Apply under-ice mask before marking prepare done.
@@ -606,7 +606,7 @@ def _run_chunk_worker(
             try:
                 if os.path.exists(horizontal_tmp):
                     os.remove(horizontal_tmp)
-            except Exception:
+            except OSError:
                 pass
             _run_exe_capture(
                 'i7aof_extrap_horizontal',
@@ -625,7 +625,7 @@ def _run_chunk_worker(
             try:
                 if os.path.exists(vertical_tmp):
                     os.remove(vertical_tmp)
-            except Exception:
+            except OSError:
                 pass
             _run_exe_capture(
                 'i7aof_extrap_vertical',
@@ -645,7 +645,7 @@ def _run_chunk_worker(
                 f'Expected vertical output missing: {vertical_tmp}'
             )
         return (i0, i1, vertical_tmp)
-    except BaseException as err:
+    except Exception as err:
         # Append traceback to per-chunk log for easier debugging
         try:
             with open(log_path, 'a', encoding='utf-8') as lf:
@@ -659,11 +659,11 @@ def _run_chunk_worker(
     finally:
         try:
             faulthandler.disable()
-        except Exception:
+        except RuntimeError:
             pass
         try:
             fh_fault.close()
-        except Exception:
+        except OSError:
             pass
 
 
@@ -697,11 +697,17 @@ def _prepare_input_with_coords(
     """
     log = logger or logging.getLogger(__name__)
 
-    ds_in = xr.open_dataset(in_path, chunks={'time': 1}, decode_times=False)
+    ds_in = read_dataset(
+        in_path,
+        chunks={'time': 1},
+        decode_times=CFDatetimeCoder(use_cftime=True),
+    )
     if time_slice is not None and 'time' in ds_in.dims:
         i0, i1 = time_slice
         ds_in = ds_in.isel(time=slice(i0, i1))
-    ds_grid = xr.open_dataset(grid_path, decode_times=False)
+    ds_grid = read_dataset(
+        grid_path, decode_times=CFDatetimeCoder(use_cftime=True)
+    )
 
     # Log dimensions early for debugging
     dims_repr = ', '.join(f'{k}={v}' for k, v in ds_in.sizes.items())
@@ -773,7 +779,7 @@ def _prepare_input_with_coords(
     try:
         if os.path.exists(tmp_out):
             os.remove(tmp_out)
-    except Exception:
+    except OSError:
         pass
 
     with dask_config.set(scheduler='synchronous'):
@@ -853,17 +859,21 @@ def _ensure_extrapolated_file(
         )
 
         # Open source input lazily to compute chunk indices
-        with xr.open_dataset(task.in_path, decode_times=False) as ds_meta:
-            has_time = 'time' in ds_meta.dims
-            if not has_time:
-                # No time dimension; process as a single synthetic chunk
-                time_indices = [(0, 1)]
-            else:
-                n_time = ds_meta.sizes['time']
-                time_indices = [
-                    (i0, min(i0 + time_chunk, n_time))
-                    for i0 in range(0, n_time, time_chunk)
-                ]
+        with read_dataset(
+            task.in_path, decode_times=CFDatetimeCoder(use_cftime=True)
+        ) as ds_meta:
+            if 'time' not in ds_meta.dims:
+                raise ValueError(
+                    'Extrapolation CMIP input is missing a time dimension. '
+                    'This usually indicates a diagnostic or manually edited '
+                    'file (e.g., a single-time slice saved without time). '
+                    f'Path: {task.in_path}'
+                )
+            n_time = ds_meta.sizes['time']
+            time_indices = [
+                (i0, min(i0 + time_chunk, n_time))
+                for i0 in range(0, n_time, time_chunk)
+            ]
 
         # Determine masking options from config
         mask_enabled = config.getboolean('extrap', 'mask_under_ice')
@@ -877,7 +887,6 @@ def _ensure_extrapolated_file(
             topo_file=topo_file,
             time_indices=time_indices,
             num_workers=num_workers,
-            has_time=has_time,
             logger=logger,
             mask_enabled=mask_enabled,
             mask_threshold=mask_threshold,
@@ -886,12 +895,17 @@ def _ensure_extrapolated_file(
         # Sort by start index and concatenate along time
         vertical_chunks.sort(key=lambda t: t[0])
         if len(vertical_chunks) == 1:
-            ds_final_in = xr.open_dataset(
-                vertical_chunks[0][2], decode_times=False
+            ds_final_in = read_dataset(
+                vertical_chunks[0][2],
+                decode_times=CFDatetimeCoder(use_cftime=True),
             )
         else:
             ds_list = [
-                xr.open_dataset(path, decode_times=False, chunks={'time': 1})
+                read_dataset(
+                    path,
+                    decode_times=CFDatetimeCoder(use_cftime=True),
+                    chunks={'time': 1},
+                )
                 for (_i0, _i1, path) in vertical_chunks
             ]
             logger.info(
@@ -902,11 +916,11 @@ def _ensure_extrapolated_file(
 
         _finalize_output_with_grid(
             ds_in=ds_final_in,
-            grid_path=grid_file,
+            config=config,
             final_out_path=task.out_path,
             variable=task.variable,
             logger=logger,
-            drop_singleton_time=False,
+            src_attr_path=task.in_path,
         )
 
         if not keep_intermediate:
@@ -939,7 +953,7 @@ def _read_status(path: str) -> dict:
         for k in default:
             data.setdefault(k, False)
         return data
-    except Exception:
+    except (OSError, json.JSONDecodeError, ValueError):
         # If unreadable, start fresh (safer than assuming done)
         return default
 

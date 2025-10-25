@@ -4,6 +4,7 @@ import numpy as np
 import xarray as xr
 
 from i7aof.grid.ismip import get_ismip_grid_filename
+from i7aof.io import read_dataset
 
 
 class VerticalResampler:
@@ -42,7 +43,7 @@ class VerticalResampler:
                 f"'{grid_rel}' and '{grid_path}'. "
                 'Ensure the grid is generated and paths are correct.'
             )
-        ds_ismip = xr.open_dataset(grid_path)
+        ds_ismip = read_dataset(grid_path)
         self.threshold = config.getfloat('vert_interp', 'threshold')
         self.src_coord = src_coord
         self.dst_coord = dst_coord
