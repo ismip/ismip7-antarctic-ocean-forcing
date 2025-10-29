@@ -130,9 +130,14 @@ def cmip_ct_sa_ann_to_thetao_so_tf(
 
     outputs: List[str] = []
 
-    if not ct_sa_pairs and not tf_files:
+    if not ct_sa_pairs:
         raise FileNotFoundError(
-            'No annual CT/SA or TF files found. Expected under: ' + in_dir
+            f'No annual CT/SA files found. Expected under: {in_dir}'
+        )
+
+    if not tf_files:
+        raise FileNotFoundError(
+            f'No annual TF files found. Expected under: {in_dir}'
         )
 
     # First copy/convert TF files (simple pass-through)
