@@ -17,7 +17,7 @@ copyright = f'{current_year}, {author}'
 # Import version from the package
 try:
     from i7aof.version import __version__ as release
-except Exception:
+except ImportError:
     release = '0.0.0-dev'
 
 # -- General configuration ---------------------------------------------------

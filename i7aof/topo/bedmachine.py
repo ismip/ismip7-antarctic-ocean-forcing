@@ -1,9 +1,8 @@
 import os
 
 import numpy as np
-import xarray as xr
 
-from i7aof.io import write_netcdf
+from i7aof.io import read_dataset, write_netcdf
 from i7aof.remap import remap_projection_to_ismip
 from i7aof.topo.topo_base import TopoBase
 
@@ -94,7 +93,7 @@ class BedMachineAntarcticaV3(TopoBase):
         out_filename : str
             The output filename after preprocessing.
         """
-        ds_in = xr.open_dataset(in_filename)
+        ds_in = read_dataset(in_filename)
         vars_to_copy = ['bed', 'surface', 'thickness']
 
         ds_out = ds_in[vars_to_copy]

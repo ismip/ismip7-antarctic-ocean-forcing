@@ -31,6 +31,7 @@ requirements:
     - libnetcdf
   run:
     - python
+    - cftime
     - cmocean
     - dask
     - esmf

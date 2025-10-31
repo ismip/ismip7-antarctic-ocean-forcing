@@ -1,5 +1,6 @@
 import numpy as np
 import xarray as xr
+from xarray.coders import CFDatetimeCoder
 
 
 class Timeslice:
@@ -102,7 +103,9 @@ class Timeslice:
         """
 
         # TODO: apply grid cell fractions
-        ds = xr.open_mfdataset(self.thetao, use_cftime=True)
+        ds = xr.open_mfdataset(
+            self.thetao, decode_times=CFDatetimeCoder(use_cftime=True)
+        )
         dz = abs(ds.z[1] - ds.z[0]).values
         dx = abs(ds.x[1] - ds.x[0]).values
         dy = abs(ds.y[1] - ds.y[0]).values
@@ -116,7 +119,9 @@ class Timeslice:
         Extract T and S data
         """
 
-        ds = xr.open_mfdataset(self.thetao, use_cftime=True)
+        ds = xr.open_mfdataset(
+            self.thetao, decode_times=CFDatetimeCoder(use_cftime=True)
+        )
         if self.yidx is None:
             ds = ds.isel(time=0)
         else:
@@ -124,7 +129,9 @@ class Timeslice:
         self.T = ds.thetao
         ds.close()
 
-        ds = xr.open_mfdataset(self.so, use_cftime=True)
+        ds = xr.open_mfdataset(
+            self.so, decode_times=CFDatetimeCoder(use_cftime=True)
+        )
         if self.yidx is None:
             ds = ds.isel(time=0)
         else:

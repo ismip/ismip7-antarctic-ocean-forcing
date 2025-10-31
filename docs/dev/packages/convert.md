@@ -1,8 +1,8 @@
 # i7aof.convert
 
 Purpose: Conversion utilities for TEOS-10 and workflows to generate CT/SA
-(Conservative Temperature/Absolute Salinity) from CMIP thetao/so on the native
-source grid.
+(Conservative Temperature/Absolute Salinity) and TF (Thermal Forcing) from
+CMIP thetao/so and from extrapolated climatologies.
 
 ## Public Python API (by module)
 
@@ -13,6 +13,9 @@ source grid.
       CT from pt + SA.
   - {py:func}`compute_ct_sa() <i7aof.convert.teos10.compute_ct_sa>`:
       Convenience to compute SA, then CT.
+  - {py:func}`compute_ct_freezing() <i7aof.convert.teos10.compute_ct_freezing>`:
+    Conservative temperature at the freezing point given SA and depth or
+    pressure (TEOS-10 GSW `CT_freezing`), used for TF.
   - {py:func}`convert_dataset_to_ct_sa() <i7aof.convert.teos10.convert_dataset_to_ct_sa>`:
       High-level helper to convert paired thetao/so datasets to a ct/sa
       dataset with coordinates preserved.
@@ -22,10 +25,19 @@ source grid.
       Build output filenames for ct/sa derived from thetao/so lists in config;
       used by both conversion and remapping to ensure consistent naming.
 
-- Module: {py:mod}`i7aof.convert.cmip`
-  - {py:func}`convert_cmip() <i7aof.convert.cmip.convert_cmip>`:
+- Module: {py:mod}`i7aof.convert.cmip_to_ct_sa`
+  - {py:func}`convert_cmip_to_ct_sa() <i7aof.convert.cmip_to_ct_sa.convert_cmip_to_ct_sa>`:
       Convert all thetao/so monthly pairs for a model/scenario to native-grid
       ct/sa files under ``convert/{model}/{scenario}/Omon/ct_sa``.
+
+- Module: {py:mod}`i7aof.convert.ct_sa_to_tf`
+  - {py:func}`cmip_ct_sa_to_tf() <i7aof.convert.ct_sa_to_tf.cmip_ct_sa_to_tf>`:
+      Compute monthly TF from bias-corrected ct/sa under
+      ``biascorr/{model}/{scenario}/{clim}/Omon/ct_sa`` and write to
+      ``.../Omon/tf``.
+  - {py:func}`clim_ct_sa_to_tf() <i7aof.convert.ct_sa_to_tf.clim_ct_sa_to_tf>`:
+      Compute TF from extrapolated climatology ct/sa by writing
+      ``*_tf_extrap[_z].nc`` alongside ``*_ct_extrap[_z].nc``.
 
 ## Required config options
 
@@ -61,9 +73,19 @@ convert_cmip(
 
 CLI
 ```text
-ismip7-antarctic-convert-cmip \
+ismip7-antarctic-convert-cmip-to-ct-sa \
   --model CESM2-WACCM \
   --scenario historical \
+  --config my-config.cfg
+
+ismip7-antarctic-cmip-ct-sa-to-tf \
+  --model CESM2-WACCM \
+  --scenario historical \
+  --clim OI_Climatology \
+  --config my-config.cfg
+
+ismip7-antarctic-clim-ct-sa-to-tf \
+  --clim OI_Climatology \
   --config my-config.cfg
 ```
 
@@ -83,6 +105,8 @@ ismip7-antarctic-convert-cmip \
   via `xarray.open_mfdataset` and the temp directory is removed. A tqdm
   progress bar reports chunk progress.
 - Conversion keeps ct and sa together; types are cast to float32 for size.
+- TF uses TEOS-10 freezing CT with `saturation_fraction=0.0`; pressure is
+  computed from ISMIP z and latitude.
 - Output path derivation centralized in `i7aof.convert.paths`.
 - Optional debugging: set environment variable `I7AOF_DEBUG_TEOS10=1` to
   print timings and shapes around the heavy TEOS-10 computations.

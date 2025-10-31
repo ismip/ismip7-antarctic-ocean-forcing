@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from i7aof.grid.ismip import get_horiz_res_string, get_ismip_grid_filename
 from i7aof.imbie.download import download_imbie
-from i7aof.io import write_netcdf
+from i7aof.io import read_dataset, write_netcdf
 
 
 def make_imbie_masks(config):
@@ -30,10 +30,12 @@ def make_imbie_masks(config):
     """
     res = get_horiz_res_string(config)
     ismip_grid_filename = get_ismip_grid_filename(config)
-    basin_file_name = 'imbie/ANT_Basins_IMBIE2_v1.6/ANT_Basins_IMBIE2_v1.6.shp'
-    out_file_name = f'imbie/basinNumbers_{res}.nc'
+    basin_file_name = (
+        'imbie2/ANT_Basins_IMBIE2_v1.6/ANT_Basins_IMBIE2_v1.6.shp'
+    )
+    out_file_name = f'imbie2/basin_numbers_ismip{res}.nc'
 
-    os.makedirs('imbie', exist_ok=True)
+    os.makedirs('imbie2', exist_ok=True)
     download_imbie()
 
     if os.path.exists(out_file_name):
@@ -74,7 +76,7 @@ def _get_basin_definitions():
 
 def _load_ismip_grid(filename):
     """Load x, y coordinates and meshgrid points from ISMIP grid file."""
-    ds_grid = xr.open_dataset(filename)
+    ds_grid = read_dataset(filename)
     x = ds_grid['x'].values
     y = ds_grid['y'].values
     nx, ny = len(x), len(y)

@@ -60,6 +60,9 @@ def compute_sa(
     if normalize_lon:
         lon = _normalize_lon(lon)
 
+    # make sure we're not south of 85S
+    lat = _sanitize_lat(lat)
+
     # Prepare lon/lat arrays for broadcasting: ensure 2D (Y,X)
     lon_arr = lon.values
     lat_arr = lat.values
@@ -85,30 +88,8 @@ def compute_sa(
         if p.ndim == 1:
             p = p[:, None, None]
     else:
-        # Ensure z is TEOS-10 z (negative downward)
-        z = z_or_p
-        # If z looks positive-down, flip sign
-        if (z.min() >= 0).item() or (
-            z.attrs.get('positive', '').lower() == 'down'
-        ):
-            z = -z
-        # Broadcast z and lat to 3D then compute pressure
-        t1 = time.perf_counter()
-        # Compute pressure using NumPy broadcasting; z as (Z,1,1),
-        # lat as (Y,X) -> p becomes (Z,Y,X)
-        z_arr = z.values
-        if z_arr.ndim == 1:
-            z_arr = z_arr[:, None, None]
-        p = gsw.p_from_z(z_arr, lat_arr)
-        _dbg(
-            'p_from_z: z',
-            tuple(z_arr.shape),
-            'lat',
-            tuple(lat_arr.shape),
-            '->',
-            tuple(np.asarray(p).shape),
-        )
-        _dbg(f'p_from_z time: {time.perf_counter() - t1:.3f}s')
+        # Compute pressure from depth/z and latitude
+        p = _pressure_from_z(z_or_p, lat)
 
     t2 = time.perf_counter()
     sa_np = gsw.SA_from_SP(sp.values, np.asarray(p), lon_arr, lat_arr)
@@ -234,6 +215,90 @@ def compute_ct_sa(
     ct = compute_ct(pt, sa)
     _dbg(f'compute_ct total: {time.perf_counter() - t1:.3f}s')
     return sa, ct
+
+
+def compute_ct_freezing(
+    sa: xr.DataArray,
+    z_or_p: xr.DataArray,
+    lat: xr.DataArray | None = None,
+    is_pressure: bool = False,
+    use_poly: bool = True,
+) -> xr.DataArray:
+    """Compute Conservative Temperature at the freezing point (CT_freezing).
+
+    Parameters
+    ----------
+    sa : xr.DataArray
+        Absolute Salinity (g kg-1).
+    z_or_p : xr.DataArray
+        Depth (m, positive down) or TEOS-10 z (m, negative down) or pressure
+        (dbar) if ``is_pressure=True``. Will be broadcast to SA.
+    lat : xr.DataArray, optional
+        Latitude in degrees, required when ``is_pressure`` is False to convert
+        depth to pressure. Can be 1D (Y,) or 2D (Y,X).
+    is_pressure : bool, optional
+        If True, interpret ``z_or_p`` as pressure (dbar). Otherwise, compute
+        pressure from depth and latitude.
+    use_poly : bool, optional
+        If True (default), use the computationally efficient polynomial fit
+        gsw.CT_freezing_poly (approx error ~5e-4 to 6e-4 K). If False, use the
+        exact method gsw.CT_freezing (Newton-Raphson based).
+
+    Returns
+    -------
+    xr.DataArray
+        Conservative Temperature at the freezing point (degC), aligned with
+        ``sa`` and with attributes ``units`` and ``long_name`` set.
+    """
+
+    # Determine pressure array (dbar)
+    if is_pressure:
+        p = z_or_p.values
+        if p.ndim == 1:
+            # (Z,) -> (Z,1,1) for broadcasting against (Z,Y,X)
+            p = p[:, None, None]
+        _dbg(
+            'CT_freezing: using provided pressure with shape',
+            tuple(np.asarray(p).shape),
+        )
+    else:
+        if lat is None:
+            raise ValueError(
+                'Latitude is required to convert depth to pressure when '
+                'is_pressure=False.'
+            )
+        p = _pressure_from_z(z_or_p, lat)
+
+    # Compute CT at freezing using TEOS-10
+    t2 = time.perf_counter()
+    if use_poly:
+        ct_freezing_np = gsw.CT_freezing_poly(
+            sa.values, np.asarray(p), saturation_fraction=0.0
+        )
+    else:
+        ct_freezing_np = gsw.CT_freezing(
+            sa.values, np.asarray(p), saturation_fraction=0.0
+        )
+    _dbg(
+        'CT_freezing: SA',
+        tuple(sa.shape),
+        'p',
+        tuple(np.asarray(p).shape),
+        '->',
+        tuple(np.asarray(ct_freezing_np).shape),
+    )
+    _dbg(f'CT_freezing time: {time.perf_counter() - t2:.3f}s')
+
+    ct_freezing = xr.DataArray(
+        np.asarray(ct_freezing_np).astype(sa.dtype, copy=False),
+        dims=sa.dims,
+        coords=sa.coords,
+    ).assign_attrs(
+        units='degC', long_name='Conservative Temperature at Freezing Point'
+    )
+    # Propagate missing SA values
+    ct_freezing = ct_freezing.where(np.isfinite(sa))
+    return ct_freezing
 
 
 def convert_dataset_to_ct_sa(
@@ -426,3 +491,68 @@ def _depth_to_z(
         long_name='height above mean sea level',
     )
     return z
+
+
+def _pressure_from_z(z_or_p: xr.DataArray, lat: xr.DataArray) -> np.ndarray:
+    """Compute pressure (dbar) from depth or TEOS-10 z and latitude.
+
+    Accepts depth positive-down or TEOS-10 z negative-down and returns a
+    NumPy array of pressure suitable for passing to gsw functions. Handles
+    broadcasting to (Z,Y,X) for common input shapes.
+    """
+    # Ensure z is TEOS-10 z (negative downward)
+    z = z_or_p
+    if (z.min() >= 0).item() or (
+        z.attrs.get('positive', '').lower() == 'down'
+    ):
+        attrs = z.attrs.copy()
+        z = -z
+        attrs['positive'] = 'up'
+        z.attrs = attrs
+
+    # Shapes: allow z as (Z,) or (Z,Y,X); lat as (Y,) or (Y,X)
+    z_arr = z.values
+    if z_arr.ndim == 1:
+        z_arr = z_arr[:, None, None]
+
+    # make sure we're not south of 85S
+    lat = _sanitize_lat(lat)
+
+    lat_arr = lat.values
+    # If 1D latitude (Y,), reshape to (Y,1) to broadcast to (Y,X)
+    if lat_arr.ndim == 1:
+        lat_arr = lat_arr[:, None]
+
+    t1 = time.perf_counter()
+    p = gsw.p_from_z(z_arr, lat_arr)
+    _dbg(
+        'p_from_z (helper): z',
+        tuple(np.asarray(z_arr).shape),
+        'lat',
+        tuple(np.asarray(lat_arr).shape),
+        '->',
+        tuple(np.asarray(p).shape),
+    )
+    _dbg(f'p_from_z (helper) time: {time.perf_counter() - t1:.3f}s')
+    return p
+
+
+def _sanitize_lat(lat: xr.DataArray) -> xr.DataArray:
+    """
+    Ensure latitude is not south of 85 S. GSW functions misbehave close to
+    the South Pole.
+
+    Parameters
+    ----------
+    lat : xr.DataArray
+        Latitude values in degrees.
+
+    Returns
+    -------
+    xr.DataArray
+        Latitude values clipped to the range [-90, 90], same shape as input.
+    """
+    lat_vals = np.clip(lat.values, -85.0, 90.0)
+    lat_out = lat.copy()
+    lat_out.data = lat_vals
+    return lat_out
