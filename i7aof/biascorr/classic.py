@@ -81,6 +81,7 @@ def biascorr_cmip(
         config=config,
         workdir=workdir,
         model=model,
+        scenario=scenario,
         ismip_res_str=ismip_res_str,
         clim_name=clim_name,
     )
@@ -207,7 +208,14 @@ def _collect_extrap_outputs(
     return ct_files, sa_files
 
 
-def _compute_biases(config, workdir, model, ismip_res_str, clim_name):
+def _compute_biases(
+    config,
+    workdir,
+    model,
+    scenario,
+    ismip_res_str,
+    clim_name,
+):
     """Compute the bias if not already done"""
 
     biasdir = os.path.join(workdir, 'biascorr', model, 'bias', clim_name)
@@ -221,6 +229,19 @@ def _compute_biases(config, workdir, model, ismip_res_str, clim_name):
     hist_dir = os.path.join(
         workdir, 'extrap', model, 'historical', 'Omon', 'ct_sa'
     )
+
+    if not os.path.isdir(hist_dir):
+        raise FileNotFoundError(
+            f'No historical extrapolated files found: {hist_dir}'
+        )
+
+    # Add SSP directory to extend beyond historical if needed
+    ssp_dir = os.path.join(workdir, 'extrap', model, scenario, 'Omon', 'ct_sa')
+
+    if not os.path.isdir(ssp_dir):
+        raise FileNotFoundError(
+            f'No scenario extrapolated files found: {ssp_dir}'
+        )
 
     time_chunk = config.get('biascorr', 'time_chunk')
 
@@ -239,6 +260,12 @@ def _compute_biases(config, workdir, model, ismip_res_str, clim_name):
             raise FileNotFoundError(
                 f'No historical extrapolated files available for {var}'
             )
+
+        # Optionally get SSP files (to extend end_year into scenario period)
+        ssp_files: List[str] = []
+        for name in sorted(os.listdir(ssp_dir)):
+            if f'ismip{ismip_res_str}' in name and var in name:
+                ssp_files.append(os.path.join(ssp_dir, name))
 
         basename = os.path.basename(hist_files[0])
         # remove "Omon" and years from filename
@@ -265,25 +292,27 @@ def _compute_biases(config, workdir, model, ismip_res_str, clim_name):
         ds_clim = read_dataset(climfile)
 
         # Get historical file(s)
-        ds_hist = xr.open_mfdataset(
-            hist_files, decode_times=CFDatetimeCoder(use_cftime=True)
+        # Open combined historical + SSP dataset
+        files_to_open = hist_files + ssp_files
+        ds_hist_ssp = xr.open_mfdataset(
+            files_to_open, decode_times=CFDatetimeCoder(use_cftime=True)
         )
 
         # Extract climatology period (only full annual for now)
-        ds_hist = ds_hist.sel(
+        ds_hist_ssp = ds_hist_ssp.sel(
             time=slice(f'{start_year}-01-01', f'{end_year + 1}-01-01')
         )
         # chunk just the variable because of issues chunking whole dataset
-        da_hist = ds_hist[var].chunk({'time': time_chunk})
+        da_hist = ds_hist_ssp[var].chunk({'time': time_chunk})
 
         # Compute time-average over climatology period
-        dpm = ds_hist.time.dt.days_in_month
+        dpm = ds_hist_ssp.time.dt.days_in_month
         weightedsum = (da_hist * dpm).sum(dim='time')
         modclim = weightedsum / dpm.sum()
 
         # Write out model climatology (preserve attrs) with ISMIP coords
         ds_out = xr.Dataset({var: modclim})
-        ds_out[var].attrs = ds_hist[var].attrs
+        ds_out[var].attrs = ds_hist_ssp[var].attrs
         ds_out = attach_grid_coords(ds_out, config)
         ds_out = strip_fill_on_non_data(ds_out, data_vars=(var,))
         write_netcdf(
@@ -299,7 +328,7 @@ def _compute_biases(config, workdir, model, ismip_res_str, clim_name):
 
         # Write out bias (keep same attrs as variable) and coordinates
         ds_out = xr.Dataset({var: bias})
-        ds_out[var].attrs = ds_hist[var].attrs
+        ds_out[var].attrs = ds_hist_ssp[var].attrs
         ds_out = attach_grid_coords(ds_out, config)
         ds_out = strip_fill_on_non_data(ds_out, data_vars=(var,))
         write_netcdf(
@@ -311,7 +340,7 @@ def _compute_biases(config, workdir, model, ismip_res_str, clim_name):
         ds_out.close()
 
         ds_clim.close()
-        ds_hist.close()
+        ds_hist_ssp.close()
 
     return bias_files
 
