@@ -261,7 +261,7 @@ def _compute_biases(
                 f'No historical extrapolated files available for {var}'
             )
 
-        # Optionally get SSP files (to extend end_year into scenario period)
+        # Gett SSP files (in case we need to extend end_year into SSP period)
         ssp_files: List[str] = []
         for name in sorted(os.listdir(ssp_dir)):
             if f'ismip{ismip_res_str}' in name and var in name:
