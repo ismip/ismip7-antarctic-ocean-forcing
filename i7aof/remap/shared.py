@@ -1,4 +1,6 @@
 import os
+import shutil
+import tempfile
 
 import numpy as np
 import xarray as xr
@@ -222,6 +224,61 @@ def _write_normalize_stage(
     )
 
 
+def _run_remap_with_temp_cwd(
+    *,
+    in_filename,
+    in_grid_name,
+    out_filename,
+    map_dir,
+    method,
+    config,
+    logger,
+    lon_var,
+    lat_var,
+    renormalize=None,
+):
+    """Run remap_lat_lon_to_ismip inside a temporary working directory.
+
+    This isolates ESMF PET* log files per invocation to avoid collisions and
+    clutter. The temporary directory is created under the output file's
+    directory and removed on success; on failure, it is preserved.
+    """
+    # Create a temp dir within the destination directory for logs
+    out_parent = os.path.dirname(out_filename)
+    os.makedirs(out_parent, exist_ok=True)
+    tmp_cwd = tempfile.mkdtemp(prefix='esmf_logs_', dir=out_parent)
+    orig_cwd = os.getcwd()
+    success = False
+    try:
+        os.chdir(tmp_cwd)
+        kwargs = dict(
+            in_filename=in_filename,
+            in_grid_name=in_grid_name,
+            out_filename=out_filename,
+            map_dir=map_dir,
+            method=method,
+            config=config,
+            logger=logger,
+            lon_var=lon_var,
+            lat_var=lat_var,
+        )
+        if renormalize is not None:
+            kwargs['renormalize'] = renormalize
+        remap_lat_lon_to_ismip(**kwargs)
+        success = True
+    finally:
+        try:
+            os.chdir(orig_cwd)
+        finally:
+            if success:
+                shutil.rmtree(tmp_cwd, ignore_errors=True)
+            else:
+                logger.warning(
+                    'Preserving ESMF log directory for debugging: %s',
+                    tmp_cwd,
+                )
+
+
 def _remap_horiz(
     config,
     in_filename,
@@ -319,8 +376,8 @@ def _remap_horiz(
             has_fill_values=lambda name, var: name == 'src_frac_interp',
         )
 
-        # remap the mask without renormalizing
-        remap_lat_lon_to_ismip(
+        # remap the mask without renormalizing; isolate ESMF PET logs
+        _run_remap_with_temp_cwd(
             in_filename=input_mask_path,
             in_grid_name=in_grid_name,
             out_filename=output_mask_path,
@@ -330,6 +387,7 @@ def _remap_horiz(
             logger=logger,
             lon_var=lon_var,
             lat_var=lat_var,
+            renormalize=None,
         )
         ds_mask = read_dataset(output_mask_path)
 
@@ -444,7 +502,7 @@ def _remap_no_time(
         in set([v for v in _subset.data_vars if v not in _subset.coords]),
     )
 
-    remap_lat_lon_to_ismip(
+    _run_remap_with_temp_cwd(
         in_filename=input_chunk_path,
         in_grid_name=in_grid_name,
         out_filename=output_chunk_path,
@@ -507,7 +565,7 @@ def _remap_with_time(
             in set([v for v in _subset.data_vars if v not in _subset.coords]),
         )
 
-        remap_lat_lon_to_ismip(
+        _run_remap_with_temp_cwd(
             in_filename=input_chunk_path,
             in_grid_name=in_grid_name,
             out_filename=output_chunk_path,
