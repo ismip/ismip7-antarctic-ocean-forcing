@@ -83,6 +83,7 @@ from i7aof.extrap.shared import (
 )
 from i7aof.grid.ismip import ensure_ismip_grid, get_res_string
 from i7aof.io import read_dataset, write_netcdf
+from i7aof.time.bounds import capture_time_bounds
 
 __all__ = ['extrap_cmip', 'main']
 
@@ -358,6 +359,14 @@ def _process_task(
     num_workers_override: int | str | None = None,
     workdir: str | None = None,
 ) -> None:
+    # Capture time bounds from remapped input before any processing so
+    # they can be restored on both extrapolated and resampled outputs.
+    with read_dataset(task.in_path) as ds_src_tb:
+        time_bounds = capture_time_bounds(ds_src_tb)
+        time_prefer_source = (
+            ds_src_tb[['time']].copy() if 'time' in ds_src_tb else None
+        )
+
     # Ensure the extrapolated file exists (run if missing)
     _ensure_extrapolated_file(
         task=task,
@@ -367,6 +376,8 @@ def _process_task(
         topo_file=topo_file,
         keep_intermediate=keep_intermediate,
         num_workers_override=num_workers_override,
+        time_bounds=time_bounds,
+        time_prefer_source=time_prefer_source,
     )
 
     # After extrapolation (or if it already existed), conservatively resample
@@ -816,6 +827,8 @@ def _ensure_extrapolated_file(
     topo_file: str,
     keep_intermediate: bool,
     num_workers_override: int | str | None = None,
+    time_bounds: tuple[str, xr.DataArray] | None = None,
+    time_prefer_source: xr.Dataset | None = None,
 ) -> None:
     """Run chunked extrapolation and finalize output if missing.
 
@@ -921,6 +934,8 @@ def _ensure_extrapolated_file(
             variable=task.variable,
             logger=logger,
             src_attr_path=task.in_path,
+            time_bounds=time_bounds,
+            time_prefer_source=time_prefer_source,
         )
 
         if not keep_intermediate:

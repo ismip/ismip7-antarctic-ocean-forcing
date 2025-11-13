@@ -5,12 +5,14 @@ import xarray as xr
 
 from i7aof.coords import (
     attach_grid_coords,
+    ensure_cf_time_encoding,
     propagate_time_from,
     strip_fill_on_non_data,
 )
 from i7aof.grid.ismip import get_ismip_grid_filename
 from i7aof.io import read_dataset, write_netcdf
 from i7aof.remap import add_periodic_lon, remap_lat_lon_to_ismip
+from i7aof.time.bounds import inject_time_bounds
 from i7aof.vert.interp import VerticalInterpolator, fix_src_z_coord
 
 
@@ -230,6 +232,9 @@ def _remap_horiz(
     lat_var=None,
     lon_var=None,
     lon_dim=None,
+    *,
+    time_bounds: tuple[str, xr.DataArray] | None = None,
+    time_prefer_source: xr.Dataset | None = None,
 ):
     """
      Horizontally remap a vertically processed dataset to the ISMIP grid.
@@ -380,13 +385,23 @@ def _remap_horiz(
     # Ensure ISMIP grid coordinates/lat-lon/bounds present on final output
     ds_final = attach_grid_coords(ds_final, config)
 
-    # Ensure time coordinate and bounds are preserved from source dataset
+    # Ensure time coordinate values match source and restore time bounds
     if 'time' in ds.dims:
+        # Copy time values/attrs from the vertically processed input
         ds_final = propagate_time_from(
             ds_final,
             ds,
-            apply_cf_encoding=True,
+            apply_cf_encoding=False,
+        )
+        # Re-inject captured time bounds from the original source, if any
+        if time_bounds is not None:
+            inject_time_bounds(ds_final, time_bounds)
+        # Apply consistent CF encodings to time/time_bnds
+        ensure_cf_time_encoding(
+            ds_final,
             units='days since 1850-01-01 00:00:00',
+            calendar=None,
+            prefer_source=time_prefer_source or ds,
         )
 
     # Ensure no stray fill values on coordinates/bounds

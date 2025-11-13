@@ -9,10 +9,12 @@ from i7aof.cmip import get_model_prefix
 from i7aof.config import load_config
 from i7aof.convert.paths import get_ct_sa_output_paths
 from i7aof.grid.ismip import get_res_string, write_ismip_grid
+from i7aof.io import read_dataset
 from i7aof.remap.shared import (
     _remap_horiz,
     _vert_mask_interp_norm_multi,
 )
+from i7aof.time.bounds import capture_time_bounds
 
 
 def remap_cmip(
@@ -232,6 +234,13 @@ def _process_one(
         config, in_filename, outdir, ['ct', 'sa'], vert_tmpdir
     )
 
+    # Capture time bounds from the original converted ct/sa file before any
+    # vertical/horizontal processing so we can restore them at the end.
+    with read_dataset(in_filename) as ds_src:
+        time_bounds = capture_time_bounds(ds_src)
+        # Keep a lightweight reference to source for calendar inference
+        ds_time_source = ds_src[['time']].copy() if 'time' in ds_src else None
+
     with LoggingContext(__name__) as logger:
         _remap_horiz(
             config,
@@ -240,6 +249,8 @@ def _process_one(
             model_prefix,
             horiz_tmpdir,
             logger,
+            time_bounds=time_bounds,
+            time_prefer_source=ds_time_source,
         )
 
     # Always clean up tmp dirs for this input file

@@ -28,6 +28,7 @@ from xarray.coders import CFDatetimeCoder
 
 from i7aof.coords import (
     attach_grid_coords,
+    ensure_cf_time_encoding,
     propagate_time_from,
     strip_fill_on_non_data,
 )
@@ -36,6 +37,7 @@ from i7aof.grid.ismip import get_horiz_res_string
 from i7aof.imbie.masks import make_imbie_masks
 from i7aof.io import read_dataset, write_netcdf
 from i7aof.io_zarr import append_to_zarr, finalize_zarr_to_netcdf
+from i7aof.time.bounds import inject_time_bounds
 from i7aof.topo import get_topo
 from i7aof.vert.resamp import VerticalResampler
 
@@ -291,18 +293,56 @@ def _finalize_output_with_grid(
     variable: str,
     logger: logging.Logger,
     src_attr_path: str,
+    time_bounds: tuple[str, xr.DataArray] | None = None,
+    time_prefer_source: xr.Dataset | None = None,
 ) -> None:
-    """Finalize a (single) vertical output by injecting grid variables."""
-    # Attach standard ISMIP grid coordinate variables and lat/lon/crs
+    """Finalize a vertical output by injecting grid + restoring time bounds.
+
+    Parameters
+    ----------
+    ds_in : xr.Dataset
+        Dataset to finalize (output of concatenated vertical chunks).
+    config : MpasConfigParser
+        Configuration object for locating ISMIP grid.
+    final_out_path : str
+        Path to final extrapolated NetCDF file.
+    variable : str
+        Name of the data variable being extrapolated (e.g., 'ct' or 'sa').
+    logger : logging.Logger
+        Logger for status messages.
+    src_attr_path : str
+        Path to original remapped input used to copy variable attrs + time.
+    time_bounds : (str, DataArray) | None, optional
+        Captured time bounds tuple (name, DataArray) from the original
+        remapped input file. Injected if present.
+    time_prefer_source : xr.Dataset | None, optional
+        Dataset whose time coordinate metadata should be preferred when
+        applying CF encodings (calendar inference).
+    """
+    # Attach ISMIP grid coordinates and geodetic metadata
     ds_out = attach_grid_coords(ds_in, config)
 
-    # Copy over original variable attributes from source input
+    # Copy original variable attributes and capture time metadata
     with read_dataset(src_attr_path) as src:
-        # Preserve a shallow copy to avoid sharing references
         ds_out[variable].attrs = dict(src[variable].attrs)
+        if 'time' in ds_out.dims and 'time' in src.dims:
+            # Propagate time coordinate values (and existing bounds if any)
+            ds_out = propagate_time_from(ds_out, src, apply_cf_encoding=False)
+            # Inject captured time bounds explicitly (source may have lost
+            # them)
+            if time_bounds is not None:
+                inject_time_bounds(ds_out, time_bounds)
+            # Apply CF-compliant shared encoding for time/time_bnds
+            ensure_cf_time_encoding(
+                ds_out,
+                units='days since 1850-01-01 00:00:00',
+                calendar=None,
+                prefer_source=time_prefer_source or src,
+            )
 
-    # Ensure no stray fill values on coords/aux variables
+    # Remove _FillValue from non-data variables
     ds_out = strip_fill_on_non_data(ds_out, data_vars=(variable,))
+
     logger.info(f'Writing extrapolated output: {final_out_path}')
     write_netcdf(
         ds_out,

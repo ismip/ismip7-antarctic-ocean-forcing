@@ -1,7 +1,7 @@
 import argparse
 import os
 import shutil
-from typing import Optional, Sequence, Tuple
+from typing import Sequence, Tuple
 
 import numpy as np
 import xarray as xr
@@ -14,6 +14,7 @@ from i7aof.convert.teos10 import convert_dataset_to_ct_sa
 from i7aof.coords import ensure_cf_time_encoding
 from i7aof.io import read_dataset
 from i7aof.io_zarr import append_to_zarr, finalize_zarr_to_netcdf
+from i7aof.time.bounds import capture_time_bounds, inject_time_bounds
 
 
 def convert_cmip_to_ct_sa(
@@ -202,9 +203,8 @@ def _process_file_pair(
     if os.path.isdir(zarr_store):
         shutil.rmtree(zarr_store, ignore_errors=True)
 
-    bounds_records, time_bounds = _capture_bounds(
-        ds_thetao, depth_var, lat_var, lon_var
-    )
+    bounds_records = _capture_bounds(ds_thetao, depth_var, lat_var, lon_var)
+    time_bounds = capture_time_bounds(ds_thetao)
     first = True
     for t0, t1 in tqdm(time_indices, desc='time chunks', unit='chunk'):
         if 'time' in ds_thetao.dims:
@@ -232,7 +232,8 @@ def _process_file_pair(
     # Intentionally nested: captures ds_thetao and ensures CF encoding
     # without widening the helper API.
     def _post(ds_z: xr.Dataset) -> xr.Dataset:
-        _inject_bounds(ds_z, ds_thetao, bounds_records, time_bounds)
+        _inject_bounds(ds_z, ds_thetao, bounds_records)
+        inject_time_bounds(ds_z, time_bounds)
         # Ensure CF-consistent encodings for time/time_bnds so units "stick"
         ensure_cf_time_encoding(
             ds_z,
@@ -318,12 +319,8 @@ def _capture_bounds(
     depth_var: str,
     lat_var: str,
     lon_var: str,
-) -> tuple[
-    list[tuple[str, str, xr.DataArray]],
-    Optional[tuple[str, str, xr.DataArray]],
-]:
+) -> list[tuple[str, str, xr.DataArray]]:
     records: list[tuple[str, str, xr.DataArray]] = []
-    time_bounds: tuple[str, str, xr.DataArray] | None = None
     for coord_name in (depth_var, lat_var, lon_var):
         if coord_name not in ds_thetao:
             continue
@@ -340,13 +337,7 @@ def _capture_bounds(
         raise ValueError(
             'Missing expected bounds for coordinates: ' + ', '.join(missing)
         )
-    # Optionally capture time bounds (do not error if absent)
-    if 'time' in ds_thetao:
-        tcoord = ds_thetao['time']
-        tbname = tcoord.attrs.get('bounds')
-        if isinstance(tbname, str) and tbname in ds_thetao:
-            time_bounds = ('time', tbname, ds_thetao[tbname])
-    return records, time_bounds
+    return records
 
 
 def _convert_chunk_and_strip_bounds(
@@ -356,7 +347,7 @@ def _convert_chunk_and_strip_bounds(
     lon_var: str,
     depth_var: str,
     bounds_records: list[tuple[str, str, xr.DataArray]],
-    time_bounds: tuple[str, str, xr.DataArray] | None,
+    time_bounds: tuple[str, xr.DataArray] | None,
 ) -> xr.Dataset:
     ds_ctsa = convert_dataset_to_ct_sa(
         ds_th_chunk,
@@ -379,12 +370,9 @@ def _convert_chunk_and_strip_bounds(
             ds_ctsa = ds_ctsa.drop_vars(bname)
     # Drop time bounds and its attribute, if present in the chunk
     if time_bounds is not None:
-        tcoord_name, tbname, _tbda = time_bounds
-        if (
-            tcoord_name in ds_ctsa.coords
-            and 'bounds' in ds_ctsa[tcoord_name].attrs
-        ):
-            ds_ctsa[tcoord_name].attrs.pop('bounds', None)
+        tbname, _tbda = time_bounds
+        if 'time' in ds_ctsa.coords and 'bounds' in ds_ctsa['time'].attrs:
+            ds_ctsa['time'].attrs.pop('bounds', None)
         if tbname in ds_ctsa.variables:
             ds_ctsa = ds_ctsa.drop_vars(tbname)
     return ds_ctsa
@@ -394,7 +382,6 @@ def _inject_bounds(
     ds_final: xr.Dataset,
     ds_thetao: xr.Dataset,
     bounds_records: list[tuple[str, str, xr.DataArray]],
-    time_bounds: tuple[str, str, xr.DataArray] | None,
 ) -> None:
     for coord_name, bname, bda in bounds_records:
         ds_final[bname] = bda.load()
@@ -403,12 +390,3 @@ def _inject_bounds(
                 {coord_name: ds_thetao[coord_name]}
             )
         ds_final[coord_name].attrs['bounds'] = bname
-    # Inject time bounds if available
-    if time_bounds is not None:
-        tcoord_name, tbname, bda = time_bounds
-        ds_final[tbname] = bda.load()
-        if tcoord_name not in ds_final.coords:
-            ds_final = ds_final.assign_coords(
-                {tcoord_name: ds_thetao[tcoord_name]}
-            )
-        ds_final[tcoord_name].attrs['bounds'] = tbname
