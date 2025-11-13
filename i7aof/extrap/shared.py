@@ -552,6 +552,12 @@ def _vertically_resample_to_coarse_ismip_grid(
         # Attach ISMIP grid coordinates and geodetic coords; validate dims
         ds_z = attach_grid_coords(ds_z, config)
 
+        # Drop fine vertical coord and its bounds if still present after
+        # resampling to the coarse ISMIP vertical grid.
+        drop_names = [n for n in ('z_extrap', 'z_extrap_bnds') if n in ds_z]
+        if drop_names:
+            ds_z = ds_z.drop_vars(drop_names, errors='ignore')
+
         # Ensure coordinates and non-target variables do not carry _FillValue
         ds_z = strip_fill_on_non_data(ds_z, data_vars=(variable,))
 
