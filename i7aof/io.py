@@ -21,7 +21,11 @@ DEFAULT_COMPRESSION = {
 }
 
 NetcdfFormat = Literal[
-    'NETCDF4', 'NETCDF4_CLASSIC', 'NETCDF3_64BIT', 'NETCDF3_CLASSIC'
+    'NETCDF4',
+    'NETCDF4_CLASSIC',
+    'NETCDF3_64BIT',
+    'NETCDF3_64BIT_DATA',
+    'NETCDF3_CLASSIC',
 ]
 NetcdfEngine = Literal['netcdf4', 'scipy', 'h5netcdf']
 
@@ -113,7 +117,7 @@ def write_netcdf(
         A dictionary of fill values for different NetCDF types.  Default is
         ``netCDF4.default_fillvals``
 
-    format : {'NETCDF4', 'NETCDF4_CLASSIC', 'NETCDF3_64BIT', 'NETCDF3_CLASSIC'}, optional
+    format : {'NETCDF4', 'NETCDF4_CLASSIC', 'NETCDF3_64BIT', 'NETCDF3_64BIT_DATA', 'NETCDF3_CLASSIC'}, optional
         The NetCDF file format to use, the default is 'NETCDF4'
 
     engine : {'netcdf4', 'scipy', 'h5netcdf'}, optional
