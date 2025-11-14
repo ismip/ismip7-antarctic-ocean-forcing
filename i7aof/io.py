@@ -15,7 +15,7 @@ from xarray.coders import CFDatetimeCoder  # noqa: F401
 # netCDF4/HDF5-based backends ('netcdf4' and 'h5netcdf').
 DEFAULT_COMPRESSION = {
     'zlib': True,
-    'complevel': 4,
+    'complevel': 9,
     'shuffle': True,
 }
 
