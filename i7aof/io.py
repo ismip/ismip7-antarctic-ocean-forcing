@@ -2,6 +2,7 @@ import os
 import subprocess
 import warnings
 from pathlib import Path
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import cftime
 import netCDF4
@@ -18,6 +19,11 @@ DEFAULT_COMPRESSION = {
     'complevel': 9,
     'shuffle': True,
 }
+
+NetcdfFormat = Literal[
+    'NETCDF4', 'NETCDF4_CLASSIC', 'NETCDF3_64BIT', 'NETCDF3_CLASSIC'
+]
+NetcdfEngine = Literal['netcdf4', 'scipy', 'h5netcdf']
 
 
 def read_dataset(path, **kwargs) -> xr.Dataset:
@@ -82,16 +88,16 @@ def read_dataset(path, **kwargs) -> xr.Dataset:
 
 
 def write_netcdf(
-    ds,
-    filename,
-    fillvalues=None,
-    format=None,
-    engine=None,
-    progress_bar=False,
-    has_fill_values=None,
-    compression=None,
-    compression_opts=None,
-):
+    ds: xr.Dataset,
+    filename: Union[str, Path],
+    fillvalues: Optional[Dict[str, Any]] = None,
+    format: Optional[NetcdfFormat] = None,
+    engine: Optional[NetcdfEngine] = None,
+    progress_bar: bool = False,
+    has_fill_values: Optional[Union[bool, List[str]]] = None,
+    compression: Optional[Union[bool, List[str]]] = None,
+    compression_opts: Optional[Dict[str, Any]] = None,
+) -> None:
     """
     Write an xarray.Dataset to a file with NetCDF4 fill values
 
@@ -113,15 +119,13 @@ def write_netcdf(
     engine : {'netcdf4', 'scipy', 'h5netcdf'}, optional
         The library to use for NetCDF output, the default is 'netcdf4'
 
-    has_fill_values : bool | dict | callable, optional
+    has_fill_values : bool | list, optional
         Controls whether to apply ``_FillValue`` per variable without scanning
         data:
 
           - bool: apply to all variables (True adds, False omits)
 
-          - dict: mapping of var_name -> bool
-
-          - callable: function (var_name, var: xarray.DataArray) -> bool
+          - list: the list of variable names to which to apply fill values.
 
         If omitted (None), the function determines necessity by checking for
         NaNs using xarray's lazy operations (``var.isnull().any().compute()``),
@@ -129,18 +133,13 @@ def write_netcdf(
         may load data into memory; callers can avoid this by opening datasets
         with Dask chunks.
 
-    compression : bool | dict | callable, optional
+    compression : bool | list, optional
         Controls variable compression. Accepted forms mirror ``has_fill_values``
         semantics:
 
           - bool: enable/disable default compression for all variables
 
-          - dict: mapping of var_name -> bool or var_name -> dict of explicit
-                  encoding compression options (e.g.
-                  ``{'zlib': True, 'complevel': 4}``)
-
-          - callable: function (var_name, var: xarray.DataArray) -> bool or
-                      dict
+          - list: the list of variable names to compress.
 
         If omitted (None), no compression is enabled by default; callers can
         enable it selectively. Note that support and available options depend
@@ -212,18 +211,25 @@ def write_netcdf(
     else:
         out_filename = filename
 
-    write_job = ds.to_netcdf(
-        out_filename,
-        encoding=encoding_dict,
-        format=format,
-        engine=engine,
-        compute=not progress_bar,
-    )
-
     if progress_bar:
+        write_job = ds.to_netcdf(
+            out_filename,
+            encoding=encoding_dict,
+            format=format,
+            engine=engine,
+            compute=False,
+        )
         with ProgressBar():
             print(f'Writing to {out_filename}:')
             write_job.compute()
+    else:
+        ds.to_netcdf(
+            out_filename,
+            encoding=encoding_dict,
+            format=format,
+            engine=engine,
+            compute=True,
+        )
 
     if convert:
         args = [
@@ -363,12 +369,12 @@ def _apply_time_encoding(  # noqa: C901
 
 def _build_encoding_dict(
     dataset: xr.Dataset,
-    numpy_fillvals: dict,
-    has_fill_values,
-    compression,
-    compression_opts,
-    engine,
-) -> dict:
+    numpy_fillvals: Dict[numpy.dtype, Any],
+    has_fill_values: Optional[Union[bool, List[str]]],
+    compression: Optional[Union[bool, List[str]]],
+    compression_opts: Optional[Dict[str, Any]],
+    engine: Optional[NetcdfEngine],
+) -> Dict[str, Dict[str, Any]]:
     """Build encoding dict for variables, including _FillValue decisions."""
     enc: dict = {}
     var_names_local = list(dataset.data_vars.keys()) + list(
@@ -544,52 +550,79 @@ def _ensure_cftime_time(ds: xr.Dataset, calendar: str) -> None:
                     )
 
 
-def _decide_fill_value(var_name, var, numpy_fillvals, has_fill_values):
-    """
-    Return an appropriate _FillValue (or None) for a variable.
+def _decide_fill_value(
+    var_name: str,
+    var: xr.DataArray,
+    numpy_fillvals: Dict[Any, Any],
+    has_fill_values: Optional[Union[bool, List[str]]],
+) -> Tuple[bool, Optional[Any]]:
+    """Determine whether to set _FillValue and what value.
 
-    - Respects caller directive (bool|dict|callable) when provided.
-    - Otherwise detects NaNs via xarray lazy ops (safe for chunked arrays).
+    Returns (should_set, value). If ``should_set`` is False, caller should
+    omit ``_FillValue`` from the encoding. If True and ``value`` is None,
+    caller should set ``_FillValue=None`` to suppress backend defaults.
+
+    Decision rules (combined here to avoid duplication in _var_encoding):
+    1. Directive False  -> set flag with value None (suppress backend fill).
+    2. Directive True   -> set flag with type-appropriate default value.
+    3. Directive list   -> if var_name in list treat as True else fall back.
+    4. No directive     -> detect NaNs; if NaNs found set default value.
+    5. Preserve explicit existing value (encoding or attrs) even if no NaNs.
     """
     dtype = getattr(var, 'dtype', None)
     candidate = numpy_fillvals.get(dtype)
+
+    # If no candidate (unsupported dtype) and no explicit value, skip
     if candidate is None:
-        return None
+        return False, None
 
-    # Caller directive overrides default behavior
-    if has_fill_values is not None:
-        if isinstance(has_fill_values, bool):
-            return candidate if has_fill_values else None
-        if isinstance(has_fill_values, dict):
-            choice = has_fill_values.get(var_name)
-            if choice is not None:
-                return candidate if choice else None
-        if callable(has_fill_values):
-            try:
-                choice = bool(has_fill_values(var_name, var))
-                return candidate if choice else None
-            except (TypeError, ValueError):
-                # Fall back to default behavior
-                pass
+    # Determine directive state once
+    directive: Optional[bool] = None
+    if isinstance(has_fill_values, bool):
+        directive = has_fill_values
+    elif isinstance(has_fill_values, list):
+        directive = var_name in has_fill_values
 
-    # Default: detect NaNs using xarray (works well for chunked data)
+    # Explicit disable
+    if directive is False:
+        return True, None
+
+    # Explicit enable
+    if directive is True:
+        return True, candidate
+
+    # No explicit directive: preserve existing explicit value if present
+    present_in_enc = '_FillValue' in getattr(var, 'encoding', {})
+    present_in_attrs = '_FillValue' in getattr(var, 'attrs', {})
+    if present_in_enc or present_in_attrs:
+        existing = var.encoding.get('_FillValue', var.attrs.get('_FillValue'))
+        return True, existing
+
+    # Lazily detect NaNs
     try:
         has_nan = bool(var.isnull().any().compute())
     except (RuntimeError, ValueError):
         has_nan = False
-    return candidate if has_nan else None
+    if has_nan:
+        return True, candidate
+    return False, None
 
 
-def _decide_compression(var_name, var, compression, default_opts, engine):
+def _decide_compression(
+    var_name: str,
+    var: xr.DataArray,
+    compression: Optional[Union[bool, List[str]]],
+    default_opts: Optional[Dict[str, Any]],
+    engine: Optional[NetcdfEngine],
+) -> Optional[Dict[str, Any]]:
     """
     Return a compression dict for a variable or None.
 
     Supported return values are a dict of encoding keys (e.g. {'zlib': True,
     'complevel': 4}) or None. The ``compression`` argument supports the same
-    three forms as ``has_fill_values``: bool, dict, or callable. If a boolean
-    True is provided, ``default_opts`` are used. If a dict maps the variable
-    name to either a bool or a dict, that mapping is respected. For callables,
-    the callable may return a bool or a dict.
+    three forms as ``has_fill_values``: bool or list. If a boolean
+    True is provided, ``default_opts`` are used. If a list contains the
+    variable name, compression is applied.
     """
     if compression is None:
         return None
@@ -607,42 +640,21 @@ def _decide_compression(var_name, var, compression, default_opts, engine):
     if isinstance(compression, bool):
         return default_opts if compression else None
 
-    if isinstance(compression, dict):
-        choice = compression.get(var_name)
-        if choice is None:
-            return None
-        if isinstance(choice, dict):
-            # merge defaults under explicit values
-            opts = dict(default_opts)
-            opts.update(choice)
-            return opts
-        return default_opts if bool(choice) else None
+    if isinstance(compression, list):
+        return default_opts if var_name in compression else None
 
-    if callable(compression):
-        try:
-            res = compression(var_name, var)
-        except (TypeError, ValueError):
-            return None
-        if res is None:
-            return None
-        if isinstance(res, bool):
-            return default_opts if res else None
-        if isinstance(res, dict):
-            opts = dict(default_opts)
-            opts.update(res)
-            return opts
     return None
 
 
 def _var_encoding(
-    var_name,
-    var,
-    numpy_fillvals,
-    has_fill_values,
-    compression,
-    compression_opts,
-    engine,
-):
+    var_name: str,
+    var: xr.DataArray,
+    numpy_fillvals: Dict[Any, Any],
+    has_fill_values: Optional[Union[bool, List[str]]],
+    compression: Optional[Union[bool, List[str]]],
+    compression_opts: Optional[Dict[str, Any]],
+    engine: Optional[NetcdfEngine],
+) -> Dict[str, Any]:
     """
     Compute per-variable encoding for _FillValue and compression.
 
@@ -652,36 +664,12 @@ def _var_encoding(
     """
     encoding = {}
 
-    # Determine explicit fill-value directive
-    directive = None
-    if has_fill_values is not None:
-        if isinstance(has_fill_values, bool):
-            directive = has_fill_values
-        elif isinstance(has_fill_values, dict):
-            directive = has_fill_values.get(var_name)
-        elif callable(has_fill_values):
-            try:
-                directive = bool(has_fill_values(var_name, var))
-            except (TypeError, ValueError):
-                directive = None
-
-    # Handle fill-value decisions without returning early so compression can
-    # also be applied below.
-    if directive is False:
-        encoding['_FillValue'] = None
-    elif directive is True:
-        fill = numpy_fillvals.get(getattr(var, 'dtype', None))
-        encoding['_FillValue'] = fill
-    else:
-        # Default behavior (no explicit directive): detect NaNs lazily and
-        # preserve explicit enc/attrs when present.
-        fill = _decide_fill_value(var_name, var, numpy_fillvals, None)
-        present_in_enc = '_FillValue' in var.encoding
-        present_in_attrs = '_FillValue' in var.attrs
-        if fill is not None or present_in_enc or present_in_attrs:
-            encoding['_FillValue'] = var.encoding.get(
-                '_FillValue', var.attrs.get('_FillValue', fill)
-            )
+    # Consolidated fill-value decision
+    set_fill, fill_val = _decide_fill_value(
+        var_name, var, numpy_fillvals, has_fill_values
+    )
+    if set_fill:
+        encoding['_FillValue'] = fill_val
 
     # Decide compression options and merge in, preserving any explicit
     # encoding values present on the variable.
