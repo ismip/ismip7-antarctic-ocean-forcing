@@ -17,7 +17,6 @@ import shutil
 import warnings
 from collections.abc import Callable
 from contextlib import contextmanager
-from typing import List
 
 import cftime
 import numpy as np
@@ -72,10 +71,8 @@ def finalize_zarr_to_netcdf(
     *,
     zarr_store: str,
     out_nc: str,
-    has_fill_values: List[str] | None = None,
-    compression: List[str] | None = None,
-    progress_bar: bool = True,
     postprocess: Callable[[xr.Dataset], xr.Dataset] | None = None,
+    **kwargs,
 ) -> None:
     """Open a Zarr store, optionally postprocess, then write NetCDF and clean.
 
@@ -85,15 +82,11 @@ def finalize_zarr_to_netcdf(
         Path to the Zarr store directory to consolidate.
     out_nc : str
         Target NetCDF output path.
-    has_fill_values : list, optional
-        A list of variable names to which to apply fill values.
-    compression : list, optional
-        A list of variable names to compress.
-    progress_bar : bool, optional
-        Whether to show a write progress bar (forwarded to write_netcdf).
     postprocess : callable, optional
         Function mapping ``xr.Dataset -> xr.Dataset`` applied before writing
         NetCDF to allow attribute fixes, coordinate/bounds injection, etc.
+    **kwargs
+        Additional keyword arguments passed to ``i7aof.io.write_netcdf``.
     """
     # Avoid format-3 consolidated metadata warning and disable consolidated
     # metadata usage since we immediately convert to NetCDF
@@ -160,13 +153,7 @@ def finalize_zarr_to_netcdf(
         # written NetCDF when failures occur and removes the need for a
         # ".complete" file.
         out_tmp = f'{out_nc}.tmp'
-        write_netcdf(
-            ds,
-            out_tmp,
-            has_fill_values=has_fill_values,
-            progress_bar=progress_bar,
-            compression=compression,
-        )
+        write_netcdf(ds, out_tmp, **kwargs)
     finally:
         ds.close()
     # Finalize atomically: move tmp -> final, then remove Zarr store and any

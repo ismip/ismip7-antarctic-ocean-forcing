@@ -304,6 +304,10 @@ def clim_ct_sa_to_thetao_so(
             grid_path=grid_path,
             config=config,
         )
+
+        # more compression for the final datasets
+        compression_opts = {'zlib': True, 'complevel': 9, 'shuffle': True}
+
         if not thetao_exists:
             ds_write = _dataset_for_output(ds_out, 'thetao')
             write_netcdf(
@@ -312,6 +316,7 @@ def clim_ct_sa_to_thetao_so(
                 progress_bar=progress,
                 has_fill_values=['thetao'],
                 compression=['thetao'],
+                compression_opts=compression_opts,
             )
             outputs.append(out_thetao)
         if not so_exists:
@@ -322,6 +327,7 @@ def clim_ct_sa_to_thetao_so(
                 progress_bar=progress,
                 has_fill_values=['so'],
                 compression=['so'],
+                compression_opts=compression_opts,
             )
             outputs.append(out_so)
 
@@ -677,6 +683,9 @@ def _process_ct_sa_annual_pair(
             units='days since 1850-01-01 00:00:00',
         )
 
+        # more compression for the final datasets
+        compression_opts = {'zlib': True, 'complevel': 9, 'shuffle': True}
+
         # Write thetao dataset (with bounds)
         if not os.path.exists(out_thetao):
             ds_write = dataset_with_var_and_bounds(ds_final, 'thetao')
@@ -686,6 +695,7 @@ def _process_ct_sa_annual_pair(
                 has_fill_values=['thetao'],
                 compression=['thetao'],
                 progress_bar=progress,
+                compression_opts=compression_opts,
             )
         # Write so dataset (with bounds)
         if not os.path.exists(out_so):
@@ -696,6 +706,7 @@ def _process_ct_sa_annual_pair(
                 has_fill_values=['so'],
                 compression=['so'],
                 progress_bar=progress,
+                compression_opts=compression_opts,
             )
     finally:
         ds_final.close()

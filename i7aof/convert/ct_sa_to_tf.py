@@ -473,13 +473,17 @@ def _process_ct_sa_pair(
         ds_final = strip_fill_on_non_data(ds_final, data_vars=('tf',))
         return ds_final
 
+    # more compression for the final datasets
+    compression_opts = {'zlib': True, 'complevel': 9, 'shuffle': True}
+
     finalize_zarr_to_netcdf(
         zarr_store=zarr_store,
         out_nc=out_nc,
+        postprocess=_post,
         has_fill_values=['tf'],
         compression=['tf'],
         progress_bar=True,
-        postprocess=_post,
+        compression_opts=compression_opts,
     )
 
     ds_ct.close()
