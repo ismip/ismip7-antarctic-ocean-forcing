@@ -293,120 +293,127 @@ def _remap_horiz(
     time_bounds: tuple[str, xr.DataArray] | None = None,
     time_prefer_source: xr.Dataset | None = None,
 ):
-    """
-     Horizontally remap a vertically processed dataset to the ISMIP grid.
-
-     Input/Output
-     - Input is the output from the vertical pipeline (already masked,
-        interpolated to ``z_extrap``, and normalized) stored in
-        ``in_filename``. Output is written to ``out_filename`` on the ISMIP
-        grid.
-
-     Steps
-     1) Open the input lazily. If ``method == 'bilinear'``, append a
-         periodic longitude column to prevent a dateline seam.
-     2) Build a lightweight mask dataset that contains only
-         ``src_frac_interp`` and remap it once without renormalization.
-         This carries the vertically interpolated valid fraction to the
-         ISMIP grid and is reused across all time chunks (or the single
-         no-time remap).
-     3) Remap data variables in time chunks of
-         ``[remap_cmip] horiz_time_chunk`` (if a time dimension exists);
-         if no time dimension, do a single remap. Before remapping, drop
-         ``src_frac_interp`` so renormalization does not act on it.
-     4) Concatenate remapped chunks along time (if any), attach the
-         horizontally remapped ``src_frac_interp`` from step 2, and write
-         the final file. If the output has the expected (y, x) shape,
-         attach ISMIP x/y coordinates and bounds.
-
-     Notes
-     - Horizontal renormalization is applied during remapping with the
-        threshold ``[remap] threshold`` to handle partial source-cell
-        coverage.
-     - ``lat_var``, ``lon_var``, and ``lon_dim`` are provided or read from
-        ``[cmip_dataset]`` by default so this works for CMIP or climatology.
-    - ``model_prefix`` is used as the source grid identifier in map names.
-    """
-
+    """High-level orchestration for horizontal remapping."""
     method = config.get('remap', 'method')
     renorm_threshold = config.getfloat('remap', 'threshold')
-
-    # Determine coordinate var/dim names
-    if lat_var is None:
-        lat_var = (
-            config.get('cmip_dataset', 'lat_var')
-            if config.has_option('cmip_dataset', 'lat_var')
-            else 'lat'
-        )
-    if lon_var is None:
-        lon_var = (
-            config.get('cmip_dataset', 'lon_var')
-            if config.has_option('cmip_dataset', 'lon_var')
-            else 'lon'
-        )
-    if lon_dim is None:
-        lon_dim = (
-            config.get('cmip_dataset', 'lon_dim')
-            if config.has_option('cmip_dataset', 'lon_dim')
-            else 'lon'
-        )
-
+    # Resolve coordinate variable names if not provided
+    lat_var = lat_var or (
+        config.get('cmip_dataset', 'lat_var')
+        if config.has_option('cmip_dataset', 'lat_var')
+        else 'lat'
+    )
+    lon_var = lon_var or (
+        config.get('cmip_dataset', 'lon_var')
+        if config.has_option('cmip_dataset', 'lon_var')
+        else 'lon'
+    )
+    lon_dim = lon_dim or (
+        config.get('cmip_dataset', 'lon_dim')
+        if config.has_option('cmip_dataset', 'lon_dim')
+        else 'lon'
+    )
     in_grid_name = model_prefix
-
-    # Open dataset lazily
     ds = read_dataset(in_filename, chunks={'time': 1})
-
     if method == 'bilinear':
-        # ensure periodic longitude to avoid seam
         ds = add_periodic_lon(ds, lon_var=lon_var, periodic_dim=lon_dim)
+    ds_mask = _build_and_remap_mask(
+        ds=ds,
+        tmpdir=tmpdir,
+        in_grid_name=in_grid_name,
+        method=method,
+        config=config,
+        logger=logger,
+        lon_var=lon_var,
+        lat_var=lat_var,
+    )
+    remapped_chunks = _remap_data_variables(
+        ds=ds,
+        tmpdir=tmpdir,
+        in_grid_name=in_grid_name,
+        method=method,
+        config=config,
+        logger=logger,
+        lon_var=lon_var,
+        lat_var=lat_var,
+        renorm_threshold=renorm_threshold,
+    )
+    _validate_z_extrap(remapped_chunks)
+    ds_final = _concat_chunks(remapped_chunks)
+    _finalize_and_write(
+        ds_final=ds_final,
+        ds_mask=ds_mask,
+        ds_source=ds,
+        out_filename=out_filename,
+        config=config,
+        time_bounds=time_bounds,
+        time_prefer_source=time_prefer_source,
+    )
 
+
+def _build_and_remap_mask(
+    *,
+    ds: xr.Dataset,
+    tmpdir: str,
+    in_grid_name: str,
+    method: str,
+    config,
+    logger,
+    lon_var: str,
+    lat_var: str,
+) -> xr.Dataset:
+    """Create and horizontally remap the src_frac_interp mask dataset."""
     input_mask_path = os.path.join(tmpdir, 'input_mask.nc')
     output_mask_path = os.path.join(tmpdir, 'output_mask.nc')
     output_mask_tmp = f'{output_mask_path}.tmp'
     if os.path.exists(output_mask_path):
-        ds_mask = read_dataset(output_mask_path)
-    else:
-        ds_mask = ds.copy()
-        # Keep only src_frac_interp in the mask file
-        keep_vars = ['src_frac_interp']
-        ds_mask = ds_mask[keep_vars]
-        write_netcdf(
-            ds_mask,
-            input_mask_path,
-            progress_bar=True,
-            has_fill_values=lambda name, var: name == 'src_frac_interp',
+        return read_dataset(output_mask_path)
+    ds_mask = ds[['src_frac_interp']].copy()
+    write_netcdf(
+        ds_mask,
+        input_mask_path,
+        progress_bar=True,
+        has_fill_values=lambda name, var: name == 'src_frac_interp',
+    )
+    try:
+        if os.path.exists(output_mask_tmp):
+            os.remove(output_mask_tmp)
+    except OSError:
+        pass
+    _run_remap_with_temp_cwd(
+        in_filename=input_mask_path,
+        in_grid_name=in_grid_name,
+        out_filename=output_mask_tmp,
+        map_dir=tmpdir,
+        method=method,
+        config=config,
+        logger=logger,
+        lon_var=lon_var,
+        lat_var=lat_var,
+        renormalize=None,
+    )
+    if not os.path.exists(output_mask_tmp):
+        raise FileNotFoundError(
+            f'Mask remap failed to produce: {output_mask_tmp}'
         )
+    os.replace(output_mask_tmp, output_mask_path)
+    return read_dataset(output_mask_path)
 
-        # remap the mask without renormalizing; isolate ESMF PET logs
-        # Use a temporary filename to allow safe resume on interruption
-        try:
-            if os.path.exists(output_mask_tmp):
-                os.remove(output_mask_tmp)
-        except OSError:
-            pass
-        _run_remap_with_temp_cwd(
-            in_filename=input_mask_path,
-            in_grid_name=in_grid_name,
-            out_filename=output_mask_tmp,
-            map_dir=tmpdir,
-            method=method,
-            config=config,
-            logger=logger,
-            lon_var=lon_var,
-            lat_var=lat_var,
-            renormalize=None,
-        )
-        # Atomically move the completed tmp into place
-        if not os.path.exists(output_mask_tmp):
-            raise FileNotFoundError(
-                f'Expected remap output missing: {output_mask_tmp}'
-            )
-        os.replace(output_mask_tmp, output_mask_path)
-        ds_mask = read_dataset(output_mask_path)
 
-    # If no time axis, do a single remap; otherwise chunk in time
+def _remap_data_variables(
+    *,
+    ds: xr.Dataset,
+    tmpdir: str,
+    in_grid_name: str,
+    method: str,
+    config,
+    logger,
+    lon_var: str,
+    lat_var: str,
+    renorm_threshold: float,
+) -> list[xr.Dataset]:
+    """Remap data variables in ds either single-pass or chunked in time."""
     if 'time' not in ds.dims:
-        remapped_chunks = _remap_no_time(
+        return _remap_no_time(
             ds,
             tmpdir,
             in_grid_name,
@@ -417,77 +424,91 @@ def _remap_horiz(
             lat_var,
             renorm_threshold,
         )
-    else:
-        remapped_chunks = _remap_with_time(
-            ds,
-            tmpdir,
-            in_grid_name,
-            method,
-            config,
-            logger,
-            lon_var,
-            lat_var,
-            renorm_threshold,
-        )
+    return _remap_with_time(
+        ds,
+        tmpdir,
+        in_grid_name,
+        method,
+        config,
+        logger,
+        lon_var,
+        lat_var,
+        renorm_threshold,
+    )
 
-    # Sanity: ensure all chunks carry identical, unique z_extrap
+
+def _validate_z_extrap(remapped_chunks: list[xr.Dataset]) -> None:
+    """Ensure all remapped chunks have identical unique z_extrap coordinate."""
+    if not remapped_chunks:
+        raise ValueError('No remapped chunks produced.')
     z0 = remapped_chunks[0]['z_extrap'].values
     if len(np.unique(z0)) != len(z0):
-        raise ValueError(
-            'First chunk has duplicate z_extrap values — aborting.'
-        )
+        raise ValueError('First chunk has duplicate z_extrap values.')
     for i, ds_chk in enumerate(remapped_chunks[1:], start=1):
         z = ds_chk['z_extrap'].values
         if z.shape != z0.shape or not np.allclose(z, z0):
             raise ValueError(
-                f'Inconsistent z_extrap in chunk {i}: shape/values mismatch; '
-                'possible corruption.'
+                f'Inconsistent z_extrap in chunk {i}: shape/values mismatch.'
             )
 
-    # Concatenate along time if needed (or just take the single chunk)
+
+def _concat_chunks(remapped_chunks: list[xr.Dataset]) -> xr.Dataset:
+    """Concatenate chunks along time dimension when present."""
     if len(remapped_chunks) == 1 and 'time' not in remapped_chunks[0].dims:
-        ds_final = remapped_chunks[0]
-    else:
-        ds_final = xr.concat(remapped_chunks, dim='time', join='exact')
+        return remapped_chunks[0]
+    return xr.concat(remapped_chunks, dim='time', join='exact')
 
-    # attach horizontally remapped src_frac_interp (time-invariant)
+
+def _finalize_and_write(
+    *,
+    ds_final: xr.Dataset,
+    ds_mask: xr.Dataset,
+    ds_source: xr.Dataset,
+    out_filename: str,
+    config,
+    time_bounds: tuple[str, xr.DataArray] | None,
+    time_prefer_source: xr.Dataset | None,
+) -> None:
+    """Attach metadata, ensure encodings, and atomically write final file."""
+    # Attach horizontally remapped src_frac_interp (time-invariant)
     ds_final['src_frac_interp'] = ds_mask['src_frac_interp']
-
-    # Ensure ISMIP grid coordinates/lat-lon/bounds present on final output
     ds_final = attach_grid_coords(ds_final, config)
-
-    # Ensure time coordinate values match source and restore time bounds
-    if 'time' in ds.dims:
-        # Copy time values/attrs from the vertically processed input
+    if 'time' in ds_source.dims:
         ds_final = propagate_time_from(
             ds_final,
-            ds,
+            ds_source,
             apply_cf_encoding=False,
         )
-        # Re-inject captured time bounds from the original source, if any
         if time_bounds is not None:
             inject_time_bounds(ds_final, time_bounds)
-        # Apply consistent CF encodings to time/time_bnds
         ensure_cf_time_encoding(
             ds_final,
             units='days since 1850-01-01 00:00:00',
             calendar=None,
-            prefer_source=time_prefer_source or ds,
+            prefer_source=time_prefer_source or ds_source,
         )
-
-    # Ensure no stray fill values on coordinates/bounds
     data_vars = [
         str(v) for v in ds_final.data_vars if v not in ds_final.coords
     ]
     ds_final = strip_fill_on_non_data(ds_final, data_vars=data_vars)
-
+    final_tmp = f'{out_filename}.tmp'
+    try:
+        if os.path.exists(final_tmp):
+            os.remove(final_tmp)
+    except OSError:
+        pass
     write_netcdf(
         ds_final,
-        out_filename,
+        final_tmp,
         progress_bar=True,
         has_fill_values=lambda name, var: name
         in set([v for v in ds_final.data_vars if v not in ds_final.coords]),
     )
+    if not os.path.exists(final_tmp):
+        raise FileNotFoundError(
+            f'Expected final remap output missing: {final_tmp}'
+        )
+    os.replace(final_tmp, out_filename)
 
 
 def _remap_no_time(
