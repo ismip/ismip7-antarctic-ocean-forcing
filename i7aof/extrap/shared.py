@@ -242,8 +242,8 @@ def _prepare_input_single(
             ds_in,
             tmp_out,
             has_fill_values=[variable],
-            compression=[variable],
-            format='NETCDF4',
+            compression=None,
+            format='NETCDF3_64BIT',
             progress_bar=False,
         )
     os.replace(tmp_out, out_prepared_path)
@@ -419,8 +419,8 @@ def _apply_under_ice_mask_to_file(
             ds_prep,
             tmp_out,
             has_fill_values=[variable],
-            compression=[variable],
-            format='NETCDF4',
+            compression=None,
+            format='NETCDF3_64BIT',
             progress_bar=False,
         )
     os.replace(tmp_out, prepared_path)
