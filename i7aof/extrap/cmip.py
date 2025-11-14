@@ -797,9 +797,9 @@ def _prepare_input_with_coords(
         write_netcdf(
             ds_in,
             tmp_out,
-            has_fill_values=lambda name, var: name == var_name,
+            has_fill_values={var_name: True},
+            compression={var_name: True},
             format='NETCDF4',
-            engine='netcdf4',
             progress_bar=False,
         )
 

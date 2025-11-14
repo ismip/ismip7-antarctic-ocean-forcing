@@ -161,12 +161,14 @@ def _write_mask_stage(
         da_masked = interpolator.mask_and_sort(ds[var])
         ds_out[var] = da_masked.astype(np.float32)
     ds_out['src_valid'] = interpolator.src_valid.astype(np.float32)
+
+    fill_and_compress = {var: True for var in variables + ['src_valid']}
     write_netcdf(
         ds_out,
         mask_filename,
         progress_bar=True,
-        has_fill_values=lambda name, var: name
-        in set(variables + ['src_valid']),
+        has_fill_values=fill_and_compress,
+        compression=fill_and_compress,
     )
 
 
@@ -189,12 +191,14 @@ def _write_interp_stage(
     ds_out['z_extrap_bnds'] = ds_ismip['z_extrap_bnds']
     if 'lev' in ds_out:
         ds_out = ds_out.drop_vars(['lev'])
+
+    fill_and_compress = {var: True for var in variables + ['src_frac_interp']}
     write_netcdf(
         ds_out,
         interp_filename,
         progress_bar=True,
-        has_fill_values=lambda name, var: name
-        in set(variables + ['src_frac_interp']),
+        has_fill_values=fill_and_compress,
+        compression=fill_and_compress,
     )
 
 
@@ -215,12 +219,14 @@ def _write_normalize_stage(
         ds_out[var] = da_norm.astype(np.float32)
     ds_out['src_frac_interp'] = interpolator.src_frac_interp.astype(np.float32)
     ds_out['z_extrap_bnds'] = ds_ismip['z_extrap_bnds']
+
+    fill_and_compress = {var: True for var in variables + ['src_frac_interp']}
     write_netcdf(
         ds_out,
         normalized_filename,
         progress_bar=True,
-        has_fill_values=lambda name, var: name
-        in set(variables + ['src_frac_interp']),
+        has_fill_values=fill_and_compress,
+        compression=fill_and_compress,
     )
 
 
@@ -372,7 +378,8 @@ def _build_and_remap_mask(
         ds_mask,
         input_mask_path,
         progress_bar=True,
-        has_fill_values=lambda name, var: name == 'src_frac_interp',
+        has_fill_values={'src_frac_interp': True},
+        compression={'src_frac_interp': True},
     )
     try:
         if os.path.exists(output_mask_tmp):
@@ -497,12 +504,14 @@ def _finalize_and_write(
             os.remove(final_tmp)
     except OSError:
         pass
+    vars = set([v for v in ds_final.data_vars if v not in ds_final.coords])
+    fill_and_compress = {var: True for var in vars}
     write_netcdf(
         ds_final,
         final_tmp,
         progress_bar=True,
-        has_fill_values=lambda name, var: name
-        in set([v for v in ds_final.data_vars if v not in ds_final.coords]),
+        has_fill_values=fill_and_compress,
+        compression=fill_and_compress,
     )
     if not os.path.exists(final_tmp):
         raise FileNotFoundError(
@@ -529,12 +538,14 @@ def _remap_no_time(
     subset = ds
     if 'src_frac_interp' in subset:
         subset = subset.drop_vars(['src_frac_interp'])
+    vars = set([v for v in subset.data_vars if v not in subset.coords])
+    fill_and_compress = {var: True for var in vars}
     write_netcdf(
         subset,
         input_chunk_path,
         progress_bar=True,
-        has_fill_values=lambda name, var, _subset=subset: name
-        in set([v for v in _subset.data_vars if v not in _subset.coords]),
+        has_fill_values=fill_and_compress,
+        compression=fill_and_compress,
     )
 
     # Write to a temp file to support safe resume on interruption
@@ -604,12 +615,16 @@ def _remap_with_time(
         subset = ds.isel(time=slice(i_start, i_end))
         if 'src_frac_interp' in subset:
             subset = subset.drop_vars(['src_frac_interp'])
+
+        vars = set([v for v in subset.data_vars if v not in subset.coords])
+        fill_and_compress = {var: True for var in vars}
+
         write_netcdf(
             subset,
             input_chunk_path,
             progress_bar=True,
-            has_fill_values=lambda name, var, _subset=subset: name
-            in set([v for v in _subset.data_vars if v not in _subset.coords]),
+            has_fill_values=fill_and_compress,
+            compression=fill_and_compress,
         )
 
         # Write to a temp file to support safe resume on interruption

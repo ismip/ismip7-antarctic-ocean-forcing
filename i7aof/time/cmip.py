@@ -135,18 +135,13 @@ def compute_cmip_annual_averages(
                 ds_ann = strip_fill_on_non_data(ds_ann, data_vars=data_vars)
                 # Only 'ct', 'sa', and 'tf' should carry _FillValue; all
                 # others (including coords and bounds) should not.
-                fill_true = {'ct', 'sa', 'tf'}
-                hv: dict[str, bool] = {}
-                all_names = list(ds_ann.data_vars.keys()) + list(
-                    ds_ann.coords.keys()
-                )
-                for vn in all_names:
-                    hv[vn] = vn in fill_true
+                fill_and_compress = {'ct': True, 'sa': True, 'tf': True}
                 write_netcdf(
                     ds_ann,
                     tmp_path,
                     progress_bar=progress,
-                    has_fill_values=hv,
+                    has_fill_values=fill_and_compress,
+                    compression=fill_and_compress,
                 )
                 wrote_tmp = True
             finally:

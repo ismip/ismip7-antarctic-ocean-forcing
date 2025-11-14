@@ -235,10 +235,7 @@ def _process_single_file_annual(
         # Build explicit fill-value policy: only 'ct', 'sa', and 'tf'
         # should carry _FillValue; all others (including coords/bounds)
         # should not. This avoids backend defaults and scanning.
-        fill_true = {'ct', 'sa', 'tf'}
-        hv: dict[str, bool] = {}
-        for vn in list(ds_out.data_vars.keys()) + list(ds_out.coords.keys()):
-            hv[vn] = vn in fill_true
+        fill_and_compress = {'ct': True, 'sa': True, 'tf': True}
 
         # Write to a temporary file in the same directory, then atomically
         # replace the final file. This avoids read/write conflicts and leaves
@@ -252,7 +249,8 @@ def _process_single_file_annual(
                 ds_out,
                 tmp_path,
                 progress_bar=progress,
-                has_fill_values=hv,
+                has_fill_values=fill_and_compress,
+                compression=fill_and_compress,
             )
             # After successful write, replace/overwrite atomically
             os.replace(tmp_path, out_path)

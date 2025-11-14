@@ -476,7 +476,8 @@ def _process_ct_sa_pair(
     finalize_zarr_to_netcdf(
         zarr_store=zarr_store,
         out_nc=out_nc,
-        has_fill_values=lambda name, _v: name == 'tf',
+        has_fill_values={'tf': True},
+        compression={'tf': True},
         progress_bar=True,
         postprocess=_post,
     )

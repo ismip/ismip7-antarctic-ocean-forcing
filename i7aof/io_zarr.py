@@ -17,6 +17,7 @@ import shutil
 import warnings
 from collections.abc import Callable
 from contextlib import contextmanager
+from typing import Dict
 
 import cftime
 import numpy as np
@@ -71,7 +72,8 @@ def finalize_zarr_to_netcdf(
     *,
     zarr_store: str,
     out_nc: str,
-    has_fill_values: Callable[[str, xr.DataArray], bool] | None = None,
+    has_fill_values: Dict[str, bool] | None = None,
+    compression: Dict[str, bool] | None = None,
     progress_bar: bool = True,
     postprocess: Callable[[xr.Dataset], xr.Dataset] | None = None,
 ) -> None:
@@ -83,9 +85,12 @@ def finalize_zarr_to_netcdf(
         Path to the Zarr store directory to consolidate.
     out_nc : str
         Target NetCDF output path.
-    has_fill_values : callable, optional
-        Predicate called as ``has_fill_values(name, var)`` to decide whether
-        a variable should use a `_FillValue` in the NetCDF output.
+    has_fill_values : dict, optional
+        A dictionary mapping variable names to boolean values indicating
+        whether to use a `_FillValue` in the NetCDF output.
+    compression : dict, optional
+        A dictionary mapping variable names to boolean values indicating
+        whether to compress each variable in the NetCDF output.
     progress_bar : bool, optional
         Whether to show a write progress bar (forwarded to write_netcdf).
     postprocess : callable, optional
@@ -160,10 +165,9 @@ def finalize_zarr_to_netcdf(
         write_netcdf(
             ds,
             out_tmp,
-            has_fill_values=(
-                has_fill_values if has_fill_values else (lambda *_: False)
-            ),
+            has_fill_values=has_fill_values,
             progress_bar=progress_bar,
+            compression=compression,
         )
     finally:
         ds.close()

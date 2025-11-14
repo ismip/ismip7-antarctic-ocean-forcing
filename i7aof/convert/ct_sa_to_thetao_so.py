@@ -148,7 +148,7 @@ def cmip_ct_sa_ann_to_thetao_so_tf(
             outputs.append(tf_out)
             continue
         print(f'Copying TF annual: {os.path.basename(tf_out)}')
-        _copy_netcdf(tf_in, tf_out)
+        shutil.copyfile(tf_in, tf_out)
         outputs.append(tf_out)
 
     # Now convert CT/SA -> thetao and so per pair of files
@@ -310,7 +310,8 @@ def clim_ct_sa_to_thetao_so(
                 ds_write,
                 out_thetao,
                 progress_bar=progress,
-                has_fill_values=True,
+                has_fill_values={'thetao': True},
+                compression={'thetao': True},
             )
             outputs.append(out_thetao)
         if not so_exists:
@@ -319,7 +320,8 @@ def clim_ct_sa_to_thetao_so(
                 ds_write,
                 out_so,
                 progress_bar=progress,
-                has_fill_values=True,
+                has_fill_values={'so': True},
+                compression={'so': True},
             )
             outputs.append(out_so)
 
@@ -511,12 +513,6 @@ def _compute_time_indices(
     return [(i0, min(i0 + chunk, nt)) for i0 in range(0, nt, chunk)]
 
 
-def _copy_netcdf(src: str, dst: str) -> None:
-    # Simple pass-through copy using project helper
-    with read_dataset(src) as ds:
-        write_netcdf(ds, dst, progress_bar=True, has_fill_values=True)
-
-
 def _process_ct_sa_clim_pair(
     *,
     ct_path: str,
@@ -687,7 +683,8 @@ def _process_ct_sa_annual_pair(
             write_netcdf(
                 ds_write,
                 out_thetao,
-                has_fill_values=lambda name, _v: name == 'thetao',
+                has_fill_values={'thetao': True},
+                compression={'thetao': True},
                 progress_bar=progress,
             )
         # Write so dataset (with bounds)
@@ -696,7 +693,8 @@ def _process_ct_sa_annual_pair(
             write_netcdf(
                 ds_write,
                 out_so,
-                has_fill_values=lambda name, _v: name == 'so',
+                has_fill_values={'so': True},
+                compression={'so': True},
                 progress_bar=progress,
             )
     finally:

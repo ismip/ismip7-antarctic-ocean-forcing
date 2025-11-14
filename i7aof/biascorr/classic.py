@@ -295,7 +295,10 @@ def _compute_biases(
         # Open combined historical + SSP dataset
         files_to_open = hist_files + ssp_files
         ds_hist_ssp = xr.open_mfdataset(
-            files_to_open, decode_times=CFDatetimeCoder(use_cftime=True)
+            files_to_open,
+            concat_dim='time',
+            combine='nested',
+            decode_times=CFDatetimeCoder(use_cftime=True),
         )
 
         # Extract climatology period (only full annual for now)
@@ -319,7 +322,8 @@ def _compute_biases(
             ds_out,
             modclimfile,
             progress_bar=True,
-            has_fill_values=lambda name, _v, v=var: name == v,
+            has_fill_values={var: True},
+            compression={var: True},
         )
         ds_out.close()
 
@@ -335,7 +339,8 @@ def _compute_biases(
             ds_out,
             biasfile,
             progress_bar=True,
-            has_fill_values=lambda name, _v, v=var: name == v,
+            has_fill_values={var: True},
+            compression={var: True},
         )
         ds_out.close()
 
@@ -392,7 +397,8 @@ def _apply_biascorrection(
                     ds_out,
                     outfile,
                     progress_bar=True,
-                    has_fill_values=lambda name, _v, v=var: name == v,
+                    has_fill_values={var: True},
+                    compression={var: True},
                 )
                 ds_out.close()
 

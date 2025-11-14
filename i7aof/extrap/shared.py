@@ -241,9 +241,9 @@ def _prepare_input_single(
         write_netcdf(
             ds_in,
             tmp_out,
-            has_fill_values=lambda name, var: name == variable,
+            has_fill_values={variable: True},
+            compression={variable: True},
             format='NETCDF4',
-            engine='netcdf4',
             progress_bar=False,
         )
     os.replace(tmp_out, out_prepared_path)
@@ -347,7 +347,8 @@ def _finalize_output_with_grid(
     write_netcdf(
         ds_out,
         final_out_path,
-        has_fill_values=lambda name, var: name == variable,
+        has_fill_values={variable: True},
+        compression={variable: True},
         progress_bar=True,
     )
 
@@ -417,9 +418,9 @@ def _apply_under_ice_mask_to_file(
         write_netcdf(
             ds_prep,
             tmp_out,
-            has_fill_values=lambda name, var: name == variable,
+            has_fill_values={variable: True},
+            compression={variable: True},
             format='NETCDF4',
-            engine='netcdf4',
             progress_bar=False,
         )
     os.replace(tmp_out, prepared_path)
@@ -570,7 +571,8 @@ def _vertically_resample_to_coarse_ismip_grid(
     finalize_zarr_to_netcdf(
         zarr_store=zarr_store,
         out_nc=out_nc,
-        has_fill_values=lambda name, v, _v=variable: name == _v,
+        has_fill_values={variable: True},
+        compression={variable: True},
         progress_bar=True,
         postprocess=_post,
     )

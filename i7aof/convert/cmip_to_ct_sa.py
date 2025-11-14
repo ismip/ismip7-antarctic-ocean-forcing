@@ -246,7 +246,8 @@ def _process_file_pair(
     finalize_zarr_to_netcdf(
         zarr_store=zarr_store,
         out_nc=out_abs,
-        has_fill_values=lambda name, v: name in ('ct', 'sa'),
+        has_fill_values={'ct': True, 'sa': True},
+        compression={'ct': True, 'sa': True},
         progress_bar=True,
         postprocess=_post,
     )
