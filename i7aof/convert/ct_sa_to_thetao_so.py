@@ -310,8 +310,8 @@ def clim_ct_sa_to_thetao_so(
                 ds_write,
                 out_thetao,
                 progress_bar=progress,
-                has_fill_values={'thetao': True},
-                compression={'thetao': True},
+                has_fill_values=['thetao'],
+                compression=['thetao'],
             )
             outputs.append(out_thetao)
         if not so_exists:
@@ -320,8 +320,8 @@ def clim_ct_sa_to_thetao_so(
                 ds_write,
                 out_so,
                 progress_bar=progress,
-                has_fill_values={'so': True},
-                compression={'so': True},
+                has_fill_values=['so'],
+                compression=['so'],
             )
             outputs.append(out_so)
 
@@ -683,8 +683,8 @@ def _process_ct_sa_annual_pair(
             write_netcdf(
                 ds_write,
                 out_thetao,
-                has_fill_values={'thetao': True},
-                compression={'thetao': True},
+                has_fill_values=['thetao'],
+                compression=['thetao'],
                 progress_bar=progress,
             )
         # Write so dataset (with bounds)
@@ -693,8 +693,8 @@ def _process_ct_sa_annual_pair(
             write_netcdf(
                 ds_write,
                 out_so,
-                has_fill_values={'so': True},
-                compression={'so': True},
+                has_fill_values=['so'],
+                compression=['so'],
                 progress_bar=progress,
             )
     finally:

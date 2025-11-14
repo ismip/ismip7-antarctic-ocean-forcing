@@ -322,8 +322,8 @@ def _compute_biases(
             ds_out,
             modclimfile,
             progress_bar=True,
-            has_fill_values={var: True},
-            compression={var: True},
+            has_fill_values=[var],
+            compression=[var],
         )
         ds_out.close()
 
@@ -339,8 +339,8 @@ def _compute_biases(
             ds_out,
             biasfile,
             progress_bar=True,
-            has_fill_values={var: True},
-            compression={var: True},
+            has_fill_values=[var],
+            compression=[var],
         )
         ds_out.close()
 
@@ -397,8 +397,8 @@ def _apply_biascorrection(
                     ds_out,
                     outfile,
                     progress_bar=True,
-                    has_fill_values={var: True},
-                    compression={var: True},
+                    has_fill_values=[var],
+                    compression=[var],
                 )
                 ds_out.close()
 

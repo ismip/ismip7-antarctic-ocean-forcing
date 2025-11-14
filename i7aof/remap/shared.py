@@ -162,7 +162,7 @@ def _write_mask_stage(
         ds_out[var] = da_masked.astype(np.float32)
     ds_out['src_valid'] = interpolator.src_valid.astype(np.float32)
 
-    fill_and_compress = {var: True for var in variables + ['src_valid']}
+    fill_and_compress = variables + ['src_valid']
     write_netcdf(
         ds_out,
         mask_filename,
@@ -192,7 +192,7 @@ def _write_interp_stage(
     if 'lev' in ds_out:
         ds_out = ds_out.drop_vars(['lev'])
 
-    fill_and_compress = {var: True for var in variables + ['src_frac_interp']}
+    fill_and_compress = variables + ['src_frac_interp']
     write_netcdf(
         ds_out,
         interp_filename,
@@ -220,7 +220,7 @@ def _write_normalize_stage(
     ds_out['src_frac_interp'] = interpolator.src_frac_interp.astype(np.float32)
     ds_out['z_extrap_bnds'] = ds_ismip['z_extrap_bnds']
 
-    fill_and_compress = {var: True for var in variables + ['src_frac_interp']}
+    fill_and_compress = variables + ['src_frac_interp']
     write_netcdf(
         ds_out,
         normalized_filename,
@@ -378,8 +378,8 @@ def _build_and_remap_mask(
         ds_mask,
         input_mask_path,
         progress_bar=True,
-        has_fill_values={'src_frac_interp': True},
-        compression={'src_frac_interp': True},
+        has_fill_values=['src_frac_interp'],
+        compression=['src_frac_interp'],
     )
     try:
         if os.path.exists(output_mask_tmp):
@@ -504,8 +504,9 @@ def _finalize_and_write(
             os.remove(final_tmp)
     except OSError:
         pass
-    vars = set([v for v in ds_final.data_vars if v not in ds_final.coords])
-    fill_and_compress = {var: True for var in vars}
+    fill_and_compress = [
+        str(v) for v in ds_final.data_vars if v not in ds_final.coords
+    ]
     write_netcdf(
         ds_final,
         final_tmp,
@@ -538,8 +539,9 @@ def _remap_no_time(
     subset = ds
     if 'src_frac_interp' in subset:
         subset = subset.drop_vars(['src_frac_interp'])
-    vars = set([v for v in subset.data_vars if v not in subset.coords])
-    fill_and_compress = {var: True for var in vars}
+    fill_and_compress = [
+        str(v) for v in subset.data_vars if v not in subset.coords
+    ]
     write_netcdf(
         subset,
         input_chunk_path,
@@ -616,8 +618,9 @@ def _remap_with_time(
         if 'src_frac_interp' in subset:
             subset = subset.drop_vars(['src_frac_interp'])
 
-        vars = set([v for v in subset.data_vars if v not in subset.coords])
-        fill_and_compress = {var: True for var in vars}
+        fill_and_compress = [
+            str(v) for v in subset.data_vars if v not in subset.coords
+        ]
 
         write_netcdf(
             subset,

@@ -235,7 +235,7 @@ def _process_single_file_annual(
         # Build explicit fill-value policy: only 'ct', 'sa', and 'tf'
         # should carry _FillValue; all others (including coords/bounds)
         # should not. This avoids backend defaults and scanning.
-        fill_and_compress = {'ct': True, 'sa': True, 'tf': True}
+        fill_and_compress = ['ct', 'sa', 'tf']
 
         # Write to a temporary file in the same directory, then atomically
         # replace the final file. This avoids read/write conflicts and leaves
