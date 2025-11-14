@@ -292,6 +292,7 @@ def _remap_horiz(
     model_prefix,
     tmpdir,
     logger,
+    fill_and_compress,
     lat_var=None,
     lon_var=None,
     lon_dim=None,
@@ -342,6 +343,7 @@ def _remap_horiz(
         lon_var=lon_var,
         lat_var=lat_var,
         renorm_threshold=renorm_threshold,
+        fill_and_compress=fill_and_compress,
     )
     _validate_z_extrap(remapped_chunks)
     ds_final = _concat_chunks(remapped_chunks)
@@ -353,6 +355,7 @@ def _remap_horiz(
         config=config,
         time_bounds=time_bounds,
         time_prefer_source=time_prefer_source,
+        fill_and_compress=fill_and_compress,
     )
 
 
@@ -417,6 +420,7 @@ def _remap_data_variables(
     lon_var: str,
     lat_var: str,
     renorm_threshold: float,
+    fill_and_compress: list[str],
 ) -> list[xr.Dataset]:
     """Remap data variables in ds either single-pass or chunked in time."""
     if 'time' not in ds.dims:
@@ -430,6 +434,7 @@ def _remap_data_variables(
             lon_var,
             lat_var,
             renorm_threshold,
+            fill_and_compress,
         )
     return _remap_with_time(
         ds,
@@ -441,6 +446,7 @@ def _remap_data_variables(
         lon_var,
         lat_var,
         renorm_threshold,
+        fill_and_compress,
     )
 
 
@@ -475,6 +481,7 @@ def _finalize_and_write(
     config,
     time_bounds: tuple[str, xr.DataArray] | None,
     time_prefer_source: xr.Dataset | None,
+    fill_and_compress: list[str] | None,
 ) -> None:
     """Attach metadata, ensure encodings, and atomically write final file."""
     # Attach horizontally remapped src_frac_interp (time-invariant)
@@ -504,9 +511,6 @@ def _finalize_and_write(
             os.remove(final_tmp)
     except OSError:
         pass
-    fill_and_compress = [
-        str(v) for v in ds_final.data_vars if v not in ds_final.coords
-    ]
     write_netcdf(
         ds_final,
         final_tmp,
@@ -531,6 +535,7 @@ def _remap_no_time(
     lon_var,
     lat_var,
     renorm_threshold,
+    fill_and_compress,
 ):
     input_chunk_path = os.path.join(tmpdir, 'input_single.nc')
     output_chunk_path = os.path.join(tmpdir, 'output_single.nc')
@@ -539,9 +544,6 @@ def _remap_no_time(
     subset = ds
     if 'src_frac_interp' in subset:
         subset = subset.drop_vars(['src_frac_interp'])
-    fill_and_compress = [
-        str(v) for v in subset.data_vars if v not in subset.coords
-    ]
     write_netcdf(
         subset,
         input_chunk_path,
@@ -587,6 +589,7 @@ def _remap_with_time(
     lon_var,
     lat_var,
     renorm_threshold,
+    fill_and_compress,
 ):
     chunk_size = config.getint('remap_cmip', 'horiz_time_chunk')
     n_time = ds.sizes['time']
@@ -617,10 +620,6 @@ def _remap_with_time(
         subset = ds.isel(time=slice(i_start, i_end))
         if 'src_frac_interp' in subset:
             subset = subset.drop_vars(['src_frac_interp'])
-
-        fill_and_compress = [
-            str(v) for v in subset.data_vars if v not in subset.coords
-        ]
 
         write_netcdf(
             subset,
