@@ -362,6 +362,7 @@ def _remap_horiz(
 
     input_mask_path = os.path.join(tmpdir, 'input_mask.nc')
     output_mask_path = os.path.join(tmpdir, 'output_mask.nc')
+    output_mask_tmp = f'{output_mask_path}.tmp'
     if os.path.exists(output_mask_path):
         ds_mask = read_dataset(output_mask_path)
     else:
@@ -377,10 +378,16 @@ def _remap_horiz(
         )
 
         # remap the mask without renormalizing; isolate ESMF PET logs
+        # Use a temporary filename to allow safe resume on interruption
+        try:
+            if os.path.exists(output_mask_tmp):
+                os.remove(output_mask_tmp)
+        except OSError:
+            pass
         _run_remap_with_temp_cwd(
             in_filename=input_mask_path,
             in_grid_name=in_grid_name,
-            out_filename=output_mask_path,
+            out_filename=output_mask_tmp,
             map_dir=tmpdir,
             method=method,
             config=config,
@@ -389,6 +396,12 @@ def _remap_horiz(
             lat_var=lat_var,
             renormalize=None,
         )
+        # Atomically move the completed tmp into place
+        if not os.path.exists(output_mask_tmp):
+            raise FileNotFoundError(
+                f'Expected remap output missing: {output_mask_tmp}'
+            )
+        os.replace(output_mask_tmp, output_mask_path)
         ds_mask = read_dataset(output_mask_path)
 
     # If no time axis, do a single remap; otherwise chunk in time
@@ -490,6 +503,7 @@ def _remap_no_time(
 ):
     input_chunk_path = os.path.join(tmpdir, 'input_single.nc')
     output_chunk_path = os.path.join(tmpdir, 'output_single.nc')
+    output_chunk_tmp = f'{output_chunk_path}.tmp'
 
     subset = ds
     if 'src_frac_interp' in subset:
@@ -502,10 +516,16 @@ def _remap_no_time(
         in set([v for v in _subset.data_vars if v not in _subset.coords]),
     )
 
+    # Write to a temp file to support safe resume on interruption
+    try:
+        if os.path.exists(output_chunk_tmp):
+            os.remove(output_chunk_tmp)
+    except OSError:
+        pass
     _run_remap_with_temp_cwd(
         in_filename=input_chunk_path,
         in_grid_name=in_grid_name,
-        out_filename=output_chunk_path,
+        out_filename=output_chunk_tmp,
         map_dir=tmpdir,
         method=method,
         config=config,
@@ -514,6 +534,11 @@ def _remap_no_time(
         lat_var=lat_var,
         renormalize=renorm_threshold,
     )
+    if not os.path.exists(output_chunk_tmp):
+        raise FileNotFoundError(
+            f'Expected remap output missing: {output_chunk_tmp}'
+        )
+    os.replace(output_chunk_tmp, output_chunk_path)
     remapped_chunk = read_dataset(output_chunk_path)
     return [remapped_chunk]
 
@@ -542,6 +567,7 @@ def _remap_with_time(
         output_chunk_path = os.path.join(
             tmpdir, f'output_{i_start}_{i_end}.nc'
         )
+        output_chunk_tmp = f'{output_chunk_path}.tmp'
         if os.path.exists(output_chunk_path):
             print(
                 f'Skipping remapping for chunk {i_start}-{i_end} '
@@ -565,10 +591,16 @@ def _remap_with_time(
             in set([v for v in _subset.data_vars if v not in _subset.coords]),
         )
 
+        # Write to a temp file to support safe resume on interruption
+        try:
+            if os.path.exists(output_chunk_tmp):
+                os.remove(output_chunk_tmp)
+        except OSError:
+            pass
         _run_remap_with_temp_cwd(
             in_filename=input_chunk_path,
             in_grid_name=in_grid_name,
-            out_filename=output_chunk_path,
+            out_filename=output_chunk_tmp,
             map_dir=tmpdir,
             method=method,
             config=config,
@@ -577,6 +609,11 @@ def _remap_with_time(
             lat_var=lat_var,
             renormalize=renorm_threshold,
         )
+        if not os.path.exists(output_chunk_tmp):
+            raise FileNotFoundError(
+                f'Expected remap output missing: {output_chunk_tmp}'
+            )
+        os.replace(output_chunk_tmp, output_chunk_path)
 
         remapped_chunk = read_dataset(
             output_chunk_path,
