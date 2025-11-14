@@ -23,6 +23,7 @@ dependencies = [
     "cftime",
     "dask",
     "gsw",
+    "h5netcdf",
     "inpoly",
     "jinja2",
     "matplotlib",

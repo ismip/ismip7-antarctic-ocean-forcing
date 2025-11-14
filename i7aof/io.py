@@ -1,5 +1,6 @@
 import os
 import subprocess
+import warnings
 from pathlib import Path
 
 import cftime
@@ -8,6 +9,15 @@ import numpy
 import xarray as xr
 from dask.diagnostics.progress import ProgressBar
 from xarray.coders import CFDatetimeCoder  # noqa: F401
+
+# Default compression options when compression is requested as a boolean
+# or via a callable returning True. These options are supported by the
+# netCDF4/HDF5-based backends ('netcdf4' and 'h5netcdf').
+DEFAULT_COMPRESSION = {
+    'zlib': True,
+    'complevel': 4,
+    'shuffle': True,
+}
 
 
 def read_dataset(path, **kwargs) -> xr.Dataset:
@@ -79,6 +89,8 @@ def write_netcdf(
     engine=None,
     progress_bar=False,
     has_fill_values=None,
+    compression=None,
+    compression_opts=None,
 ):
     """
     Write an xarray.Dataset to a file with NetCDF4 fill values
@@ -104,14 +116,42 @@ def write_netcdf(
     has_fill_values : bool | dict | callable, optional
         Controls whether to apply ``_FillValue`` per variable without scanning
         data:
+
           - bool: apply to all variables (True adds, False omits)
+
           - dict: mapping of var_name -> bool
+
           - callable: function (var_name, var: xarray.DataArray) -> bool
+
         If omitted (None), the function determines necessity by checking for
         NaNs using xarray's lazy operations (``var.isnull().any().compute()``),
         which is safe for chunked datasets. For unchunked datasets, the scan
         may load data into memory; callers can avoid this by opening datasets
         with Dask chunks.
+
+    compression : bool | dict | callable, optional
+        Controls variable compression. Accepted forms mirror ``has_fill_values``
+        semantics:
+
+          - bool: enable/disable default compression for all variables
+
+          - dict: mapping of var_name -> bool or var_name -> dict of explicit
+                  encoding compression options (e.g.
+                  ``{'zlib': True, 'complevel': 4}``)
+
+          - callable: function (var_name, var: xarray.DataArray) -> bool or
+                      dict
+
+        If omitted (None), no compression is enabled by default; callers can
+        enable it selectively. Note that support and available options depend
+        on the chosen ``engine`` (for example, ``scipy`` does not support
+        compression; ``netcdf4``/``h5netcdf`` do).
+
+    compression_opts : dict, optional
+        Default compression options to apply when compression is requested via
+        a boolean directive. Example: ``{'zlib': True, 'complevel': 4}``.
+        These defaults are merged with any per-variable dicts specified in
+        ``compression``.
     """  # noqa: E501
     if fillvalues is None:
         fillvalues = netCDF4.default_fillvals
@@ -122,7 +162,28 @@ def write_netcdf(
         if not filltype.startswith('S'):
             numpy_fillvals[numpy.dtype(filltype)] = fillvalue
 
-    encoding_dict = _build_encoding_dict(ds, numpy_fillvals, has_fill_values)
+    # If compression requested and engine unspecified, prefer 'h5netcdf'
+    if compression is not None and engine is None:
+        engine = 'h5netcdf'
+
+    # If the chosen engine does not support compression, warn and ignore
+    if compression is not None and engine == 'scipy':
+        warnings.warn(
+            'The "scipy" NetCDF engine does not support compression; ignoring '
+            'compression directives.',
+            UserWarning,
+            stacklevel=2,
+        )
+        compression = None
+
+    encoding_dict = _build_encoding_dict(
+        ds,
+        numpy_fillvals,
+        has_fill_values,
+        compression,
+        compression_opts,
+        engine,
+    )
 
     if 'time' in ds.dims:
         # make sure the time dimension is unlimited
@@ -301,7 +362,12 @@ def _apply_time_encoding(  # noqa: C901
 
 
 def _build_encoding_dict(
-    dataset: xr.Dataset, numpy_fillvals: dict, has_fill_values
+    dataset: xr.Dataset,
+    numpy_fillvals: dict,
+    has_fill_values,
+    compression,
+    compression_opts,
+    engine,
 ) -> dict:
     """Build encoding dict for variables, including _FillValue decisions."""
     enc: dict = {}
@@ -310,7 +376,15 @@ def _build_encoding_dict(
     )
     for vn in var_names_local:
         var = dataset[vn]
-        enc_v = _var_encoding(vn, var, numpy_fillvals, has_fill_values)
+        enc_v = _var_encoding(
+            vn,
+            var,
+            numpy_fillvals,
+            has_fill_values,
+            compression,
+            compression_opts,
+            engine,
+        )
         if enc_v:
             enc[vn] = enc_v
     return enc
@@ -471,7 +545,8 @@ def _ensure_cftime_time(ds: xr.Dataset, calendar: str) -> None:
 
 
 def _decide_fill_value(var_name, var, numpy_fillvals, has_fill_values):
-    """Return an appropriate _FillValue (or None) for a variable.
+    """
+    Return an appropriate _FillValue (or None) for a variable.
 
     - Respects caller directive (bool|dict|callable) when provided.
     - Otherwise detects NaNs via xarray lazy ops (safe for chunked arrays).
@@ -505,19 +580,79 @@ def _decide_fill_value(var_name, var, numpy_fillvals, has_fill_values):
     return candidate if has_nan else None
 
 
-def _var_encoding(var_name, var, numpy_fillvals, has_fill_values):
-    """Compute per-variable encoding for _FillValue.
+def _decide_compression(var_name, var, compression, default_opts, engine):
+    """
+    Return a compression dict for a variable or None.
 
-    - If directive is False, set ``_FillValue`` to None to suppress backend
-      defaults.
-    - If directive is True, set to the type-appropriate candidate, even if
-      NaNs are not present.
-    - Otherwise, detect NaNs lazily and set only when needed.
-    - Preserve explicit values from var.encoding/attrs.
+    Supported return values are a dict of encoding keys (e.g. {'zlib': True,
+    'complevel': 4}) or None. The ``compression`` argument supports the same
+    three forms as ``has_fill_values``: bool, dict, or callable. If a boolean
+    True is provided, ``default_opts`` are used. If a dict maps the variable
+    name to either a bool or a dict, that mapping is respected. For callables,
+    the callable may return a bool or a dict.
+    """
+    if compression is None:
+        return None
+
+    # If engine cannot support compression, signal None
+    if engine == 'scipy':
+        return None
+
+    # Determine default options (fall back to module default when None)
+    if default_opts is None:
+        default_opts = DEFAULT_COMPRESSION
+    default_opts = dict(default_opts or {})
+
+    # Caller directive overrides default behavior
+    if isinstance(compression, bool):
+        return default_opts if compression else None
+
+    if isinstance(compression, dict):
+        choice = compression.get(var_name)
+        if choice is None:
+            return None
+        if isinstance(choice, dict):
+            # merge defaults under explicit values
+            opts = dict(default_opts)
+            opts.update(choice)
+            return opts
+        return default_opts if bool(choice) else None
+
+    if callable(compression):
+        try:
+            res = compression(var_name, var)
+        except (TypeError, ValueError):
+            return None
+        if res is None:
+            return None
+        if isinstance(res, bool):
+            return default_opts if res else None
+        if isinstance(res, dict):
+            opts = dict(default_opts)
+            opts.update(res)
+            return opts
+    return None
+
+
+def _var_encoding(
+    var_name,
+    var,
+    numpy_fillvals,
+    has_fill_values,
+    compression,
+    compression_opts,
+    engine,
+):
+    """
+    Compute per-variable encoding for _FillValue and compression.
+
+    Fill-value logic mirrors existing behavior. Compression decision follows
+    a similar directive system and preserves explicit encoding keys when
+    present on the variable.
     """
     encoding = {}
 
-    # Determine explicit directive
+    # Determine explicit fill-value directive
     directive = None
     if has_fill_values is not None:
         if isinstance(has_fill_values, bool):
@@ -530,29 +665,39 @@ def _var_encoding(var_name, var, numpy_fillvals, has_fill_values):
             except (TypeError, ValueError):
                 directive = None
 
-    # Explicitly disabled: prevent backend default by setting None
+    # Handle fill-value decisions without returning early so compression can
+    # also be applied below.
     if directive is False:
         encoding['_FillValue'] = None
-        return encoding
-
-    # If explicitly enabled, override any existing value (e.g., from Zarr)
-    if directive is True:
+    elif directive is True:
         fill = numpy_fillvals.get(getattr(var, 'dtype', None))
-        # Even if existing enc/attrs contain _FillValue (possibly NaN),
-        # honor the explicit directive and set the standard default.
         encoding['_FillValue'] = fill
-        return encoding
+    else:
+        # Default behavior (no explicit directive): detect NaNs lazily and
+        # preserve explicit enc/attrs when present.
+        fill = _decide_fill_value(var_name, var, numpy_fillvals, None)
+        present_in_enc = '_FillValue' in var.encoding
+        present_in_attrs = '_FillValue' in var.attrs
+        if fill is not None or present_in_enc or present_in_attrs:
+            encoding['_FillValue'] = var.encoding.get(
+                '_FillValue', var.attrs.get('_FillValue', fill)
+            )
 
-    # Default behavior (no explicit directive): detect NaNs lazily and
-    # preserve explicit enc/attrs when present.
-    fill = _decide_fill_value(var_name, var, numpy_fillvals, None)
-
-    present_in_enc = '_FillValue' in var.encoding
-    present_in_attrs = '_FillValue' in var.attrs
-    if fill is not None or present_in_enc or present_in_attrs:
-        # Preserve explicit None to suppress backend auto-fill when present
-        encoding['_FillValue'] = var.encoding.get(
-            '_FillValue', var.attrs.get('_FillValue', fill)
-        )
+    # Decide compression options and merge in, preserving any explicit
+    # encoding values present on the variable.
+    comp_opts = _decide_compression(
+        var_name,
+        var,
+        compression,
+        compression_opts,
+        engine,
+    )
+    if comp_opts:
+        var_enc = getattr(var, 'encoding', {}) or {}
+        for k, v in comp_opts.items():
+            if k in var_enc:
+                # Preserve explicit per-variable encoding keys
+                continue
+            encoding[k] = v
 
     return encoding
