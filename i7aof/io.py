@@ -121,7 +121,8 @@ def write_netcdf(
         The NetCDF file format to use, the default is 'NETCDF4'
 
     engine : {'netcdf4', 'scipy', 'h5netcdf'}, optional
-        The library to use for NetCDF output, the default is 'netcdf4'
+        The library to use for NetCDF output, the default is 'h5netcdf' if
+        ``compression`` is specified, otherwise 'netcdf4'.
 
     has_fill_values : bool | list, optional
         Controls whether to apply ``_FillValue`` per variable without scanning
