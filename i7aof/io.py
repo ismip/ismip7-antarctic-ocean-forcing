@@ -639,7 +639,6 @@ def _decide_compression(
     # Determine default options (fall back to module default when None)
     if default_opts is None:
         default_opts = DEFAULT_COMPRESSION
-    default_opts = dict(default_opts or {})
 
     # Caller directive overrides default behavior
     if isinstance(compression, bool):

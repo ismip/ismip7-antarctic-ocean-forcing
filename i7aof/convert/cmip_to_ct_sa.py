@@ -1,5 +1,7 @@
 import argparse
+import glob
 import os
+import re
 import shutil
 from typing import Sequence, Tuple
 
@@ -9,7 +11,6 @@ from mpas_tools.config import MpasConfigParser
 from tqdm import tqdm
 
 from i7aof.config import load_config
-from i7aof.convert.paths import get_ct_sa_output_paths
 from i7aof.convert.teos10 import convert_dataset_to_ct_sa
 from i7aof.coords import ensure_cf_time_encoding
 from i7aof.io import read_dataset
@@ -20,7 +21,6 @@ from i7aof.time.bounds import capture_time_bounds, inject_time_bounds
 def convert_cmip_to_ct_sa(
     model: str,
     scenario: str,
-    inputdir: str | None = None,
     workdir: str | None = None,
     user_config_filename: str | None = None,
 ) -> None:
@@ -55,21 +55,13 @@ def convert_cmip_to_ct_sa(
 
     config = load_config(
         model=model,
-        inputdir=inputdir,
+        inputdir=None,
         workdir=workdir,
         user_config_filename=user_config_filename,
     )
 
-    if not config.has_option('inputdir', 'base_dir'):
-        raise ValueError(
-            'Missing configuration option: [inputdir] base_dir. '
-            'Please supply a user config file or command-line option that '
-            'defines this option.'
-        )
     workdir_base: str = config.get('workdir', 'base_dir')
-    inputdir_base: str = config.get('inputdir', 'base_dir')
 
-    print(f'Using input directory: {inputdir_base}')
     print(f'Using working directory: {workdir_base}')
 
     outdir = os.path.join(
@@ -88,29 +80,53 @@ def convert_cmip_to_ct_sa(
     )
     time_chunk = _parse_time_chunk(config)
 
-    thetao_paths = list(config.getexpression(f'{scenario}_files', 'thetao'))
-    so_paths = list(config.getexpression(f'{scenario}_files', 'so'))
-    if len(thetao_paths) != len(so_paths):  # pragma: no cover - sanity guard
+    # Inputs now come from the split workflow under workdir/split
+    split_base = os.path.join(workdir_base, 'split', model, scenario, 'Omon')
+    th_dir = os.path.join(split_base, 'thetao')
+    so_dir = os.path.join(split_base, 'so')
+    if not os.path.isdir(th_dir) or not os.path.isdir(so_dir):
         raise ValueError(
-            'Mismatched number of thetao and so files for scenario '
-            f"'{scenario}'."
+            'Expected split inputs not found. Please run the split workflow: '
+            f"missing directories '{th_dir}' or '{so_dir}'."
         )
 
-    out_paths = get_ct_sa_output_paths(
-        config=config,
-        model=model,
-        scenario=scenario,
-        workdir=workdir_base,
-    )
+    th_files = sorted(glob.glob(os.path.join(th_dir, '*.nc')))
+    so_files = sorted(glob.glob(os.path.join(so_dir, '*.nc')))
 
-    for th_rel, so_rel, out_abs in zip(
-        thetao_paths, so_paths, out_paths, strict=True
-    ):
+    # Pair files by their trailing year range _YYYY-YYYY
+    def _key(path: str) -> tuple[int, int]:
+        base = os.path.basename(path)
+        m = re.search(r'_(\d{4})-(\d{4})\.nc$', base)
+        if not m:
+            raise ValueError(
+                'Split filename missing year range suffix: ' + base
+            )
+        y0, y1 = int(m.group(1)), int(m.group(2))
+        return y0, y1
+
+    th_map = {_key(p): p for p in th_files}
+    so_map = {_key(p): p for p in so_files}
+    missing = [k for k in th_map.keys() if k not in so_map]
+    if missing:
+        raise ValueError(
+            'Missing matching so files for thetao ranges: '
+            + ', '.join([f'{a}-{b}' for a, b in sorted(missing)])
+        )
+
+    for y0y1 in sorted(th_map.keys()):
+        th_abs = th_map[y0y1]
+        so_abs = so_map[y0y1]
+        # output path based on thetao basename with variable token replaced
+        th_base = os.path.basename(th_abs)
+        ct_base = (
+            th_base.replace('thetao', 'ct_sa')
+            if 'thetao' in th_base
+            else f'ct_sa_{th_base}'
+        )
+        out_abs = os.path.join(outdir, ct_base)
         if os.path.exists(out_abs):
             print(f'Converted file exists, skipping: {out_abs}')
             continue
-        th_abs = os.path.join(inputdir_base, th_rel)
-        so_abs = os.path.join(inputdir_base, so_rel)
         print(f'Converting to CT/SA:\n{th_abs}\n{so_abs}\n{out_abs}')
         _process_file_pair(
             th_abs,
@@ -142,13 +158,6 @@ def main() -> None:
         help='Scenario (historical, ssp585, ...: required).',
     )
     parser.add_argument(
-        '-i',
-        '--inputdir',
-        dest='inputdir',
-        required=False,
-        help='Base input directory (optional).',
-    )
-    parser.add_argument(
         '-w',
         '--workdir',
         dest='workdir',
@@ -166,7 +175,6 @@ def main() -> None:
     convert_cmip_to_ct_sa(
         model=args.model,
         scenario=args.scenario,
-        inputdir=args.inputdir,
         workdir=args.workdir,
         user_config_filename=args.config,
     )
