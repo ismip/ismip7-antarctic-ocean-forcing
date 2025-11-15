@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import argparse
+import glob
 import os
 import shutil
 
@@ -7,7 +8,6 @@ from mpas_tools.logging import LoggingContext
 
 from i7aof.cmip import get_model_prefix
 from i7aof.config import load_config
-from i7aof.convert.paths import get_ct_sa_output_paths
 from i7aof.grid.ismip import get_res_string, write_ismip_grid
 from i7aof.io import read_dataset
 from i7aof.remap.shared import (
@@ -72,7 +72,6 @@ def remap_cmip(
 
     # Build input/output lists for ct/sa
     in_files, out_files = _build_io_lists(
-        config=config,
         scenario=scenario,
         outdir=outdir,
         ismip_res_str=ismip_res_str,
@@ -172,41 +171,47 @@ def _load_config_and_paths(
 
 
 def _build_io_lists(
-    config,
     scenario,
     outdir,
     ismip_res_str,
     model,
     workdir,
 ):
-    """Build lists of input and output files for ct/sa remapping.
+    """Build lists of input/output files for ct/sa remapping.
 
-    Inputs are the pre-converted ct_sa files on the native grid, whose paths
-    are derived from the thetao/so config using a shared helper to ensure
-    consistent naming across convert and remap stages.
+    New behavior: enumerate existing converted ct_sa files in the convert
+    directory instead of deriving names from thetao/so config. This supports
+    split conversion outputs (multiple year-range files).
     """
-    in_files = []
-    out_files = []
-
-    # Derive absolute paths to ct_sa native-grid files under workdir/convert
-    ct_sa_abs_paths = get_ct_sa_output_paths(
-        config=config,
-        model=model,
-        scenario=scenario,
-        workdir=workdir,
+    convert_ct_sa_dir = os.path.join(
+        workdir, 'convert', model, scenario, 'Omon', 'ct_sa'
     )
+    if not os.path.isdir(convert_ct_sa_dir):
+        raise ValueError(
+            f'Converted ct_sa directory not found: {convert_ct_sa_dir}'
+        )
+    # Glob all NetCDF outputs; ignore any .zarr stores or temporary files
+    ct_sa_abs_paths = sorted(
+        glob.glob(os.path.join(convert_ct_sa_dir, '*.nc'))
+    )
+    if not ct_sa_abs_paths:
+        raise ValueError(
+            f'No converted ct_sa NetCDF files found in: {convert_ct_sa_dir}'
+        )
 
+    in_files: list[str] = []
+    out_files: list[str] = []
     for abs_filename in ct_sa_abs_paths:
         base_filename = os.path.basename(abs_filename)
         if 'gn' not in base_filename:
             raise ValueError(
-                f'Expected input to be on native grid (gn): {base_filename}'
+                f'Expected input filename to contain native grid token "gn": '
+                f'{base_filename}'
             )
         out_filename = base_filename.replace('gn', f'ismip{ismip_res_str}')
         out_filename = os.path.join(outdir, out_filename)
         in_files.append(abs_filename)
         out_files.append(out_filename)
-
     return in_files, out_files
 
 
