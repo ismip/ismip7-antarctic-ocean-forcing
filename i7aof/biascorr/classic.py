@@ -398,7 +398,6 @@ def _apply_biascorrection(
                     outfile,
                     progress_bar=True,
                     has_fill_values=[var],
-                    compression=[var],
                 )
                 ds_out.close()
 
