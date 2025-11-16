@@ -798,7 +798,6 @@ def _prepare_input_with_coords(
             ds_in,
             tmp_out,
             has_fill_values=[var_name],
-            compression=[var_name],
             format='NETCDF4',
             progress_bar=False,
         )

@@ -162,13 +162,12 @@ def _write_mask_stage(
         ds_out[var] = da_masked.astype(np.float32)
     ds_out['src_valid'] = interpolator.src_valid.astype(np.float32)
 
-    fill_and_compress = variables + ['src_valid']
+    has_fill_values = variables + ['src_valid']
     write_netcdf(
         ds_out,
         mask_filename,
         progress_bar=True,
-        has_fill_values=fill_and_compress,
-        compression=fill_and_compress,
+        has_fill_values=has_fill_values,
     )
 
 
@@ -192,13 +191,12 @@ def _write_interp_stage(
     if 'lev' in ds_out:
         ds_out = ds_out.drop_vars(['lev'])
 
-    fill_and_compress = variables + ['src_frac_interp']
+    has_fill_values = variables + ['src_frac_interp']
     write_netcdf(
         ds_out,
         interp_filename,
         progress_bar=True,
-        has_fill_values=fill_and_compress,
-        compression=fill_and_compress,
+        has_fill_values=has_fill_values,
     )
 
 
@@ -220,13 +218,12 @@ def _write_normalize_stage(
     ds_out['src_frac_interp'] = interpolator.src_frac_interp.astype(np.float32)
     ds_out['z_extrap_bnds'] = ds_ismip['z_extrap_bnds']
 
-    fill_and_compress = variables + ['src_frac_interp']
+    has_fill_values = variables + ['src_frac_interp']
     write_netcdf(
         ds_out,
         normalized_filename,
         progress_bar=True,
-        has_fill_values=fill_and_compress,
-        compression=fill_and_compress,
+        has_fill_values=has_fill_values,
     )
 
 
@@ -292,7 +289,7 @@ def _remap_horiz(
     model_prefix,
     tmpdir,
     logger,
-    fill_and_compress,
+    has_fill_values,
     lat_var=None,
     lon_var=None,
     lon_dim=None,
@@ -343,7 +340,7 @@ def _remap_horiz(
         lon_var=lon_var,
         lat_var=lat_var,
         renorm_threshold=renorm_threshold,
-        fill_and_compress=fill_and_compress,
+        has_fill_values=has_fill_values,
     )
     _validate_z_extrap(remapped_chunks)
     ds_final = _concat_chunks(remapped_chunks)
@@ -355,7 +352,7 @@ def _remap_horiz(
         config=config,
         time_bounds=time_bounds,
         time_prefer_source=time_prefer_source,
-        fill_and_compress=fill_and_compress,
+        has_fill_values=has_fill_values,
     )
 
 
@@ -420,7 +417,7 @@ def _remap_data_variables(
     lon_var: str,
     lat_var: str,
     renorm_threshold: float,
-    fill_and_compress: list[str],
+    has_fill_values: list[str],
 ) -> list[xr.Dataset]:
     """Remap data variables in ds either single-pass or chunked in time."""
     if 'time' not in ds.dims:
@@ -434,7 +431,7 @@ def _remap_data_variables(
             lon_var,
             lat_var,
             renorm_threshold,
-            fill_and_compress,
+            has_fill_values,
         )
     return _remap_with_time(
         ds,
@@ -446,7 +443,7 @@ def _remap_data_variables(
         lon_var,
         lat_var,
         renorm_threshold,
-        fill_and_compress,
+        has_fill_values,
     )
 
 
@@ -481,7 +478,7 @@ def _finalize_and_write(
     config,
     time_bounds: tuple[str, xr.DataArray] | None,
     time_prefer_source: xr.Dataset | None,
-    fill_and_compress: list[str] | None,
+    has_fill_values: list[str] | None,
 ) -> None:
     """Attach metadata, ensure encodings, and atomically write final file."""
     # Attach horizontally remapped src_frac_interp (time-invariant)
@@ -515,8 +512,7 @@ def _finalize_and_write(
         ds_final,
         final_tmp,
         progress_bar=True,
-        has_fill_values=fill_and_compress,
-        compression=fill_and_compress,
+        has_fill_values=has_fill_values,
     )
     if not os.path.exists(final_tmp):
         raise FileNotFoundError(
@@ -535,7 +531,7 @@ def _remap_no_time(
     lon_var,
     lat_var,
     renorm_threshold,
-    fill_and_compress,
+    has_fill_values,
 ):
     input_chunk_path = os.path.join(tmpdir, 'input_single.nc')
     output_chunk_path = os.path.join(tmpdir, 'output_single.nc')
@@ -548,8 +544,7 @@ def _remap_no_time(
         subset,
         input_chunk_path,
         progress_bar=True,
-        has_fill_values=fill_and_compress,
-        compression=fill_and_compress,
+        has_fill_values=has_fill_values,
     )
 
     # Write to a temp file to support safe resume on interruption
@@ -589,7 +584,7 @@ def _remap_with_time(
     lon_var,
     lat_var,
     renorm_threshold,
-    fill_and_compress,
+    has_fill_values,
 ):
     chunk_size = config.getint('remap_cmip', 'horiz_time_chunk')
     n_time = ds.sizes['time']
@@ -625,8 +620,7 @@ def _remap_with_time(
             subset,
             input_chunk_path,
             progress_bar=True,
-            has_fill_values=fill_and_compress,
-            compression=fill_and_compress,
+            has_fill_values=has_fill_values,
         )
 
         # Write to a temp file to support safe resume on interruption

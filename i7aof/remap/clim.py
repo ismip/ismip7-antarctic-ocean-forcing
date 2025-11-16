@@ -132,7 +132,7 @@ def remap_climatology(
             clim_name,
             horiz_tmpdir,
             logger,
-            fill_and_compress=['ct', 'sa'],
+            has_fill_values=['ct', 'sa'],
             lat_var='lat',
             lon_var='lon',
             lon_dim='lon',

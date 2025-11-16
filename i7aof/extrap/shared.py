@@ -242,7 +242,6 @@ def _prepare_input_single(
             ds_in,
             tmp_out,
             has_fill_values=[variable],
-            compression=None,
             format='NETCDF3_64BIT',
             progress_bar=False,
         )
@@ -348,7 +347,6 @@ def _finalize_output_with_grid(
         ds_out,
         final_out_path,
         has_fill_values=[variable],
-        compression=[variable],
         progress_bar=True,
     )
 
@@ -419,7 +417,6 @@ def _apply_under_ice_mask_to_file(
             ds_prep,
             tmp_out,
             has_fill_values=[variable],
-            compression=None,
             format='NETCDF3_64BIT',
             progress_bar=False,
         )
@@ -572,7 +569,6 @@ def _vertically_resample_to_coarse_ismip_grid(
         zarr_store=zarr_store,
         out_nc=out_nc,
         has_fill_values=[variable],
-        compression=[variable],
         progress_bar=True,
         postprocess=_post,
     )

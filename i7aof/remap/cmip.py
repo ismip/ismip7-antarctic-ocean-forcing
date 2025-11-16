@@ -254,7 +254,7 @@ def _process_one(
             model_prefix,
             horiz_tmpdir,
             logger,
-            fill_and_compress=['ct', 'sa'],
+            has_fill_values=['ct', 'sa'],
             time_bounds=time_bounds,
             time_prefer_source=ds_time_source,
         )
