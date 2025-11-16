@@ -793,6 +793,8 @@ def _prepare_input_with_coords(
     except OSError:
         pass
 
+    # Load into memory to reduce many small reads during write
+    ds_in = ds_in.load()
     with dask_config.set(scheduler='synchronous'):
         write_netcdf(
             ds_in,

@@ -616,11 +616,16 @@ def _remap_with_time(
         if 'src_frac_interp' in subset:
             subset = subset.drop_vars(['src_frac_interp'])
 
+        # Load the subset into memory to reduce dask scheduler overhead and
+        # many small I/O operations when writing temporary chunk files.
+        subset = subset.load()
+
         write_netcdf(
             subset,
             input_chunk_path,
-            progress_bar=True,
+            progress_bar=False,
             has_fill_values=has_fill_values,
+            engine='h5netcdf',
         )
 
         # Write to a temp file to support safe resume on interruption

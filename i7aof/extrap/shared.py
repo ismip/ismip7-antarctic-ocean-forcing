@@ -237,6 +237,8 @@ def _prepare_input_single(
             os.remove(tmp_out)
     except OSError:  # pragma: no cover - best effort
         pass
+    # Load into memory before write to reduce backend I/O overhead
+    ds_in = ds_in.load()
     with dask_config.set(scheduler='synchronous'):
         write_netcdf(
             ds_in,
