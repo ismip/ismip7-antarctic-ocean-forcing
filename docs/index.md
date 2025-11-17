@@ -62,5 +62,4 @@ getting-started
 user/index
 dev/index
 api/index
-changelog
 ```
