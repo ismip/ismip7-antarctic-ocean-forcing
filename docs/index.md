@@ -6,6 +6,13 @@ hide-toc: true
 
 Welcome to the documentation for the `i7aof` package — tools to produce Antarctic ocean forcing for ISMIP7.
 
+::: {card} Getting Started
+:link: getting-started
+:link-type: doc
+
+One canonical install path for all users, including the required Fortran executables.
+:::
+
 ::: {card} User Guide
 :link: user/index
 :link-type: doc
@@ -51,6 +58,7 @@ This project is under active development; interfaces may change.
 ```{toctree}
 :hidden:
 
+getting-started
 user/index
 dev/index
 api/index

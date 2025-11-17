@@ -1,6 +1,6 @@
 # User Guide
 
-This guide covers installation, configuration, and common tasks for using `i7aof` to generate forcing datasets.
+This guide covers configuration and common tasks for using `i7aof` to generate forcing datasets. For installation, see [Getting Started](../getting-started.md).
 
 ```{toctree}
 :maxdepth: 2
