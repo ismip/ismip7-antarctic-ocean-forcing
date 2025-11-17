@@ -1,13 +1,13 @@
 """
 Extrapolate remapped CMIP ``ct``/``sa`` fields horizontally and vertically.
 
-Workflow
-========
-Consumes remapped monthly ``ct``/``sa`` files produced by the remap step:
+Extrapolation workflow
+======================
+Consumes remapped monthly ``ct``/``sa`` files produced by the remap step::
 
     workdir/remap/<model>/<scenario>/Omon/ct_sa/*ismip<res>.nc
 
-Produces per input file and per variable vertically extrapolated outputs:
+Produces per input file and per variable vertically extrapolated outputs::
 
     workdir/extrap/<model>/<scenario>/Omon/ct_sa/*ismip<res>_extrap.nc
 
@@ -32,8 +32,7 @@ stdout/stderr and any Python traceback in a chunk log under
 ``<out>_tmp/logs``. Abrupt worker failures are detected and reported with
 the set of completed vs. pending chunks for quick triage.
 
-Supporting data (auto-generated if missing)
-------------------------------------------
+**Supporting data (auto-generated if missing)**
 If required inputs for IMBIE basin masks or topography are absent, the
 workflow attempts to build them on the fly inside ``workdir``:
 
@@ -45,7 +44,7 @@ workflow attempts to build them on the fly inside ``workdir``:
         via :func:`i7aof.topo.get_topo`; if the remapped ISMIP file is
         missing it runs ``download_and_preprocess_topo()`` (which may
         require a manually downloaded source file for licensed data)
-        followed by``remap_topo_to_ismip()``.
+        followed by ``remap_topo_to_ismip()``.
 
 If a required manual download (e.g., BedMachine source) is not present
 an informative ``FileNotFoundError`` is raised.

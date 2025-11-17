@@ -20,13 +20,6 @@ for usage and performance tips (e.g., time chunking).
 ```
 
 ```{eval-rst}
-.. automodule:: i7aof.convert.paths
-   :members:
-   :undoc-members:
-   :show-inheritance:
-```
-
-```{eval-rst}
 .. automodule:: i7aof.convert.cmip_to_ct_sa
    :members:
    :undoc-members:

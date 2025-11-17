@@ -24,24 +24,33 @@ def remap_cmip(
     user_config_filename=None,
 ):
     """
-    Remap pre-converted CMIP ct/sa to the ISMIP grid in two stages:
+        Remap pre-converted CMIP ``ct``/``sa`` to the ISMIP grid in two stages:
 
-    1) vertical interpolation to ISMIP 'z_extrap' levels, then
-    2) horizontal remapping to the ISMIP lat/lon grid.
+        1. Vertical interpolation to ISMIP ``z_extrap`` levels
+        2. Horizontal remapping to the ISMIP lat/lon grid
 
-    Prerequisite
-    - Run the conversion step first so inputs contain variables 'ct' and
-      'sa' on the native grid. Use either:
-        * Python: i7aof.convert.cmip.convert_cmip
-        * CLI: ismip7-antarctic-convert-cmip
-      Then run the remap CLI: ismip7-antarctic-remap-cmip.
+        Prerequisites:
 
-    This function orchestrates the basic flow per input file:
-    - Prepare output dirs and ensure the ISMIP grid exists.
-    - For each monthly file:
-      * Vertical pipeline (see _vert_mask_interp_norm): mask invalid source
-        points -> interpolate in z -> normalize.
-      * Horizontal remap of the vertically processed data to ISMIP grid.
+        - Run the conversion step first so inputs contain variables ``ct`` and
+            ``sa`` on the native grid. Use either of:
+
+            - Python API: ``i7aof.convert.cmip.convert_cmip``
+
+            - CLI: ``ismip7-antarctic-convert-cmip``
+
+        - Then run the remap CLI: ``ismip7-antarctic-remap-cmip``
+
+        This function orchestrates the basic flow per input file:
+
+        - Prepare output dirs and ensure the ISMIP grid exists.
+
+        - For each monthly file:
+
+            - Vertical pipeline (see ``_vert_mask_interp_norm``): mask invalid
+              source points → interpolate in z → normalize
+
+            - Horizontal remap of the vertically processed data
+              to the ISMIP grid
 
     Parameters
     ----------

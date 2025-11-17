@@ -40,7 +40,7 @@ def cmip_ct_sa_to_tf(
 
         workdir/biascorr/<model>/<scenario>/<clim_name>/Omon/tf
 
-    Output filenames replace "ct" with "tf" (e.g., *_ct.nc -> *_tf.nc).
+    Output filenames replace "ct" with "tf" (e.g., ``*_ct.nc -> *_tf.nc``).
 
     Parameters
     ----------
@@ -312,8 +312,8 @@ def _collect_extrap_clim_ct_sa_pairs(
     """Collect pairs of extrapolated climatology ct/sa files in a folder.
 
     Looks for files matching patterns like:
-      *_ct_extrap.nc, *_ct_extrap_z.nc and pairs them with corresponding
-      *_sa_extrap*.nc files.
+        ``*_ct_extrap.nc``, ``*_ct_extrap_z.nc`` and pairs them with
+        corresponding ``*_sa_extrap*.nc`` files.
     """
     if not os.path.isdir(in_dir):
         return []
