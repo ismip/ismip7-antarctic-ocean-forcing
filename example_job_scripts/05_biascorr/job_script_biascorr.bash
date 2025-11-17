@@ -19,12 +19,12 @@ model="CESM2-WACCM"
 clim_name="zhou_annual_06_nov"
 workdir="/lcrc/group/e3sm/ac.xylar/ismip7/full_workflow_clim_v2"
 # scenario in addition to "historical"
-scenario="ssp585"
+future_scenario="ssp585"
 
 
 ismip7-antarctic-bias-corr-classic \
     --model $model \
-    --scenario $scenario \
+    --future_scenario $future_scenario \
     --clim $clim_name \
     --workdir $workdir
 
