@@ -34,15 +34,6 @@ Contribute code, design choices, testing, and release process.
 Public modules, functions, and CLI entry points.
 :::
 
-::: {card} Changelog
-:link: changelog
-:link-type: doc
-
-Notable changes between releases.
-:::
-
-:::
-
 ## About
 
 `i7aof` aims to provide a reproducible toolkit to:
