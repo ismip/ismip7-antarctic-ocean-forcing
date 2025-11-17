@@ -21,7 +21,7 @@ def select_optimal_deltaT(
     and melt sensitivities
     """
 
-    print('Identifying optimal delta T for each basin...')
+    # print('Identifying optimal delta T for each basin...')
 
     number_of_basins = int(basins.max().values)
     cvt = reso**2 * ice_density / 1e12  # to convert to Gt/a
@@ -36,74 +36,78 @@ def select_optimal_deltaT(
         bmr = (
             ds['melt_rate'].where(basins == basin_i, 0.0).sum(['x', 'y']) * cvt
         )
-    if param_type == 'pico':
-        # Add physical constraints from Reese et al., 2018
-        bmrBox1 = (
-            ds['melt_rate']
-            .where(np.logical_and(basins == basin_i, boxes == 1), 0.0)
-            .sum(['x', 'y'])
-            * cvt
-        )
-        bmrBox2 = (
-            ds['melt_rate']
-            .where(np.logical_and(basins == basin_i, boxes == 2), 0.0)
-            .sum(['x', 'y'])
-            * cvt
-        )
-        bmr = bmr.where(np.logical_and(bmrBox1 > 0, bmrBox1 > bmrBox2), np.nan)
-
-    # only use deltaT between -2 and 2
-    bmr = bmr.where(
-        np.logical_and(bmr['deltaT'] <= 2, bmr['deltaT'] >= -2), np.nan
-    )
-
-    optimal_deltaT_per_basin.append(
-        (abs(bmr - obs_data.loc[basin_i, 'BMR (Gt/yr)'])).idxmin()
-    )
-    residual_per_basin.append(
-        (abs(bmr - obs_data.loc[basin_i, 'BMR (Gt/yr)'])).min()
-    )
-
-    # if an optimal delatT exists, save melt and calc melt sensitivity
-    if not np.isnan(optimal_deltaT_per_basin[-1]):
-        param_melt_rate = param_melt_rate.where(
-            basins != basin_i,
-            ds['melt_rate'].sel(deltaT=optimal_deltaT_per_basin[-1]),
-        )
-        # Calc approx melt sensitivity.
-        # If this is the max deltaT, use half a degree colder,
-        # otherwise approximate with higher values, ideally +1deg C
-        # Note that this is only approximate
-        if optimal_deltaT_per_basin[-1] == ds.deltaT.max():
-            sensitivity_per_basin.append(
-                (
-                    param_melt_rate.where(basins == basin_i, np.nan).mean()
-                    - ds['melt_rate']
-                    .sel(
-                        deltaT=optimal_deltaT_per_basin[-1] - 0.5,
-                        method='nearest',
-                    )
-                    .where(basins == basin_i, np.nan)
-                    .mean()
-                )
-                / 0.5
+        if param_type == 'pico':
+            # Add physical constraints from Reese et al., 2018
+            bmrBox1 = (
+                ds['melt_rate']
+                .where(np.logical_and(basins == basin_i, boxes == 1), 0.0)
+                .sum(['x', 'y'])
+                * cvt
             )
+            bmrBox2 = (
+                ds['melt_rate']
+                .where(np.logical_and(basins == basin_i, boxes == 2), 0.0)
+                .sum(['x', 'y'])
+                * cvt
+            )
+            bmr = bmr.where(
+                np.logical_and(bmrBox1 > 0, bmrBox1 > bmrBox2), np.nan
+            )
+
+        # only use deltaT between -2 and 2
+        bmr = bmr.where(
+            np.logical_and(bmr['deltaT'] <= 2, bmr['deltaT'] >= -2), np.nan
+        )
+
+        optimal_deltaT_per_basin.append(
+            (abs(bmr - obs_data.loc[basin_i, 'BMR (Gt/yr)'])).idxmin()
+        )
+        residual_per_basin.append(
+            (abs(bmr - obs_data.loc[basin_i, 'BMR (Gt/yr)'])).min()
+        )
+
+        # if an optimal delatT exists, save melt and calc melt sensitivity
+        if not np.isnan(optimal_deltaT_per_basin[-1]):
+            param_melt_rate = param_melt_rate.where(
+                basins != basin_i,
+                ds['melt_rate'].sel(deltaT=optimal_deltaT_per_basin[-1]),
+            )
+            # Calc approx melt sensitivity.
+            # If this is the max deltaT, use half a degree colder,
+            # otherwise approximate with higher values, ideally +1deg C
+            # Note that this is only approximate
+            if optimal_deltaT_per_basin[-1] == ds.deltaT.max():
+                sensitivity_per_basin.append(
+                    (
+                        param_melt_rate.where(basins == basin_i, np.nan).mean()
+                        - ds['melt_rate']
+                        .sel(
+                            deltaT=optimal_deltaT_per_basin[-1] - 0.5,
+                            method='nearest',
+                        )
+                        .where(basins == basin_i, np.nan)
+                        .mean()
+                    )
+                    / 0.5
+                )
+            else:
+                sensitivity_per_basin.append(
+                    (
+                        ds['melt_rate']
+                        .sel(
+                            deltaT=optimal_deltaT_per_basin[-1] + 1,
+                            method='nearest',
+                        )
+                        .where(basins == basin_i, np.nan)
+                        .mean()
+                        - param_melt_rate.where(
+                            basins == basin_i, np.nan
+                        ).mean()
+                    )
+                    / 1
+                )
         else:
-            sensitivity_per_basin.append(
-                (
-                    ds['melt_rate']
-                    .sel(
-                        deltaT=optimal_deltaT_per_basin[-1] + 1,
-                        method='nearest',
-                    )
-                    .where(basins == basin_i, np.nan)
-                    .mean()
-                    - param_melt_rate.where(basins == basin_i, np.nan).mean()
-                )
-                / 1
-            )
-    else:
-        sensitivity_per_basin.append(np.nan)
+            sensitivity_per_basin.append(np.nan)
 
     result_ds = xr.Dataset(
         data_vars=dict(
@@ -142,7 +146,7 @@ def select_subensemble_using_optimal_deltaT(
       basin based on optimal deltaT
     """
 
-    print('Select sub-ensemble...')
+    # print('Select sub-ensemble...')
 
     number_of_basins = int(basins.max().values)
 
@@ -181,12 +185,12 @@ def load_melt_rates_into_dataset(
     p1s = []
     p2s = []
 
-    for i, ehash in enumerate(ensemble_table.index):
+    for _i, ehash in enumerate(ensemble_table.index):
         p1 = ensemble_table.loc[ehash, p1_name]
         p2 = ensemble_table.loc[ehash, p2_name]
         p1s.append(p1)
         p2s.append(p2)
-        print(i, ': loading dataset for parameter 1=', p1, ' parameter 2=', p2)
+
         if os.path.isfile(
             os.path.join(
                 ensemble_path,
@@ -374,7 +378,6 @@ def calculate_objective_function(
     tmp = xr.load_dataset(
         os.path.join(
             data_path,
-            'share_with_modellers',
             'meltmip',
             'Ocean_Modelling_Data',
             'Mathiot23_cold_m.nc',
@@ -398,7 +401,6 @@ def calculate_objective_function(
     tmp = xr.load_dataset(
         os.path.join(
             data_path,
-            'share_with_modellers',
             'meltmip',
             'Ocean_Modelling_Data',
             'Mathiot23_warm_m.nc',
