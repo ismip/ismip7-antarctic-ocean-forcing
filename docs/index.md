@@ -2,6 +2,11 @@
 hide-toc: true
 ---
 
+```{image} _static/ismip7_ant_ocn_frc.png
+:align: center
+:width: 360 px
+```
+
 # ISMIP7 Antarctic Ocean Forcing (i7aof)
 
 Welcome to the documentation for the `i7aof` package — tools to produce Antarctic ocean forcing for ISMIP7.
