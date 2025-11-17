@@ -1,119 +1,171 @@
-## Climatology Workflows
+# Climatology Workflows
 
-The package supports remapping and extrapolating several observational
-temperature/salinity climatologies (provided privately by Shenjie Zhou on
-30-Sep-2025). These are currently preliminary and not yet published; the
-metadata and provenance will be expanded once a public release occurs.
+This page covers the climatology-only pipeline. No CMIP inputs are required.
+You can run the full end-to-end processing for an observational
+climatology in four steps: Remap → Extrapolate → Thermal Forcing → Back‑convert.
 
-### Supported Climatologies
+## Source
 
-Each climatology is selected with a `clim_name` passed to the remap or
-extrapolation CLI/ API. Internally, a configuration file under
-`i7aof/clim/*.cfg` supplies variable/dimension names and the relative
-input path (under the ISMIP base input directory) for that climatology.
+The climatologies were provided by Zhou and collaborators, and are similar
+to (but updated from) the publicly available dataset
+[Zhou et al. (2024)](https://doi.org/10.17882/103946).
 
-| clim_name | Description (brief) | Source file (relative) |
-|-----------|---------------------|------------------------|
-| `zhou_annual_30_sep` | Annual mean over full observational period (exact years TBD) | `Updated_TS_Climatology/OI_Climatology.nc` |
-| `zhou_summer_30_sep` | Summer-only (austral summer months) mean over full period | `Updated_TS_Climatology/OI_summer_Climatology.nc` |
-| `zhou_2000_annual_30_sep` | Annual mean restricted to observations from 2000 onward | `Updated_TS_Climatology/OI_2000_Climatology.nc` |
 
-Variables provided: conservative temperature `ct` and absolute salinity
-`sa` (with optional *_mse uncertainty fields if present in future
-updates). The raw vertical coordinate is pressure (dbar) and is
-converted to a monotonically increasing height coordinate (meters,
-positive up) during preprocessing.
 
-### Remapping
+## Supported Climatologies (prefer v2: 06_nov)
 
-Remapping performs two stages:
-1. Vertical pipeline: mask invalid cells, interpolate to the ISMIP
-	 `z_extrap` levels, and vertically renormalize using a valid fraction
-	 mask.
-2. Horizontal remap to the ISMIP projected grid (bilinear, conservative,
-	 or nearest-stod per `[remap] method`).
+Select a climatology with `--clim <clim_name>` on the CLIs. Each
+`clim_name` corresponds to a config file under `i7aof/clim/*.cfg` that
+defines variable/dimension names and the relative input path under your
+input base directory.
 
-Command-line example:
+Recommended (v2, 06_nov):
+
+- `zhou_annual_06_nov` → `Updated_TS_Climatology/OI_Climatology_v2/OI_Climatology.nc`
+- `zhou_summer_06_nov` → `Updated_TS_Climatology/OI_Climatology_v2/OI_summer_Climatology.nc`
+- `zhou_2000_annual_06_nov` → `Updated_TS_Climatology/OI_Climatology_v2/OI_2000_Climatology.nc`
+
+Also available (earlier 30_sep set):
+
+- `zhou_annual_30_sep` → `Updated_TS_Climatology/OI_Climatology.nc`
+- `zhou_summer_30_sep` → `Updated_TS_Climatology/OI_summer_Climatology.nc`
+- `zhou_2000_annual_30_sep` → `Updated_TS_Climatology/OI_2000_Climatology.nc`
+
+Variables provided: conservative temperature `ct` and absolute salinity `sa`,
+with mean‑square‑error fields `ct_mse` and `sa_mse` in v2. The raw vertical
+coordinate is pressure (dbar) and is converted to height (meters, positive up)
+during preprocessing.
+
+## Remap (Step 3a)
+
+Two stages are performed: (1) vertical preparation to the ISMIP `z_extrap`
+levels with masking and normalization, then (2) horizontal remapping to the
+ISMIP grid (method set by `[remap] method`).
+
+CLI:
 
 ```bash
 ismip7-antarctic-remap-clim \
-	--clim zhou_annual_30_sep \
-	--config my-config.cfg
+  --clim zhou_annual_06_nov \
+  --config my.cfg
 ```
 
-Output path pattern:
+Job script: `example_job_scripts/03_remap/job_script_remap_clim.bash`
+
+Outputs:
+
 ```
-<workdir>/remap/climatology/<clim_name>/<original>_ismip<res>.nc
+<workdir>/remap/climatology/<clim_name>/*_ismip<res>.nc
 ```
 
-### Extrapolation
+## Extrapolate + Resample (Step 4a)
 
-Climatology extrapolation adds a dummy singleton `time` dimension (size
-1) so the legacy Fortran extrapolation executables (which assume a time
-axis) can be reused. This dimension is removed again in the finalized
-output.
+We fill spatial gaps horizontally then vertically (Fortran routines). A dummy
+singleton `time` dimension is added for processing and removed in the final
+outputs. After extrapolation, we conservatively resample from `z_extrap` to `z`
+levels (e.g., 20 m → 60 m).
+
+CLI:
 
 ```bash
 ismip7-antarctic-extrap-clim \
-	--clim zhou_annual_30_sep \
-	--config my-config.cfg
+  --clim zhou_annual_06_nov \
+  --config my.cfg
 ```
 
-Outputs (one per variable):
+Job script: `example_job_scripts/04_extrap/job_script_extrap_clim.bash`
+
+Outputs:
+
 ```
-<workdir>/extrap/climatology/<clim_name>/<remapped_stem>_<var>_extrap.nc
+<workdir>/extrap/climatology/<clim_name>/*_{ct,sa}_extrap.nc
+<workdir>/extrap/climatology/<clim_name>/*_z.nc
 ```
 
-### Post-extrap vertical resampling
+Dimension order for final climatology products is `(z, y, x)` (no time).
 
-After extrapolation, a conservative resampling step maps `z_extrap` to `z`
-levels (from 20 m to 60 m by default). The workflow uses the same Zarr-first
-approach as CMIP (single write without time appends) and converts to a final
-NetCDF alongside the Extrap output. Dimension order is `(z, y, x)` for
-climatologies (no time).
+Note: Remap outputs are `(z_extrap, y, x)`. During extrapolation a dummy `time`
+is inserted to form `(time, z_extrap, y, x)` for the Fortran step.
 
-### Dimension Ordering
+## Thermal Forcing (Step 6b)
 
-Climatology remap outputs enforce variable dimension order
-`(z_extrap, y, x)` prior to extrapolation. During extrapolation a dummy
-`time` is inserted as the most slowly varying dimension resulting in
-`(time, z_extrap, y, x)`—mirroring CMIP workflow inputs so the Fortran
-code reads the data consistently.
+Compute TF from CT/SA derived from the climatology.
 
-### Configuration Keys
+CLI:
 
-Each `i7aof/clim/zhou_*.cfg` file defines:
+```bash
+ismip7-antarctic-clim-ct-sa-to-tf \
+	--clim zhou_annual_06_nov \
+	--config my.cfg
+```
+
+Job script: `example_job_scripts/06_ct_sa_to_tf/job_script_tf_clim.bash`
+
+Outputs:
+
+```
+<workdir>/extrap/climatology/<clim_name>/*_tf_extrap.nc
+```
+
+## Back‑convert to thetao/so (Step 8b)
+
+Provide static `thetao/so` fields derived from climatology CT/SA.
+
+CLI:
+
+```bash
+ismip7-antarctic-clim-ct-sa-to-thetao-so \
+	--clim zhou_annual_06_nov \
+	--config my.cfg
+```
+
+Job script: `example_job_scripts/08_ct_sa_to_thetao_so/job_script_thetao_clim.bash`
+
+Outputs:
+
+```
+<workdir>/extrap/climatology/<clim_name>/*_{thetao,so}_extrap.nc
+```
+
+## Configuration Keys
+
+Each `i7aof/clim/zhou_*.cfg` file defines, for its source:
 
 ```
 [climatology]
 lat_var, lon_var, lat_dim, lon_dim
 lev_var, lev_dim (pressure) -> converted to lev (meters)
 filename (relative path under input base dir)
-ct_var, sa_var (variable names)
+ct_var, sa_var (and optionally ct_mse_var, sa_mse_var)
 ```
 
-User overrides (e.g. input base directory) can be supplied through a
-user config passed with `--config` or via the Python API.
+You can override paths and settings via a user config passed with `--config`.
 
-### Planned Enhancements
+## Notes and Tips
 
-- Publish provenance and observational period ranges.
-- Support inclusion of mean-square-error or uncertainty variables when
-	provided.
-- Add validation utilities for vertical coordinate consistency.
+- Prefer the 06_nov (v2) climatologies; they include MSE variables and updated
+  metadata. The 30_sep set remains available for continuity.
+- For heavy remapping, tune chunk sizes in your config to match your system.
 
-### Python API
+## Python API
 
-Programmatic usage mirrors the CMIP workflows:
+Minimal climatology-only example:
 
 ```python
 from i7aof.remap.clim import remap_climatology
 from i7aof.extrap.clim import extrap_climatology
+from i7aof.convert.ct_sa_to_tf import clim_ct_sa_to_tf
+from i7aof.convert.ct_sa_to_thetao_so import clim_ct_sa_to_thetao_so
 
-remap_climatology('zhou_annual_30_sep', user_config_filename='my.cfg')
-extrap_climatology('zhou_annual_30_sep', user_config_filename='my.cfg')
+clim = 'zhou_annual_06_nov'
+cfg = 'my.cfg'
+
+remap_climatology(clim, user_config_filename=cfg)
+extrap_climatology(clim, user_config_filename=cfg)
+clim_ct_sa_to_tf(clim, user_config_filename=cfg)
+clim_ct_sa_to_thetao_so(clim, user_config_filename=cfg)
 ```
 
-Refer also to {doc}`workflows` for integrating climatology products in a
-full CMIP+climatology processing chain.
+See also {doc}`workflows` for how the climatology ties into the full CMIP
+pipeline.
 
