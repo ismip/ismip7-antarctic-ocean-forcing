@@ -2,8 +2,8 @@
 
 Purpose: Utilities and workflows to remap source data (e.g., CMIP) to the
 ISMIP grid with vertical interpolation/normalization and horizontal remapping.
-For CMIP workflows, inputs are expected to be pre-converted ct/sa native-grid
-files produced by {py:mod}`i7aof.convert.cmip`.
+For CMIP workflows, inputs are expected to be the pre-converted ct/sa files
+produced by {py:mod}`i7aof.convert.cmip` and written under the workdir.
 
 ## Public Python API (by module)
 
@@ -40,9 +40,8 @@ overrides are typical:
 - `[remap_cmip]`
   - `vert_time_chunk`: int; time chunk for vertical steps
   - `horiz_time_chunk`: int; time chunk for horizontal remap
-- `[historical_files]`, `[ssp585_files]`, ... (by scenario)
-  - `thetao`, `so`: expressions expanding to relative file paths (used to
-    derive ct/sa native-grid filenames consumed by remap)
+  (Inputs are discovered from the convert step; you no longer need to specify
+  per-scenario file lists here.)
 
 ## Outputs
 
@@ -68,7 +67,8 @@ overrides are typical:
 ## Usage
 
 Remap a model and scenario (using default package configs plus a user config
-for workdir). Conversion must be run first to generate ct/sa inputs.
+for workdir). Conversion must be run first to generate ct/sa inputs under
+`convert/<model>/<scenario>/Omon/ct_sa/`.
 
 ```python
 from i7aof.remap.cmip import remap_cmip
