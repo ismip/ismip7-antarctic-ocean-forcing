@@ -6,7 +6,6 @@ This quickstart shows how to produce a small test forcing using built-in scripts
 
 Two entry points are provided:
 
-- `ismip7-antarctic-ocean-forcing` — main workflow driver (under development).
 - `ismip7-antarctic-remap-cmip` — remap CMIP data to the ISMIP grid.
 
 ### Example: run remapping with a test config

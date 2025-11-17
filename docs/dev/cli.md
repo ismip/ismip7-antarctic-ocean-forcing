@@ -4,7 +4,6 @@ This page lists the primary command-line tools and the top-level Python APIs exp
 
 ## Command-line tools
 
-- `ismip7-antarctic-ocean-forcing` — main workflow driver.
 - `ismip7-antarctic-convert-cmip-to-ct-sa` — convert CMIP thetao/so to ct/sa
 	on the native grid.
 - `ismip7-antarctic-cmip-ct-sa-to-tf` — compute TF from bias-corrected CT/SA
@@ -20,7 +19,6 @@ Each command supports `--help` for usage details. See the User Guide for end-to-
 
 ## Python API (entry points)
 
-- `i7aof.__main__.main` — implementation behind `ismip7-antarctic-ocean-forcing`.
 - `i7aof.convert.cmip_to_ct_sa.main` — behind
 	`ismip7-antarctic-convert-cmip-to-ct-sa`.
 - `i7aof.convert.ct_sa_to_tf.main_cmip` — behind
