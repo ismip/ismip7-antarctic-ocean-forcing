@@ -11,7 +11,10 @@ quickstart
 workflows
 clim
 cmip
+convert
 remap
+extrap
 bias-correction
+annual
 faq
 ```
