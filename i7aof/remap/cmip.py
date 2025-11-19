@@ -250,10 +250,25 @@ def _process_one(
 
     # Capture time bounds from the original converted ct/sa file before any
     # vertical/horizontal processing so we can restore them at the end.
+    # For CMIP ct/sa remapping, we *require* well-defined time bounds
+    # matching the behavior of the conversion step.
     with read_dataset(in_filename) as ds_src:
-        time_bounds = capture_time_bounds(ds_src)
+        if 'time' not in ds_src.dims:
+            raise ValueError(
+                f'Expected time dimension on converted ct/sa input but none '
+                f'were found in {in_filename}. Ensure the conversion step '
+                f'preserved the time dimension.'
+            )
+        tb = capture_time_bounds(ds_src)
+        if tb is None:
+            raise ValueError(
+                'Expected time_bnds on converted ct/sa input but none '
+                f'were found in {in_filename}. Ensure the conversion '
+                'step preserved time bounds.'
+            )
+        time_bounds = tb
         # Keep a lightweight reference to source for calendar inference
-        ds_time_source = ds_src[['time']].copy() if 'time' in ds_src else None
+        ds_time_source = ds_src[['time']].copy()
 
     with LoggingContext(__name__) as logger:
         _remap_horiz(

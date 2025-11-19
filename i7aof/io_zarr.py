@@ -125,29 +125,28 @@ def finalize_zarr_to_netcdf(
             ds['time'] = xr.DataArray(tvals, dims=ds['time'].dims)
             ds['time'].attrs['units'] = tunits
             ds['time'].attrs['calendar'] = cal
+            ds['time'].attrs['bounds'] = 'time_bnds'
             if isinstance(ds['time'].encoding, dict):
                 ds['time'].encoding.clear()
 
             # time_bnds
-            if 'time_bnds' in ds:
-                tb_vals = ds['time_bnds'].values
-                # vectorize over both columns
-                tb0 = np.array(
-                    cftime.date2num(list(tb_vals[:, 0]), tunits, calendar=cal),
-                    dtype=np.float64,
-                )
-                tb1 = np.array(
-                    cftime.date2num(list(tb_vals[:, 1]), tunits, calendar=cal),
-                    dtype=np.float64,
-                )
-                tb_num = np.stack([tb0, tb1], axis=1)
-                ds['time_bnds'] = xr.DataArray(
-                    tb_num, dims=ds['time_bnds'].dims
-                )
-                ds['time_bnds'].attrs['units'] = tunits
-                ds['time_bnds'].attrs['calendar'] = cal
-                if isinstance(ds['time_bnds'].encoding, dict):
-                    ds['time_bnds'].encoding.clear()
+            tb_vals = ds['time_bnds'].values
+            # vectorize over both columns
+            tb0 = np.array(
+                cftime.date2num(list(tb_vals[:, 0]), tunits, calendar=cal),
+                dtype=np.float64,
+            )
+            tb1 = np.array(
+                cftime.date2num(list(tb_vals[:, 1]), tunits, calendar=cal),
+                dtype=np.float64,
+            )
+            tb_num = np.stack([tb0, tb1], axis=1)
+            ds['time_bnds'] = xr.DataArray(tb_num, dims=ds['time_bnds'].dims)
+            ds['time_bnds'].attrs['units'] = tunits
+            ds['time_bnds'].attrs['calendar'] = cal
+            if isinstance(ds['time_bnds'].encoding, dict):
+                ds['time_bnds'].encoding.clear()
+
         # Write NetCDF to a temporary path first, then atomically move to the
         # final destination on success. This avoids leaving a partially-
         # written NetCDF when failures occur and removes the need for a

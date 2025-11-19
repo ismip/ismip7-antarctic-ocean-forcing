@@ -203,6 +203,20 @@ def _process_file_pair(
     # Standardize time bounds name to 'time_bnds' (from e.g., 'time_bounds')
     ds_thetao = _standardize_time_bounds_to_time_bnds(ds_thetao)
     ds_so = _standardize_time_bounds_to_time_bnds(ds_so)
+    # Enforce presence of time/time_bnds after normalization; there is no
+    # point in proceeding without well-defined time bounds.
+    if 'time' not in ds_thetao.dims:
+        raise ValueError(
+            'Expected a time dimension in thetao input but none were found. '
+            f'File: {th_abs}'
+        )
+    if 'time_bnds' not in ds_thetao.variables:
+        raise ValueError(
+            'Expected time_bnds variable in thetao input after '
+            'standardization but none were found. Ensure original CMIP '
+            'files provide time bounds. File: '
+            f'{th_abs}'
+        )
     ds_thetao, ds_so = xr.align(ds_thetao, ds_so, join='exact')
 
     time_indices = _compute_time_indices(ds_thetao, time_chunk)
@@ -215,12 +229,8 @@ def _process_file_pair(
     time_bounds = capture_time_bounds(ds_thetao)
     first = True
     for t0, t1 in tqdm(time_indices, desc='time chunks', unit='chunk'):
-        if 'time' in ds_thetao.dims:
-            ds_th_chunk = ds_thetao.isel(time=slice(t0, t1))
-            ds_so_chunk = ds_so.isel(time=slice(t0, t1))
-        else:
-            ds_th_chunk = ds_thetao
-            ds_so_chunk = ds_so
+        ds_th_chunk = ds_thetao.isel(time=slice(t0, t1))
+        ds_so_chunk = ds_so.isel(time=slice(t0, t1))
         ds_ctsa = _convert_chunk_and_strip_bounds(
             ds_th_chunk,
             ds_so_chunk,
@@ -234,15 +244,23 @@ def _process_file_pair(
             ds=ds_ctsa,
             zarr_store=zarr_store,
             first=first,
-            append_dim='time' if 'time' in ds_ctsa.dims else None,
+            append_dim='time',
         )
 
     # Intentionally nested: captures ds_thetao and ensures CF encoding
     # without widening the helper API.
     def _post(ds_z: xr.Dataset) -> xr.Dataset:
+        # Restore spatial bounds/coords for depth/lat/lon
         _inject_bounds(ds_z, ds_thetao, bounds_records)
+
+        # Ensure time coordinate (values + attrs) and time_bnds come
+        # directly from the standardized thetao dataset so any attribute
+        # manipulations in intermediate chunks don't erase the bounds
+        # relationship.
+        ds_z['time'] = ds_thetao['time']
         inject_time_bounds(ds_z, time_bounds)
-        # Ensure CF-consistent encodings for time/time_bnds so units "stick"
+
+        # Ensure CF-consistent encodings for time/time_bnds so units "stick".
         ensure_cf_time_encoding(
             ds_z,
             units='days since 1850-01-01 00:00:00',
@@ -272,7 +290,10 @@ def _standardize_time_bounds_to_time_bnds(ds: xr.Dataset) -> xr.Dataset:
     dataset is returned unchanged.
     """
     if 'time' not in ds:
-        return ds
+        raise ValueError(
+            'Expected time coordinate but none was found. '
+            'Ensure the dataset provides time.'
+        )
     tbname: str | None = None
     tcoord = ds['time']
     battr = tcoord.attrs.get('bounds') if hasattr(tcoord, 'attrs') else None
@@ -286,24 +307,23 @@ def _standardize_time_bounds_to_time_bnds(ds: xr.Dataset) -> xr.Dataset:
             tbname = 'time_bounds'
 
     if tbname is None:
-        return ds
+        raise ValueError(
+            'Expected time bounds for time coordinate but none were found. '
+            'Ensure the dataset provides time_bnds/time_bounds.'
+        )
 
     if tbname != 'time_bnds':
         ds = ds.rename({tbname: 'time_bnds'})
-    # Normalize the second dimension name to 'bnds' for consistency
-    if 'time_bnds' in ds:
-        bnds_var = ds['time_bnds']
-        dims = list(bnds_var.dims)
-        if len(dims) == 2:
-            _time_dim, second_dim = dims
-            if second_dim != 'bnds':
-                second_size = ds.sizes.get(second_dim)
-                # Rename only if no conflicting 'bnds' dimension exists
-                if (
-                    'bnds' not in ds.dims
-                    or ds.sizes.get('bnds') == second_size
-                ):
-                    ds = ds.rename({second_dim: 'bnds'})
+
+    bnds_var = ds['time_bnds']
+    dims = list(bnds_var.dims)
+    if len(dims) == 2:
+        _time_dim, second_dim = dims
+        if second_dim != 'bnds':
+            second_size = ds.sizes.get(second_dim)
+            # Rename only if no conflicting 'bnds' dimension exists
+            if 'bnds' not in ds.dims or ds.sizes.get('bnds') == second_size:
+                ds = ds.rename({second_dim: 'bnds'})
     # Ensure the time coord points to the standardized name
     t_attrs = dict(getattr(ds['time'], 'attrs', {}))
     t_attrs['bounds'] = 'time_bnds'
@@ -314,8 +334,6 @@ def _standardize_time_bounds_to_time_bnds(ds: xr.Dataset) -> xr.Dataset:
 def _compute_time_indices(
     ds_thetao: xr.Dataset, time_chunk: int | None
 ) -> Sequence[Tuple[int, int]]:
-    if 'time' not in ds_thetao.dims:
-        return [(0, 0)]
     nt = ds_thetao.sizes['time']
     if time_chunk is None or time_chunk <= 0:
         return [(0, nt)]
@@ -377,11 +395,10 @@ def _convert_chunk_and_strip_bounds(
             ds_ctsa[coord_name].attrs.pop('bounds', None)
         if bname in ds_ctsa.variables:
             ds_ctsa = ds_ctsa.drop_vars(bname)
-    # Drop time bounds and its attribute, if present in the chunk
+    # Drop time bounds and its attribute (time is mandatory here)
     if time_bounds is not None:
         tbname, _tbda = time_bounds
-        if 'time' in ds_ctsa.coords and 'bounds' in ds_ctsa['time'].attrs:
-            ds_ctsa['time'].attrs.pop('bounds', None)
+        ds_ctsa['time'].attrs.pop('bounds', None)
         if tbname in ds_ctsa.variables:
             ds_ctsa = ds_ctsa.drop_vars(tbname)
     return ds_ctsa

@@ -553,6 +553,7 @@ def _ensure_cftime_time(ds: xr.Dataset, calendar: str) -> None:
                         _num_to_cftime(tb.values, units, calendar),
                         dims=tb.dims,
                     )
+        ds['time'].attrs['bounds'] = 'time_bnds'
 
 
 def _decide_fill_value(
