@@ -674,6 +674,8 @@ def _var_encoding(
         var_name, var, numpy_fillvals, has_fill_values
     )
     if set_fill:
+        # remove any existing _FillValue to avoid bypassing our logic
+        var.encoding.pop('_FillValue', None)
         encoding['_FillValue'] = fill_val
 
     # Decide compression options and merge in, preserving any explicit
