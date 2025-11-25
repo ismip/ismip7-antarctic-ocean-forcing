@@ -23,7 +23,7 @@ import numpy as np
 import xarray as xr
 from xarray.coding.common import SerializationWarning
 
-from i7aof.io import _ensure_cftime_time, write_netcdf
+from i7aof.io import ensure_cftime_time, write_netcdf
 
 __all__ = ['append_to_zarr', 'finalize_zarr_to_netcdf']
 
@@ -113,10 +113,10 @@ def finalize_zarr_to_netcdf(
                     'Cannot determine calendar for time coordinate '
                     'when finalizing Zarr to NetCDF.'
                 )
-            _ensure_cftime_time(ds, cal)
+            ensure_cftime_time(ds, cal)
             # Force-convert to numeric days since 1850 for both time and
             # time_bnds to avoid backend-specific unit choices.
-            tunits = 'days since 1850-01-01 00:00:00'
+            tunits = 'days since 1850-01-01'
 
             # time
             tvals = np.array(

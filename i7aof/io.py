@@ -106,7 +106,7 @@ def read_dataset(path, **kwargs) -> xr.Dataset:
         # If we saw both time and time_bnds above, t_cal must be set or we
         # already raised; if only time is present, derive calendar directly
         # from its current metadata.
-        _ensure_cftime_time(ds, cal)
+        ensure_cftime_time(ds, cal)
 
     return ds
 
@@ -274,6 +274,78 @@ def write_netcdf(
         )
         # delete the temporary NETCDF4 file
         os.remove(out_filename)
+
+
+def ensure_cftime_time(ds: xr.Dataset, calendar: str) -> None:
+    """
+    Ensure ds['time'] and ds['time_bnds'] (if present) use cftime objects.
+
+    Converts from numpy.datetime64 or numeric arrays with supported
+    CF units ('days since', 'seconds since'). If numeric units are
+    not present or unsupported (e.g., 'microseconds since'), no
+    implicit conversion is performed here; callers can decide to error
+    or skip CF encoding based on the result.
+
+    Parameters
+    ----------
+    ds : xarray.Dataset
+        The dataset to modify in place
+
+    calendar : str
+        The calendar to use for cftime conversion
+    """
+    if 'time' not in ds.variables:
+        raise ValueError(
+            'Dataset has no time variable; cannot ensure cftime time.'
+        )
+    if 'time_bnds' in ds.variables:
+        raise ValueError(
+            'Dataset has time but no time bounds variable. Time bounds are '
+            'required for all i7aof workflows with time.'
+        )
+    t = ds['time']
+    if not _is_cftime_array(t):
+        if numpy.issubdtype(t.dtype, numpy.datetime64):
+            ds['time'] = xr.DataArray(
+                _to_cftime_array(t.values, calendar), dims=t.dims
+            )
+        elif numpy.issubdtype(t.dtype, numpy.number):
+            # numeric time with possible units in attrs/encoding
+            units = None
+            if hasattr(t, 'attrs') and isinstance(t.attrs, dict):
+                units = t.attrs.get('units')
+            if (
+                units is None
+                and hasattr(t, 'encoding')
+                and isinstance(t.encoding, dict)
+            ):
+                units = t.encoding.get('units')
+            if isinstance(units, str) and units:
+                ds['time'] = xr.DataArray(
+                    _num_to_cftime(t.values, units, calendar), dims=t.dims
+                )
+    tb = ds['time_bnds']
+    if not _is_cftime_array(tb):
+        if numpy.issubdtype(tb.dtype, numpy.datetime64):
+            ds['time_bnds'] = xr.DataArray(
+                _to_cftime_array(tb.values, calendar), dims=tb.dims
+            )
+        elif numpy.issubdtype(tb.dtype, numpy.number):
+            units = None
+            if hasattr(tb, 'attrs') and isinstance(tb.attrs, dict):
+                units = tb.attrs.get('units')
+            if (
+                units is None
+                and hasattr(tb, 'encoding')
+                and isinstance(tb.encoding, dict)
+            ):
+                units = tb.encoding.get('units')
+            if isinstance(units, str) and units:
+                ds['time_bnds'] = xr.DataArray(
+                    _num_to_cftime(tb.values, units, calendar),
+                    dims=tb.dims,
+                )
+    ds['time'].attrs['bounds'] = 'time_bnds'
 
 
 def _apply_time_encoding(  # noqa: C901
@@ -464,63 +536,6 @@ def _num_to_cftime(
         cftime.num2date(values.astype(float), units, calendar=calendar),
         dtype=object,
     )
-
-
-def _ensure_cftime_time(ds: xr.Dataset, calendar: str) -> None:
-    """
-    Ensure ds['time'] and ds['time_bnds'] (if present) use cftime objects.
-
-    Converts from numpy.datetime64 or numeric arrays with supported
-    CF units ('days since', 'seconds since'). If numeric units are
-    not present or unsupported (e.g., 'microseconds since'), no
-    implicit conversion is performed here; callers can decide to error
-    or skip CF encoding based on the result.
-    """
-    if 'time' in ds.variables:
-        t = ds['time']
-        if not _is_cftime_array(t):
-            if numpy.issubdtype(t.dtype, numpy.datetime64):
-                ds['time'] = xr.DataArray(
-                    _to_cftime_array(t.values, calendar), dims=t.dims
-                )
-            elif numpy.issubdtype(t.dtype, numpy.number):
-                # numeric time with possible units in attrs/encoding
-                units = None
-                if hasattr(t, 'attrs') and isinstance(t.attrs, dict):
-                    units = t.attrs.get('units')
-                if (
-                    units is None
-                    and hasattr(t, 'encoding')
-                    and isinstance(t.encoding, dict)
-                ):
-                    units = t.encoding.get('units')
-                if isinstance(units, str) and units:
-                    ds['time'] = xr.DataArray(
-                        _num_to_cftime(t.values, units, calendar), dims=t.dims
-                    )
-    if 'time_bnds' in ds.variables:
-        tb = ds['time_bnds']
-        if not _is_cftime_array(tb):
-            if numpy.issubdtype(tb.dtype, numpy.datetime64):
-                ds['time_bnds'] = xr.DataArray(
-                    _to_cftime_array(tb.values, calendar), dims=tb.dims
-                )
-            elif numpy.issubdtype(tb.dtype, numpy.number):
-                units = None
-                if hasattr(tb, 'attrs') and isinstance(tb.attrs, dict):
-                    units = tb.attrs.get('units')
-                if (
-                    units is None
-                    and hasattr(tb, 'encoding')
-                    and isinstance(tb.encoding, dict)
-                ):
-                    units = tb.encoding.get('units')
-                if isinstance(units, str) and units:
-                    ds['time_bnds'] = xr.DataArray(
-                        _num_to_cftime(tb.values, units, calendar),
-                        dims=tb.dims,
-                    )
-        ds['time'].attrs['bounds'] = 'time_bnds'
 
 
 def _decide_fill_value(

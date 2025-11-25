@@ -26,7 +26,7 @@ import xarray as xr
 from mpas_tools.config import MpasConfigParser
 
 from i7aof.grid.ismip import ensure_ismip_grid
-from i7aof.io import _ensure_cftime_time, read_dataset
+from i7aof.io import ensure_cftime_time, read_dataset
 
 __all__ = [
     'attach_grid_coords',
@@ -349,12 +349,15 @@ def ensure_cf_time_encoding(
         cal = _extract_calendar(prefer_source)
     if cal is None:
         cal = _extract_calendar(ds)
-    # Only default if no calendar is discoverable from either dataset
+
     if cal is None:
-        cal = 'proleptic_gregorian'
+        raise ValueError(
+            "Cannot determine calendar for 'time' variable; "
+            "please ensure 'calendar' is set in attributes or encoding."
+        )
 
     # Ensure values are cftime objects for predictable CF encoding
-    _ensure_cftime_time(ds, cal)
+    ensure_cftime_time(ds, cal)
 
     # Place units/calendar in encoding for CF encoding; remove from attrs
     # to avoid safe_setitem conflicts during serialization.
