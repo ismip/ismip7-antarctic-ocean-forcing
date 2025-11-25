@@ -22,7 +22,7 @@ import numpy as np
 import xarray as xr
 from xarray.coding.common import SerializationWarning
 
-from i7aof.io import ensure_cftime_time, write_netcdf
+from i7aof.io import ensure_cf_time_encoding, write_netcdf
 
 __all__ = ['append_to_zarr', 'finalize_zarr_to_netcdf']
 
@@ -101,18 +101,7 @@ def finalize_zarr_to_netcdf(
         # Ensure time/time_bnds are using cftime with a known calendar;
         # write_netcdf will take care of consistent encoding/attrs.
         if 'time' in ds:
-            t = ds['time']
-            cal = (
-                t.encoding.get('calendar')
-                if isinstance(t.encoding, dict)
-                else None
-            ) or t.attrs.get('calendar')
-            if cal is None:
-                raise ValueError(
-                    'Cannot determine calendar for time coordinate '
-                    'when finalizing Zarr to NetCDF.'
-                )
-            ensure_cftime_time(ds, cal)
+            ensure_cf_time_encoding(ds)
 
         # Write NetCDF to a temporary path first, then atomically move to the
         # final destination on success. This avoids leaving a partially-

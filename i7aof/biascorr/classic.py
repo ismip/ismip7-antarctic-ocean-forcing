@@ -18,11 +18,9 @@ from xarray.coders import CFDatetimeCoder
 from i7aof.config import load_config
 from i7aof.coords import (
     attach_grid_coords,
-    propagate_time_from,
-    strip_fill_on_non_data,
 )
 from i7aof.grid.ismip import get_res_string
-from i7aof.io import read_dataset, write_netcdf
+from i7aof.io import ensure_cf_time_encoding, read_dataset, write_netcdf
 
 
 def biascorr_cmip(
@@ -334,7 +332,6 @@ def _compute_biases(
         ds_out = xr.Dataset({var: modclim})
         ds_out[var].attrs = ds_hist_ssp[var].attrs
         ds_out = attach_grid_coords(ds_out, config)
-        ds_out = strip_fill_on_non_data(ds_out, data_vars=(var,))
         write_netcdf(
             ds_out,
             modclimfile,
@@ -351,7 +348,6 @@ def _compute_biases(
         ds_out = xr.Dataset({var: bias})
         ds_out[var].attrs = ds_hist_ssp[var].attrs
         ds_out = attach_grid_coords(ds_out, config)
-        ds_out = strip_fill_on_non_data(ds_out, data_vars=(var,))
         write_netcdf(
             ds_out,
             biasfile,
@@ -435,14 +431,10 @@ def _apply_biascorrection(
                     )
                 ds_out['time_bnds'] = ds_cmip['time_bnds']
                 # Propagate time coord and bounds from CMIP source
-                ds_out = propagate_time_from(
-                    ds_out,
-                    ds_cmip,
-                    apply_cf_encoding=True,
-                    units='days since 1850-01-01 00:00:00',
+                ensure_cf_time_encoding(
+                    ds=ds_out,
+                    time_source=ds_cmip,
                 )
-                # Ensure coords/bounds have no fill values
-                ds_out = strip_fill_on_non_data(ds_out, data_vars=(var,))
 
                 write_netcdf(
                     ds_out,

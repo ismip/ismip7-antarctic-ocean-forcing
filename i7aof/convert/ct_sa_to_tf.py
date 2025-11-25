@@ -10,11 +10,9 @@ from i7aof.config import load_config
 from i7aof.convert.teos10 import _pressure_from_z, compute_ct_freezing
 from i7aof.coords import (
     attach_grid_coords,
-    propagate_time_from,
-    strip_fill_on_non_data,
 )
 from i7aof.grid.ismip import ensure_ismip_grid, get_res_string
-from i7aof.io import read_dataset
+from i7aof.io import ensure_cf_time_encoding, read_dataset
 from i7aof.io_zarr import append_to_zarr, finalize_zarr_to_netcdf
 
 __all__ = ['cmip_ct_sa_to_tf', 'main_cmip', 'clim_ct_sa_to_tf', 'main_clim']
@@ -464,13 +462,10 @@ def _process_ct_sa_pair(
         # Attach ISMIP grid coordinates with validation and propagate time
         ds_final = attach_grid_coords(ds_final, config)
         if 'time' in ds_ct.dims:
-            ds_final = propagate_time_from(
-                ds_final,
-                ds_ct,
-                apply_cf_encoding=True,
-                units='days since 1850-01-01 00:00:00',
+            ensure_cf_time_encoding(
+                ds=ds_final,
+                time_source=ds_ct,
             )
-        ds_final = strip_fill_on_non_data(ds_final, data_vars=('tf',))
         return ds_final
 
     # more compression for the final datasets

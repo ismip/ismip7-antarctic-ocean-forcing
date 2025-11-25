@@ -19,6 +19,7 @@ import os
 import shutil
 import subprocess
 
+import cftime
 import numpy as np
 import xarray as xr
 from dask import config as dask_config
@@ -28,16 +29,12 @@ from xarray.coders import CFDatetimeCoder
 
 from i7aof.coords import (
     attach_grid_coords,
-    ensure_cf_time_encoding,
-    propagate_time_from,
-    strip_fill_on_non_data,
 )
 from i7aof.extrap import load_template_text
 from i7aof.grid.ismip import get_horiz_res_string
 from i7aof.imbie.masks import make_imbie_masks
-from i7aof.io import read_dataset, write_netcdf
+from i7aof.io import ensure_cf_time_encoding, read_dataset, write_netcdf
 from i7aof.io_zarr import append_to_zarr, finalize_zarr_to_netcdf
-from i7aof.time.bounds import inject_time_bounds
 from i7aof.topo import get_topo
 from i7aof.vert.resamp import VerticalResampler
 
@@ -197,9 +194,34 @@ def _prepare_input_single(
     # order with its (x, y, z, time) expectations.
     if add_dummy_time and 'time' not in ds_in.dims:
         ds_in = ds_in.expand_dims({'time': [0]})
-        # Provide required attributes accessed by the Fortran codes
-        ds_in['time'].attrs.setdefault('units', 'days since 0001-01-01')
-        ds_in['time'].attrs.setdefault('calendar', 'gregorian')
+        times = [
+            cftime.datetime(1850, 1, 1, calendar='noleap'),
+        ]
+        time_bnds = [
+            [
+                cftime.datetime(1850, 1, 1, calendar='noleap'),
+                cftime.datetime(1851, 1, 1, calendar='noleap'),
+            ],
+        ]
+        coder = CFDatetimeCoder(use_cftime=True)
+        da_time = xr.DataArray(data=times, dims=('time',))
+        xr.DataArray(
+            coder.decode(da_time.variable),
+            dims=da_time.dims,
+            coords=da_time.coords,
+        )
+        da_time_bnds = xr.DataArray(data=time_bnds, dims=('time', 'bnds'))
+        xr.DataArray(
+            coder.decode(da_time_bnds.variable),
+            dims=da_time_bnds.dims,
+            coords=da_time_bnds.coords,
+        )
+        da_time.attrs.setdefault('calendar', 'noleap')
+        da_time.attrs.setdefault('bounds', 'time_bnds')
+        ds_in = ds_in.assign_coords(
+            {'time': da_time, 'time_bnds': da_time_bnds}
+        )
+
         # Ensure a history attribute exists (Fortran reads it)
         ds_in.attrs.setdefault(
             'history',
@@ -328,21 +350,7 @@ def _finalize_output_with_grid(
         ds_out[variable].attrs = dict(src[variable].attrs)
         if 'time' in ds_out.dims and 'time' in src.dims:
             # Propagate time coordinate values (and existing bounds if any)
-            ds_out = propagate_time_from(ds_out, src, apply_cf_encoding=False)
-            # Inject captured time bounds explicitly (source may have lost
-            # them)
-            if time_bounds is not None:
-                inject_time_bounds(ds_out, time_bounds)
-            # Apply CF-compliant shared encoding for time/time_bnds
-            ensure_cf_time_encoding(
-                ds_out,
-                units='days since 1850-01-01 00:00:00',
-                calendar=None,
-                prefer_source=time_prefer_source or src,
-            )
-
-    # Remove _FillValue from non-data variables
-    ds_out = strip_fill_on_non_data(ds_out, data_vars=(variable,))
+            ensure_cf_time_encoding(ds=ds_out, time_source=src)
 
     logger.info(f'Writing extrapolated output: {final_out_path}')
     write_netcdf(
@@ -536,15 +544,10 @@ def _vertically_resample_to_coarse_ismip_grid(
     def _post(ds_z: xr.Dataset) -> xr.Dataset:
         # Reopen the original source and propagate time/time_bnds
         try:
-            with read_dataset(
-                in_path,
-                decode_times=CFDatetimeCoder(use_cftime=True),
-            ) as _src:
-                ds_z = propagate_time_from(
-                    ds_z,
-                    _src,
-                    apply_cf_encoding=True,
-                    units='days since 1850-01-01 00:00:00',
+            with read_dataset(in_path) as _src:
+                ensure_cf_time_encoding(
+                    ds=ds_z,
+                    time_source=_src,
                 )
         except Exception as e:  # pragma: no cover - non-fatal
             log.warning('Failed to propagate time metadata: %s', e)
@@ -557,9 +560,6 @@ def _vertically_resample_to_coarse_ismip_grid(
         drop_names = [n for n in ('z_extrap', 'z_extrap_bnds') if n in ds_z]
         if drop_names:
             ds_z = ds_z.drop_vars(drop_names, errors='ignore')
-
-        # Ensure coordinates and non-target variables do not carry _FillValue
-        ds_z = strip_fill_on_non_data(ds_z, data_vars=(variable,))
 
         var_da = ds_z[variable]
         chunks = getattr(var_da, 'chunks', None)

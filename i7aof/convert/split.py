@@ -179,6 +179,8 @@ def _split_one_file(
             f'Input file {in_abs} has no time dimension; '
             'cannot split non-time data.'
         )
+    # drop unwanted time attributes
+    ds['time'].attrs.clear()
     nt = int(ds.sizes['time'])
     ranges = _compute_file_ranges(nt, months_per_file)
     prefix = _derive_prefix_from_input(in_abs)

@@ -15,11 +15,9 @@ from i7aof.convert.teos10 import _pressure_from_z, _sanitize_lat
 from i7aof.coords import (
     attach_grid_coords,
     dataset_with_var_and_bounds,
-    propagate_time_from,
-    strip_fill_on_non_data,
 )
 from i7aof.grid.ismip import ensure_ismip_grid, get_res_string
-from i7aof.io import read_dataset, write_netcdf
+from i7aof.io import ensure_cf_time_encoding, read_dataset, write_netcdf
 from i7aof.io_zarr import append_to_zarr
 
 __all__ = [
@@ -658,7 +656,6 @@ def _process_ct_sa_annual_pair(
         # Attach ISMIP grid coords/lat-lon/bounds consistently
         ds_final = attach_grid_coords(ds_final, config)
         # Ensure no fills on coordinates/bounds
-        ds_final = strip_fill_on_non_data(ds_final, data_vars=('thetao', 'so'))
         return ds_final
 
     # Open Zarr, apply post, and write two separate NetCDF outputs
@@ -676,11 +673,9 @@ def _process_ct_sa_annual_pair(
         ds_final = _post(ds_final)
 
         # Propagate time/time_bnds from original NetCDF (bypassing Zarr quirks)
-        ds_final = propagate_time_from(
-            ds_final,
-            ds_ct,
-            apply_cf_encoding=True,
-            units='days since 1850-01-01 00:00:00',
+        ensure_cf_time_encoding(
+            ds=ds_final,
+            time_source=ds_ct,
         )
 
         # more compression for the final datasets

@@ -42,7 +42,6 @@ import cftime
 import numpy as np
 import xarray as xr
 
-from i7aof.coords import strip_fill_on_non_data
 from i7aof.io import read_dataset, write_netcdf
 
 __all__ = [
@@ -175,6 +174,9 @@ def _process_single_file_annual(
     # Only chunk along time; allow spatial chunking to follow storage layout
     ds = read_dataset(in_path, chunks=chunk_spec)
     try:
+        # we'll replace time_bnds later and it causes trouble in the time
+        # averaging
+        ds = ds.drop_vars('time_bnds')
         months_per_year = ds['time'].dt.month.groupby('time.year').count()
         if int(months_per_year.min()) < 12 or int(months_per_year.max()) > 12:
             bad_years = months_per_year.where(months_per_year != 12, drop=True)
@@ -230,8 +232,6 @@ def _process_single_file_annual(
         if calendar is not None:
             ds_out['time'].encoding['calendar'] = calendar
             ds_out['time_bnds'].encoding['calendar'] = calendar
-        # Consistent with other workflows: no fill values on coords/bounds
-        ds_out = strip_fill_on_non_data(ds_out, data_vars=var_names)
         # Build explicit fill-value policy: only 'ct', 'sa', and 'tf'
         # should carry _FillValue; all others (including coords/bounds)
         # should not. This avoids backend defaults and scanning.

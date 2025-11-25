@@ -14,7 +14,6 @@ from i7aof.remap.shared import (
     _remap_horiz,
     _vert_mask_interp_norm_multi,
 )
-from i7aof.time.bounds import capture_time_bounds
 
 
 def remap_cmip(
@@ -252,23 +251,13 @@ def _process_one(
     # vertical/horizontal processing so we can restore them at the end.
     # For CMIP ct/sa remapping, we *require* well-defined time bounds
     # matching the behavior of the conversion step.
-    with read_dataset(in_filename) as ds_src:
-        if 'time' not in ds_src.dims:
-            raise ValueError(
-                f'Expected time dimension on converted ct/sa input but none '
-                f'were found in {in_filename}. Ensure the conversion step '
-                f'preserved the time dimension.'
-            )
-        tb = capture_time_bounds(ds_src)
-        if tb is None:
-            raise ValueError(
-                'Expected time_bnds on converted ct/sa input but none '
-                f'were found in {in_filename}. Ensure the conversion '
-                'step preserved time bounds.'
-            )
-        time_bounds = tb
-        # Keep a lightweight reference to source for calendar inference
-        ds_time_source = ds_src[['time']].copy()
+    ds_time_source = read_dataset(in_filename)
+    if 'time' not in ds_time_source.dims:
+        raise ValueError(
+            f'Expected time dimension on converted ct/sa input but none '
+            f'were found in {in_filename}. Ensure the conversion step '
+            f'preserved the time dimension.'
+        )
 
     with LoggingContext(__name__) as logger:
         _remap_horiz(
@@ -279,8 +268,7 @@ def _process_one(
             horiz_tmpdir,
             logger,
             has_fill_values=['ct', 'sa'],
-            time_bounds=time_bounds,
-            time_prefer_source=ds_time_source,
+            time_source=ds_time_source,
         )
 
     # Always clean up tmp dirs for this input file

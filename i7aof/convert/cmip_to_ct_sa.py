@@ -12,8 +12,7 @@ from tqdm import tqdm
 
 from i7aof.config import load_config
 from i7aof.convert.teos10 import convert_dataset_to_ct_sa
-from i7aof.coords import ensure_cf_time_encoding
-from i7aof.io import read_dataset
+from i7aof.io import ensure_cf_time_encoding, read_dataset
 from i7aof.io_zarr import append_to_zarr, finalize_zarr_to_netcdf
 from i7aof.time.bounds import capture_time_bounds, inject_time_bounds
 
@@ -262,10 +261,8 @@ def _process_file_pair(
 
         # Ensure CF-consistent encodings for time/time_bnds so units "stick".
         ensure_cf_time_encoding(
-            ds_z,
-            units='days since 1850-01-01 00:00:00',
-            calendar=None,
-            prefer_source=ds_thetao,
+            ds=ds_z,
+            time_source=ds_thetao,
         )
         return ds_z
 

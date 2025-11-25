@@ -67,7 +67,6 @@ import xarray as xr
 from dask import config as dask_config
 from mpas_tools.config import MpasConfigParser
 from mpas_tools.logging import LoggingContext
-from xarray.coders import CFDatetimeCoder
 
 from i7aof.cmip import get_model_prefix
 from i7aof.config import load_config
@@ -710,14 +709,11 @@ def _prepare_input_with_coords(
     ds_in = read_dataset(
         in_path,
         chunks={'time': 1},
-        decode_times=CFDatetimeCoder(use_cftime=True),
     )
     if time_slice is not None and 'time' in ds_in.dims:
         i0, i1 = time_slice
         ds_in = ds_in.isel(time=slice(i0, i1))
-    ds_grid = read_dataset(
-        grid_path, decode_times=CFDatetimeCoder(use_cftime=True)
-    )
+    ds_grid = read_dataset(grid_path)
 
     # Log dimensions early for debugging
     dims_repr = ', '.join(f'{k}={v}' for k, v in ds_in.sizes.items())
@@ -756,7 +752,7 @@ def _prepare_input_with_coords(
 
     # Keep only variables needed by the Fortran tools: the target variable
     # and essential coordinate variables (time, x, y, z or z_extrap)
-    keep_vars = {var_name, 'time', 'x', 'y'}
+    keep_vars = {var_name, 'time', 'time_bnds', 'x', 'y'}
     if 'z_extrap' in ds_in.variables:
         keep_vars.add('z_extrap')
     elif 'z' in ds_in.variables:
@@ -872,9 +868,7 @@ def _ensure_extrapolated_file(
         )
 
         # Open source input lazily to compute chunk indices
-        with read_dataset(
-            task.in_path, decode_times=CFDatetimeCoder(use_cftime=True)
-        ) as ds_meta:
+        with read_dataset(task.in_path) as ds_meta:
             if 'time' not in ds_meta.dims:
                 raise ValueError(
                     'Extrapolation CMIP input is missing a time dimension. '
@@ -907,18 +901,15 @@ def _ensure_extrapolated_file(
 
         # Sort by start index and concatenate along time
         vertical_chunks.sort(key=lambda t: t[0])
+        # Don't use read_dataset because the Fortran output doesn't have
+        # time bounds
         if len(vertical_chunks) == 1:
-            ds_final_in = read_dataset(
-                vertical_chunks[0][2],
-                decode_times=CFDatetimeCoder(use_cftime=True),
+            ds_final_in = xr.open_dataset(
+                vertical_chunks[0][2], decode_times=False
             )
         else:
             ds_list = [
-                read_dataset(
-                    path,
-                    decode_times=CFDatetimeCoder(use_cftime=True),
-                    chunks={'time': 1},
-                )
+                xr.open_dataset(path, decode_times=False, chunks={'time': 1})
                 for (_i0, _i1, path) in vertical_chunks
             ]
             logger.info(

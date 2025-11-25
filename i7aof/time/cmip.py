@@ -29,7 +29,7 @@ import uuid
 from typing import List
 
 from i7aof.config import load_config
-from i7aof.coords import attach_grid_coords, strip_fill_on_non_data
+from i7aof.coords import attach_grid_coords
 from i7aof.io import read_dataset, write_netcdf
 from i7aof.time.average import annual_average
 
@@ -129,10 +129,6 @@ def compute_cmip_annual_averages(
             try:
                 ds_ann = read_dataset(out_path)
                 ds_ann = attach_grid_coords(ds_ann, config)
-                data_vars = [
-                    str(v) for v in ds_ann.data_vars if v not in ds_ann.coords
-                ]
-                ds_ann = strip_fill_on_non_data(ds_ann, data_vars=data_vars)
                 # Only 'ct', 'sa', and 'tf' should carry _FillValue; all
                 # others (including coords and bounds) should not.
                 fill_and_compress = ['ct', 'sa', 'tf']

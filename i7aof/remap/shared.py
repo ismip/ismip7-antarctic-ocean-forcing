@@ -7,14 +7,10 @@ import xarray as xr
 
 from i7aof.coords import (
     attach_grid_coords,
-    ensure_cf_time_encoding,
-    propagate_time_from,
-    strip_fill_on_non_data,
 )
 from i7aof.grid.ismip import get_ismip_grid_filename
-from i7aof.io import read_dataset, write_netcdf
+from i7aof.io import ensure_cf_time_encoding, read_dataset, write_netcdf
 from i7aof.remap import add_periodic_lon, remap_lat_lon_to_ismip
-from i7aof.time.bounds import inject_time_bounds
 from i7aof.vert.interp import VerticalInterpolator, fix_src_z_coord
 
 
@@ -162,6 +158,9 @@ def _write_mask_stage(
         ds_out[var] = da_masked.astype(np.float32)
     ds_out['src_valid'] = interpolator.src_valid.astype(np.float32)
 
+    if 'time' in ds_out.dims:
+        ensure_cf_time_encoding(ds=ds_out, time_source=ds)
+
     has_fill_values = variables + ['src_valid']
     write_netcdf(
         ds_out,
@@ -191,6 +190,9 @@ def _write_interp_stage(
     if 'lev' in ds_out:
         ds_out = ds_out.drop_vars(['lev'])
 
+    if 'time' in ds_out.dims:
+        ensure_cf_time_encoding(ds=ds_out, time_source=ds)
+
     has_fill_values = variables + ['src_frac_interp']
     write_netcdf(
         ds_out,
@@ -217,6 +219,9 @@ def _write_normalize_stage(
         ds_out[var] = da_norm.astype(np.float32)
     ds_out['src_frac_interp'] = interpolator.src_frac_interp.astype(np.float32)
     ds_out['z_extrap_bnds'] = ds_ismip['z_extrap_bnds']
+
+    if 'time' in ds_out.dims:
+        ensure_cf_time_encoding(ds=ds_out, time_source=ds)
 
     has_fill_values = variables + ['src_frac_interp']
     write_netcdf(
@@ -294,8 +299,7 @@ def _remap_horiz(
     lon_var=None,
     lon_dim=None,
     *,
-    time_bounds: tuple[str, xr.DataArray] | None = None,
-    time_prefer_source: xr.Dataset | None = None,
+    time_source: xr.Dataset | None = None,
 ):
     """High-level orchestration for horizontal remapping."""
     method = config.get('remap', 'method')
@@ -350,8 +354,7 @@ def _remap_horiz(
         ds_source=ds,
         out_filename=out_filename,
         config=config,
-        time_bounds=time_bounds,
-        time_prefer_source=time_prefer_source,
+        time_source=time_source,
         has_fill_values=has_fill_values,
     )
 
@@ -476,8 +479,7 @@ def _finalize_and_write(
     ds_source: xr.Dataset,
     out_filename: str,
     config,
-    time_bounds: tuple[str, xr.DataArray] | None,
-    time_prefer_source: xr.Dataset | None,
+    time_source: xr.Dataset | None = None,
     has_fill_values: list[str] | None,
 ) -> None:
     """Attach metadata, ensure encodings, and atomically write final file."""
@@ -485,23 +487,10 @@ def _finalize_and_write(
     ds_final['src_frac_interp'] = ds_mask['src_frac_interp']
     ds_final = attach_grid_coords(ds_final, config)
     if 'time' in ds_source.dims:
-        ds_final = propagate_time_from(
-            ds_final,
-            ds_source,
-            apply_cf_encoding=False,
-        )
-        if time_bounds is not None:
-            inject_time_bounds(ds_final, time_bounds)
         ensure_cf_time_encoding(
-            ds_final,
-            units='days since 1850-01-01 00:00:00',
-            calendar=None,
-            prefer_source=time_prefer_source or ds_source,
+            ds=ds_final,
+            time_source=time_source,
         )
-    data_vars = [
-        str(v) for v in ds_final.data_vars if v not in ds_final.coords
-    ]
-    ds_final = strip_fill_on_non_data(ds_final, data_vars=data_vars)
     final_tmp = f'{out_filename}.tmp'
     try:
         if os.path.exists(final_tmp):
