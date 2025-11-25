@@ -302,6 +302,12 @@ def _compute_biases(
         climfile = os.path.join(
             climdir, f'OI_Climatology_ismip{ismip_res_str}_{var}_extrap.nc'
         )
+        if not os.path.exists(climfile):
+            raise FileNotFoundError(
+                f'Missing climatology file: {climfile}. Run '
+                f'ismip7-antarctic-extrap-clim first'
+            )
+
         ds_clim = read_dataset(climfile)
 
         # Open combined historical + future dataset (all files for variable)
