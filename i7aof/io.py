@@ -562,55 +562,48 @@ def _decide_fill_value(
     numpy_fillvals: Dict[Any, Any],
     has_fill_values: Optional[Union[bool, List[str]]],
 ) -> Tuple[bool, Optional[Any]]:
-    """Determine whether to set _FillValue and what value.
-
-    Returns (should_set, value). If ``should_set`` is False, caller should
-    omit ``_FillValue`` from the encoding. If True and ``value`` is None,
-    caller should set ``_FillValue=None`` to suppress backend defaults.
-
-    Decision rules (combined here to avoid duplication in _var_encoding):
-    1. Directive False  -> set flag with value None (suppress backend fill).
-    2. Directive True   -> set flag with type-appropriate default value.
-    3. Directive list   -> if var_name in list treat as True else fall back.
-    4. No directive     -> detect NaNs; if NaNs found set default value.
-    5. Preserve explicit existing value (encoding or attrs) even if no NaNs.
-    """
     dtype = getattr(var, 'dtype', None)
     candidate = numpy_fillvals.get(dtype)
 
-    # If no candidate (unsupported dtype) and no explicit value, skip
+    # 1. Global modes: has_fill_values is bool
+    if isinstance(has_fill_values, bool):
+        if has_fill_values:  # global enable
+            # Use candidate when available, otherwise explicitly suppress
+            return True, candidate if candidate is not None else None
+        # global disable: suppress for all
+        return True, None
+
+    # 2. List mode: per-variable control
+    if isinstance(has_fill_values, list):
+        in_list = var_name in has_fill_values
+        if in_list:
+            # Listed var must have a candidate
+            if candidate is None:
+                raise TypeError(
+                    f"Variable '{var_name}' (dtype={dtype}) is listed in "
+                    'has_fill_values but has no corresponding numpy_fillval.'
+                )
+            return True, candidate
+        # Not listed: always suppress backend default
+        return True, None
+
+    # 3. Auto mode (has_fill_values is None)
     if candidate is None:
         return False, None
 
-    # Determine directive state once
-    directive: Optional[bool] = None
-    if isinstance(has_fill_values, bool):
-        directive = has_fill_values
-    elif isinstance(has_fill_values, list):
-        directive = var_name in has_fill_values
-
-    # Explicit disable
-    if directive is False:
-        return True, None
-
-    # Explicit enable
-    if directive is True:
-        return True, candidate
-
-    # No explicit directive: preserve existing explicit value if present
     present_in_enc = '_FillValue' in getattr(var, 'encoding', {})
     present_in_attrs = '_FillValue' in getattr(var, 'attrs', {})
     if present_in_enc or present_in_attrs:
         existing = var.encoding.get('_FillValue', var.attrs.get('_FillValue'))
         return True, existing
 
-    # Lazily detect NaNs
     try:
         has_nan = bool(var.isnull().any().compute())
     except (RuntimeError, ValueError):
         has_nan = False
     if has_nan:
         return True, candidate
+
     return False, None
 
 
