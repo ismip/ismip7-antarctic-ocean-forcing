@@ -299,16 +299,18 @@ def _make_out_path(in_path: str, out_dir: str | None, suffix: str) -> str:
     return os.path.join(out_dir or os.path.dirname(in_path), out_name)
 
 
-def _get_calendar(ds: xr.Dataset) -> str | None:
+def _get_calendar(ds: xr.Dataset) -> str:
     """Best-effort extraction of the calendar string from the dataset."""
     # encoding is a dict and .get is safe; 'time' exists earlier in flow
     cal = ds['time'].encoding.get('calendar')
     if cal is None:
         cal = ds['time'].attrs.get('calendar')
+    if cal is None:
+        raise ValueError('Cannot determine calendar for time coordinate.')
     return cal
 
 
-def _build_time_and_bounds(years: np.ndarray, calendar: str | None):
+def _build_time_and_bounds(years: np.ndarray, calendar: str):
     """
     Create start-of-year time coordinates and [start, next-start] bounds.
 
@@ -336,7 +338,7 @@ def _build_time_and_bounds(years: np.ndarray, calendar: str | None):
         'standard': cftime.DatetimeGregorian,
         'proleptic_gregorian': cftime.DatetimeProlepticGregorian,
     }
-    cal_key = calendar or 'proleptic_gregorian'
+    cal_key = calendar
     dt_class = (
         cal_map[cal_key]
         if cal_key in cal_map

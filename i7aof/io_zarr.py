@@ -104,14 +104,15 @@ def finalize_zarr_to_netcdf(
         if 'time' in ds:
             t = ds['time']
             cal = (
-                (
-                    t.encoding.get('calendar')
-                    if isinstance(t.encoding, dict)
-                    else None
+                t.encoding.get('calendar')
+                if isinstance(t.encoding, dict)
+                else None
+            ) or t.attrs.get('calendar')
+            if cal is None:
+                raise ValueError(
+                    'Cannot determine calendar for time coordinate '
+                    'when finalizing Zarr to NetCDF.'
                 )
-                or t.attrs.get('calendar')
-                or 'proleptic_gregorian'
-            )
             _ensure_cftime_time(ds, cal)
             # Force-convert to numeric days since 1850 for both time and
             # time_bnds to avoid backend-specific unit choices.
