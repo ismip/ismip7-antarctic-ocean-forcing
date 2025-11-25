@@ -78,11 +78,20 @@ def split_cmip(
     # Variables to split. Extendable if needed.
     var_list = ['thetao', 'so']
 
+    section = f'{scenario}_files'
+
+    start_year = None
+    end_year = None
+    if config.has_option(section, 'start_year'):
+        start_year = config.getint(section, 'start_year')
+    if config.has_option(section, 'end_year'):
+        end_year = config.getint(section, 'end_year')
+
     for var in var_list:
-        if not config.has_option(f'{scenario}_files', var):
+        if not config.has_option(section, var):
             # Skip missing variable list in config
             continue
-        rel_paths = list(config.getexpression(f'{scenario}_files', var))
+        rel_paths = list(config.getexpression(section, var))
         if not rel_paths:
             continue
 
@@ -93,7 +102,14 @@ def split_cmip(
         for rel in rel_paths:
             in_abs = os.path.join(inputdir_base, rel)
             print(f'Splitting {var}: {in_abs}')
-            _split_one_file(in_abs, outdir, months_per_file, var_name=var)
+            _split_one_file(
+                in_abs,
+                outdir,
+                months_per_file,
+                var_name=var,
+                start_year=start_year,
+                end_year=end_year,
+            )
 
 
 def main() -> None:
@@ -143,42 +159,43 @@ def _parse_months_per_file(config: MpasConfigParser) -> int | None:
 
 
 def _split_one_file(
-    in_abs: str, outdir: str, months_per_file: int, var_name: str
+    in_abs: str,
+    outdir: str,
+    months_per_file: int,
+    var_name: str,
+    start_year: int | None,
+    end_year: int | None,
 ) -> None:
     ds = read_dataset(in_abs)
-    fill_and_compress = [var_name]
-    try:
-        if 'time' not in ds.dims:
-            # No time: just copy once with cleaned name
-            prefix = _derive_prefix_from_input(in_abs)
-            out_abs = os.path.join(outdir, f'{prefix}.nc')
-            write_netcdf(
-                ds,
-                out_abs,
-                has_fill_values=fill_and_compress,
-                compression=fill_and_compress,
-            )
+    # Optional subsetting by year range, if both bounds provided
+    if start_year is not None and end_year is not None:
+        ds = _subset_ds_by_year_range(ds, start_year, end_year)
+        if ds is None:
+            # No overlapping years; nothing to split from this file
             return
-
-        nt = int(ds.sizes['time'])
-        ranges = _compute_file_ranges(nt, months_per_file)
-        prefix = _derive_prefix_from_input(in_abs)
-        for t0, t1 in ranges:
-            start_year = _extract_year(ds['time'].isel(time=t0))
-            end_year = _extract_year(ds['time'].isel(time=t1 - 1))
-            out_abs = os.path.join(
-                outdir, f'{prefix}_{start_year}-{end_year}.nc'
-            )
-            ds_chunk = ds.isel(time=slice(t0, t1))
-            print(f'  -> {out_abs}')
-            write_netcdf(
-                ds_chunk,
-                out_abs,
-                has_fill_values=fill_and_compress,
-                compression=fill_and_compress,
-            )
-    finally:
-        ds.close()
+    fill_and_compress = [var_name]
+    if 'time' not in ds.dims:
+        raise ValueError(
+            f'Input file {in_abs} has no time dimension; '
+            'cannot split non-time data.'
+        )
+    nt = int(ds.sizes['time'])
+    ranges = _compute_file_ranges(nt, months_per_file)
+    prefix = _derive_prefix_from_input(in_abs)
+    for t0, t1 in ranges:
+        loc_start_year = _extract_year(ds['time'].isel(time=t0))
+        loc_end_year = _extract_year(ds['time'].isel(time=t1 - 1))
+        out_abs = os.path.join(
+            outdir, f'{prefix}_{loc_start_year}-{loc_end_year}.nc'
+        )
+        ds_chunk = ds.isel(time=slice(t0, t1))
+        print(f'  -> {out_abs}')
+        write_netcdf(
+            ds_chunk,
+            out_abs,
+            has_fill_values=fill_and_compress,
+            compression=fill_and_compress,
+        )
 
 
 def _compute_file_ranges(
@@ -198,6 +215,33 @@ def _derive_prefix_from_input(in_abs: str) -> str:
     if m:
         name = name[: m.start()]
     return name
+
+
+def _subset_ds_by_year_range(
+    ds: xr.Dataset, start_year: int, end_year: int
+) -> xr.Dataset | None:
+    """Return dataset subset to years overlapping [start_year, end_year].
+
+    If no overlap exists between the dataset's time coordinate and the
+    requested year range, return None.
+    """
+    if 'time' not in ds.coords and 'time' not in ds.dims:
+        raise ValueError(
+            'Dataset has no time coordinate; cannot subset by year range.'
+        )
+
+    # Convert year range to datetime64 bounds; include full end_year.
+    t_start = f'{start_year}-01-01'
+    t_end = f'{end_year + 1}-01-01'
+
+    # Use xarray's time-based selection; if the time coordinate cannot
+    # be interpreted as datetime-like, fall back to the original ds.
+    ds_sub = ds.sel(time=slice(t_start, t_end))
+
+    if 'time' not in ds_sub.dims or int(ds_sub.sizes.get('time', 0)) == 0:
+        return None
+
+    return ds_sub
 
 
 def _extract_year(t_da: xr.DataArray) -> int:

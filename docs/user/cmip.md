@@ -85,6 +85,21 @@ climatology_end_year   = 2024
 time_chunk = 12               # Bias application chunk
 ```
 
+For each CMIP scenario you want to process, you will also define a
+`[<scenario>_files]` section (for example, `[historical_files]` or
+`[ssp585_files]`). Within each of these sections you provide one or more
+expressions for `thetao` and `so` input files, typically glob patterns
+relative to `[inputdir] base_dir`.
+
+Optionally, you can restrict the split to a subset of years using
+integer `start_year` and/or `end_year` options in the same
+`[<scenario>_files]` section. When either or both are provided,
+`split_cmip` (and the `ismip7-antarctic-split-cmip` CLI) will first
+subset each input dataset to the overlapping year range and will skip
+files that do not overlap at all. This is the recommended way to work
+with a limited time span of the CMIP input data without modifying the
+original files.
+
 Tuning guidance:
 
 - Increase `months_per_file` for fewer open/close cycles if filesystem latency is high; keep manageable for restarts.
