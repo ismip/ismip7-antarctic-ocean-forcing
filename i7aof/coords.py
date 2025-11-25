@@ -296,7 +296,7 @@ def vertical_name_for(ds: xr.Dataset) -> str | None:
 def ensure_cf_time_encoding(
     ds: xr.Dataset,
     *,
-    units: str = 'days since 1850-01-01 00:00:00',
+    units: str = 'days since 1850-01-01',
     calendar: str | None = None,
     prefer_source: xr.Dataset | None = None,
 ) -> xr.Dataset:

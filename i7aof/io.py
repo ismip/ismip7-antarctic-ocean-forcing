@@ -50,42 +50,62 @@ def read_dataset(path, **kwargs) -> xr.Dataset:
 
     ds = xr.open_dataset(path, **kwargs)
 
-    if 'time' in ds.variables and 'time_bnds' in ds.variables:
+    # Track the calendar discovered from the original time metadata so we
+    # can normalize to cftime after stripping CF-style keys from coords.
+    cal: Optional[str] = None
+
+    if 'time' in ds.variables:
+        if 'bounds' not in ds['time'].attrs:
+            raise ValueError(
+                "The 'time' variable has no 'bounds' attribute but time "
+                'bounds are required for all i7aof workflows with time.'
+            )
+
+        # rename time bounds variable to standard name if necessary
+        time_bnds_name = ds['time'].attrs['bounds']
+        if time_bnds_name != 'time_bnds':
+            ds = ds.rename_vars({time_bnds_name: 'time_bnds'})
+            ds['time'].attrs['bounds'] = 'time_bnds'
+
         t = ds['time']
         tb = ds['time_bnds']
 
-        # Derive units/calendar from time's encoding or attrs
-        t_units = None
-        t_cal = None
+        # Derive units/calendar from time's attrs/encoding.
+        t_units: Optional[str] = None
         if hasattr(t, 'encoding') and isinstance(t.encoding, dict):
             t_units = t.encoding.get('units')
-            t_cal = t.encoding.get('calendar')
+            cal = t.encoding.get('calendar')
         if t_units is None:
             t_units = t.attrs.get('units')
-        if t_cal is None:
-            t_cal = t.attrs.get('calendar')
+        if cal is None:
+            cal = t.attrs.get('calendar')
 
-        # Normalize: place in encoding for CF encoding, ensure attrs don't
-        # carry conflicting keys that would trigger safe_setitem.
+        if cal is None:
+            raise ValueError(
+                "Cannot determine calendar for 'time' variable; "
+                "please ensure 'calendar' is set in attributes or encoding."
+            )
+
+        # Remove CF-style keys from attrs/encoding on both time and
+        # time_bnds so that downstream writing can re-establish a single,
+        # consistent choice without backend interference.
+        if isinstance(getattr(t, 'attrs', None), dict):
+            t.attrs.pop('units', None)
+            t.attrs.pop('calendar', None)
+        if isinstance(getattr(t, 'encoding', None), dict):
+            t.encoding.pop('units', None)
+            t.encoding.pop('calendar', None)
         if isinstance(getattr(tb, 'attrs', None), dict):
             tb.attrs.pop('units', None)
             tb.attrs.pop('calendar', None)
         if isinstance(getattr(tb, 'encoding', None), dict):
-            if t_units is not None:
-                tb.encoding['units'] = t_units
-            if t_cal is not None:
-                tb.encoding['calendar'] = t_cal
+            tb.encoding.pop('units', None)
+            tb.encoding.pop('calendar', None)
 
-    # Deterministically decode/normalize time and time_bnds to cftime
-    if 'time' in ds.variables:
-        t = ds['time']
-        cal = None
-        if hasattr(t, 'encoding') and isinstance(t.encoding, dict):
-            cal = t.encoding.get('calendar')
-        if cal is None and hasattr(t, 'attrs') and isinstance(t.attrs, dict):
-            cal = t.attrs.get('calendar')
-        if cal is None:
-            cal = 'proleptic_gregorian'
+        # Deterministically decode/normalize time and time_bnds to cftime.
+        # If we saw both time and time_bnds above, t_cal must be set or we
+        # already raised; if only time is present, derive calendar directly
+        # from its current metadata.
         _ensure_cftime_time(ds, cal)
 
     return ds
@@ -199,7 +219,7 @@ def write_netcdf(
     # Standardize time encodings across the package to avoid warnings and
     # ensure CF-consistent units between time and time_bnds.
     # Use days since 1850-01-01 as the common reference.
-    _apply_time_encoding(ds, encoding_dict)
+    _apply_time_encoding(ds)
 
     # for performance, we have to handle this as a special case
     convert = format == 'NETCDF3_64BIT_DATA'
@@ -258,17 +278,22 @@ def write_netcdf(
 
 def _apply_time_encoding(  # noqa: C901
     ds: xr.Dataset,
-    encoding_dict: dict,
     default_time_units: str = 'days since 1850-01-01',
 ) -> None:
     """
     Ensure consistent time/time_bnds encodings and clear conflicting attrs.
+
+    Target invariant for all workflows:
+
+    - time has attrs: bounds="time_bnds", units=<default_time_units>,
+      calendar=<calendar derived from input>
+    - time_bnds has no attrs
+    - neither variable has _FillValue in encoding or attrs
     """
     if 'time' not in ds.variables:
         return
     time_var = ds['time']
-    was_num_time = numpy.issubdtype(time_var.dtype, numpy.number)
-    # Determine calendar, prefer existing (encoding), then attrs, else default
+    # Determine calendar: prefer encoding, then attrs, else default
     calendar = (
         time_var.encoding.get('calendar')
         if hasattr(time_var, 'encoding')
@@ -277,99 +302,41 @@ def _apply_time_encoding(  # noqa: C901
     if calendar is None:
         calendar = time_var.attrs.get('calendar')
     if calendar is None:
-        calendar = 'proleptic_gregorian'
-
-    # CF encoding expects units/calendar declared for consistent serialization.
-    time_units = default_time_units
-
-    # Intentionally nested helpers: these are only used within
-    # _apply_time_encoding; keeping them local reduces clutter and avoids
-    # expanding the module surface area.
-    def _units_in(var: xr.DataArray):
-        u = None
-        if isinstance(getattr(var, 'attrs', None), dict):
-            u = var.attrs.get('units') or u
-        if isinstance(getattr(var, 'encoding', None), dict) and u is None:
-            u = var.encoding.get('units')
-        return u
-
-    def _validate_numeric_units(units_str: str, kind: str) -> None:
-        u = (units_str or '').lower().strip()
-        if not (u.startswith('days since') or u.startswith('seconds since')):
-            raise ValueError(
-                f"Unsupported numeric {kind} units: '{units_str}'. "
-                "Supported prefixes: 'days since', 'seconds since'."
-            )
-
-    # Normalize dtype for time
-    is_dt64 = numpy.issubdtype(time_var.dtype, numpy.datetime64)
-    is_num = numpy.issubdtype(time_var.dtype, numpy.number)
-    units_present = _units_in(time_var)
-    if is_dt64:
         raise ValueError(
-            'time coordinate is numpy.datetime64 at write time; this is not '
-            'supported in this workflow. Ensure time is decoded to cftime '
-            'earlier (use read_dataset) or provide numeric CF time with '
-            "supported units ('days since' or 'seconds since')."
-        )
-    if is_num and isinstance(units_present, str) and units_present:
-        # Validate units without converting to cftime
-        _validate_numeric_units(units_present, 'time')
-    # Clear conflicting attrs for cftime; preserve attrs for numeric
-
-    def _apply_meta(var: xr.DataArray):
-        # Clear attrs to avoid conflicts; set encoding appropriately
-        if isinstance(getattr(var, 'attrs', None), dict):
-            if _is_cftime_array(var):
-                var.attrs.pop('units', None)
-                var.attrs.pop('calendar', None)
-            else:
-                var.attrs['units'] = time_units
-                var.attrs['calendar'] = calendar
-        if isinstance(getattr(var, 'encoding', None), dict):
-            if _is_cftime_array(var):
-                var.encoding['units'] = time_units
-                var.encoding['calendar'] = calendar
-                var.encoding['dtype'] = 'float64'
-            else:
-                var.encoding.pop('units', None)
-                var.encoding.pop('calendar', None)
-                var.encoding['dtype'] = 'float64'
-
-    _apply_meta(time_var)
-    # Guard: numeric time must remain numeric within this function
-    if was_num_time and _is_cftime_array(ds['time']):
-        raise ValueError(
-            'time was numeric entering _apply_time_encoding but became '
-            'cftime (object) during encoding. Refusing to write to avoid '
-            'microseconds units. This indicates an unintended conversion.'
+            "Cannot determine calendar for 'time' variable; "
+            "please ensure 'calendar' is set in attributes or encoding."
         )
 
-    # Ensure time_bnds (if present) uses identical units/calendar
+    # Keep time as decoded cftime and let xarray's CF encoder handle the
+    # numeric conversion. We provide a single, consistent encoding for
+    # units/calendar and ensure no conflicting attrs/encodings remain.
+
+    # time: attrs (no CF encoding keys here; those are set via encoding)
+    if isinstance(getattr(time_var, 'attrs', None), dict):
+        time_var.attrs['bounds'] = 'time_bnds'
+        time_var.attrs.pop('units', None)
+        time_var.attrs.pop('calendar', None)
+        time_var.attrs.pop('_FillValue', None)
+
+    # time: encoding – specify our desired units/calendar/dtype
+    if isinstance(getattr(time_var, 'encoding', None), dict):
+        enc = time_var.encoding
+        enc['units'] = default_time_units
+        enc['calendar'] = calendar
+        enc['dtype'] = 'float64'
+        enc.pop('_FillValue', None)
+
+    # time_bnds: clear attrs, set encoding to match time, no _FillValue
     if 'time_bnds' in ds.variables:
         tb = ds['time_bnds']
-        was_num_tb = numpy.issubdtype(tb.dtype, numpy.number)
-        # Ensure dtype consistency for bounds; validate when numeric+units
-        is_dt64_tb = numpy.issubdtype(tb.dtype, numpy.datetime64)
-        is_num_tb = numpy.issubdtype(tb.dtype, numpy.number)
-        units_tb = _units_in(tb)
-        if is_dt64_tb:
-            raise ValueError(
-                'time_bnds is numpy.datetime64 at write time; this is not '
-                'supported in this workflow. Ensure bounds are cftime '
-                'earlier or provide numeric CF time with supported units.'
-            )
-        if is_num_tb and isinstance(units_tb, str) and units_tb:
-            _validate_numeric_units(units_tb, 'time_bnds')
-        _apply_meta(tb)
-        # Guard: numeric time_bnds must remain numeric
-        if was_num_tb and _is_cftime_array(ds['time_bnds']):
-            raise ValueError(
-                'time_bnds was numeric entering _apply_time_encoding but '
-                'became cftime (object) during encoding. Refusing to write '
-                'to avoid microseconds units. This indicates an unintended '
-                'conversion.'
-            )
+        if isinstance(getattr(tb, 'attrs', None), dict):
+            tb.attrs.clear()
+        if isinstance(getattr(tb, 'encoding', None), dict):
+            tb_enc = tb.encoding
+            tb_enc['units'] = default_time_units
+            tb_enc['calendar'] = calendar
+            tb_enc['dtype'] = 'float64'
+            tb_enc.pop('_FillValue', None)
 
 
 def _build_encoding_dict(
