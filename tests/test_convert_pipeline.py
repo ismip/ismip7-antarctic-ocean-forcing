@@ -5,8 +5,7 @@ import netCDF4
 import numpy as np
 import xarray as xr
 
-from i7aof.coords import ensure_cf_time_encoding
-from i7aof.io import read_dataset
+from i7aof.io import ensure_cf_time_encoding, read_dataset
 from i7aof.io_zarr import append_to_zarr, finalize_zarr_to_netcdf
 
 
@@ -182,12 +181,11 @@ def test_zarr_to_netcdf_preserves_time_and_units(tmp_path) -> None:
 
     # Postprocess to ensure CF-consistent time encoding
     def _post(d: xr.Dataset) -> xr.Dataset:
-        return ensure_cf_time_encoding(
-            d,
-            units='days since 1850-01-01 00:00:00',
-            calendar=None,
-            prefer_source=ds,
+        ensure_cf_time_encoding(
+            ds=d,
+            time_source=ds,
         )
+        return d
 
     finalize_zarr_to_netcdf(
         zarr_store=zarr_store,
