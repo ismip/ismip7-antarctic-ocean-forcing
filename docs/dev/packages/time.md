@@ -35,7 +35,7 @@ Purpose: Time utilities for annual averaging, CMIP-focused annual drivers, and t
 - Annual time stamps are at start-of-year with CF `time_bnds` covering `[start_of_year, start_of_next_year]`.
 - Handles common CF calendars (gregorian, noleap, 360_day, proleptic_gregorian) using cftime.
 - Passes through non-time data vars and coordinates; only data variables with a `time` dimension are averaged.
-- Fill values and compression: annual outputs are written via {py:func}`i7aof.io.write_netcdf` with an explicit policy that only `'ct'`, `'sa'`, and `'tf'` carry `_FillValue` and compression; coords and bounds have fills suppressed.
+- Fill values and compression: annual outputs are written via {py:func}`i7aof.io.write_netcdf` with an explicit policy that only `'ct'`, `'sa'`, and `'tf'` carry `_FillValue` and compression; coordinate and other non-data variables never receive `_FillValue` encodings.
 
 ## Runtime and external requirements
 
@@ -101,7 +101,7 @@ inject_time_bounds(ds, time_bounds)
   - Weights by days-in-month; casts float64 to float32 for data vars before averaging; preserves attributes.
   - Constructs `time` and `time_bnds` with cftime classes based on the detected calendar.
   - Keeps other coords and non-time data variables; sets `time.attrs['bounds'] = 'time_bnds'`.
-  - Suppresses fill on non-data vars via `strip_fill_on_non_data` and writes using `write_netcdf` with `has_fill_values=['ct','sa','tf']` and `compression=['ct','sa','tf']`.
+  - Suppresses fill on non-data vars internally (via the time/encoding helpers in {py:mod}`i7aof.io`) and writes using {py:func}`i7aof.io.write_netcdf` with `has_fill_values=['ct','sa','tf']` and `compression=['ct','sa','tf']`.
   - Writes to a temp file in the output directory and atomically renames to the final filename.
 - cmip:
   - Loads config to resolve `workdir`; discovers monthly inputs under `biascorr/.../Omon/{ct_sa,tf}`; writes annual outputs to `Oyr/ct_sa_tf`.
