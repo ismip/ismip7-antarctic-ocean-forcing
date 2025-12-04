@@ -1,6 +1,8 @@
 import os
 import subprocess
+import warnings
 from pathlib import Path
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import cftime
 import netCDF4
@@ -8,6 +10,33 @@ import numpy
 import xarray as xr
 from dask.diagnostics.progress import ProgressBar
 from xarray.coders import CFDatetimeCoder  # noqa: F401
+
+__all__ = [
+    'read_dataset',
+    'write_netcdf',
+    'ensure_cf_time_encoding',
+]
+
+
+# Default compression options when compression is requested as a boolean
+# or via a callable returning True. These options are supported by the
+# netCDF4/HDF5-based backends ('netcdf4' and 'h5netcdf').
+DEFAULT_COMPRESSION = {
+    'zlib': True,
+    'complevel': 4,
+    'shuffle': True,
+}
+
+TIME_UNITS = 'days since 1850-01-01'
+
+NetcdfFormat = Literal[
+    'NETCDF4',
+    'NETCDF4_CLASSIC',
+    'NETCDF3_64BIT',
+    'NETCDF3_64BIT_DATA',
+    'NETCDF3_CLASSIC',
+]
+NetcdfEngine = Literal['netcdf4', 'scipy', 'h5netcdf']
 
 
 def read_dataset(path, **kwargs) -> xr.Dataset:
@@ -30,56 +59,35 @@ def read_dataset(path, **kwargs) -> xr.Dataset:
 
     ds = xr.open_dataset(path, **kwargs)
 
-    if 'time' in ds.variables and 'time_bnds' in ds.variables:
-        t = ds['time']
-        tb = ds['time_bnds']
-
-        # Derive units/calendar from time's encoding or attrs
-        t_units = None
-        t_cal = None
-        if hasattr(t, 'encoding') and isinstance(t.encoding, dict):
-            t_units = t.encoding.get('units')
-            t_cal = t.encoding.get('calendar')
-        if t_units is None:
-            t_units = t.attrs.get('units')
-        if t_cal is None:
-            t_cal = t.attrs.get('calendar')
-
-        # Normalize: place in encoding for CF encoding, ensure attrs don't
-        # carry conflicting keys that would trigger safe_setitem.
-        if isinstance(getattr(tb, 'attrs', None), dict):
-            tb.attrs.pop('units', None)
-            tb.attrs.pop('calendar', None)
-        if isinstance(getattr(tb, 'encoding', None), dict):
-            if t_units is not None:
-                tb.encoding['units'] = t_units
-            if t_cal is not None:
-                tb.encoding['calendar'] = t_cal
-
-    # Deterministically decode/normalize time and time_bnds to cftime
     if 'time' in ds.variables:
-        t = ds['time']
-        cal = None
-        if hasattr(t, 'encoding') and isinstance(t.encoding, dict):
-            cal = t.encoding.get('calendar')
-        if cal is None and hasattr(t, 'attrs') and isinstance(t.attrs, dict):
-            cal = t.attrs.get('calendar')
-        if cal is None:
-            cal = 'proleptic_gregorian'
-        _ensure_cftime_time(ds, cal)
+        if 'bounds' not in ds['time'].attrs:
+            raise ValueError(
+                "The 'time' variable has no 'bounds' attribute but time "
+                'bounds are required for all i7aof workflows with time.'
+            )
+
+        # rename time bounds variable to standard name if necessary
+        time_bnds_name = ds['time'].attrs['bounds']
+        if time_bnds_name != 'time_bnds':
+            ds = ds.rename_vars({time_bnds_name: 'time_bnds'})
+            ds['time'].attrs['bounds'] = 'time_bnds'
+
+        ensure_cf_time_encoding(ds)
 
     return ds
 
 
 def write_netcdf(
-    ds,
-    filename,
-    fillvalues=None,
-    format=None,
-    engine=None,
-    progress_bar=False,
-    has_fill_values=None,
-):
+    ds: xr.Dataset,
+    filename: Union[str, Path],
+    fillvalues: Optional[Dict[str, Any]] = None,
+    format: Optional[NetcdfFormat] = None,
+    engine: Optional[NetcdfEngine] = None,
+    progress_bar: bool = False,
+    has_fill_values: Optional[Union[bool, List[str]]] = None,
+    compression: Optional[Union[bool, List[str]]] = None,
+    compression_opts: Optional[Dict[str, Any]] = None,
+) -> None:
     """
     Write an xarray.Dataset to a file with NetCDF4 fill values
 
@@ -95,23 +103,45 @@ def write_netcdf(
         A dictionary of fill values for different NetCDF types.  Default is
         ``netCDF4.default_fillvals``
 
-    format : {'NETCDF4', 'NETCDF4_CLASSIC', 'NETCDF3_64BIT', 'NETCDF3_CLASSIC'}, optional
+    format : {'NETCDF4', 'NETCDF4_CLASSIC', 'NETCDF3_64BIT', 'NETCDF3_64BIT_DATA', 'NETCDF3_CLASSIC'}, optional
         The NetCDF file format to use, the default is 'NETCDF4'
 
     engine : {'netcdf4', 'scipy', 'h5netcdf'}, optional
-        The library to use for NetCDF output, the default is 'netcdf4'
+        The library to use for NetCDF output, the default is 'h5netcdf' if
+        ``compression`` is specified, otherwise 'netcdf4'.
 
-    has_fill_values : bool | dict | callable, optional
+    has_fill_values : bool | list, optional
         Controls whether to apply ``_FillValue`` per variable without scanning
         data:
+
           - bool: apply to all variables (True adds, False omits)
-          - dict: mapping of var_name -> bool
-          - callable: function (var_name, var: xarray.DataArray) -> bool
+
+          - list: the list of variable names to which to apply fill values.
+
         If omitted (None), the function determines necessity by checking for
         NaNs using xarray's lazy operations (``var.isnull().any().compute()``),
         which is safe for chunked datasets. For unchunked datasets, the scan
         may load data into memory; callers can avoid this by opening datasets
         with Dask chunks.
+
+    compression : bool | list, optional
+        Controls variable compression. Accepted forms mirror ``has_fill_values``
+        semantics:
+
+          - bool: enable/disable default compression for all variables
+
+          - list: the list of variable names to compress.
+
+        If omitted (None), no compression is enabled by default; callers can
+        enable it selectively. Note that support and available options depend
+        on the chosen ``engine`` (for example, ``scipy`` does not support
+        compression; ``netcdf4``/``h5netcdf`` do).
+
+    compression_opts : dict, optional
+        Default compression options to apply when compression is requested via
+        a boolean directive. Example: ``{'zlib': True, 'complevel': 4}``.
+        These defaults are merged with any per-variable dicts specified in
+        ``compression``.
     """  # noqa: E501
     if fillvalues is None:
         fillvalues = netCDF4.default_fillvals
@@ -122,7 +152,28 @@ def write_netcdf(
         if not filltype.startswith('S'):
             numpy_fillvals[numpy.dtype(filltype)] = fillvalue
 
-    encoding_dict = _build_encoding_dict(ds, numpy_fillvals, has_fill_values)
+    # If compression requested and engine unspecified, prefer 'h5netcdf'
+    if compression is not None and engine is None:
+        engine = 'h5netcdf'
+
+    # If the chosen engine does not support compression, warn and ignore
+    if compression is not None and engine == 'scipy':
+        warnings.warn(
+            'The "scipy" NetCDF engine does not support compression; ignoring '
+            'compression directives.',
+            UserWarning,
+            stacklevel=2,
+        )
+        compression = None
+
+    encoding_dict = _build_encoding_dict(
+        ds,
+        numpy_fillvals,
+        has_fill_values,
+        compression,
+        compression_opts,
+        engine,
+    )
 
     if 'time' in ds.dims:
         # make sure the time dimension is unlimited
@@ -151,18 +202,25 @@ def write_netcdf(
     else:
         out_filename = filename
 
-    write_job = ds.to_netcdf(
-        out_filename,
-        encoding=encoding_dict,
-        format=format,
-        engine=engine,
-        compute=not progress_bar,
-    )
-
     if progress_bar:
+        write_job = ds.to_netcdf(
+            out_filename,
+            encoding=encoding_dict,
+            format=format,
+            engine=engine,
+            compute=False,
+        )
         with ProgressBar():
             print(f'Writing to {out_filename}:')
             write_job.compute()
+    else:
+        ds.to_netcdf(
+            out_filename,
+            encoding=encoding_dict,
+            format=format,
+            engine=engine,
+            compute=True,
+        )
 
     if convert:
         args = [
@@ -184,125 +242,176 @@ def write_netcdf(
         os.remove(out_filename)
 
 
-def _apply_time_encoding(  # noqa: C901
+def ensure_cf_time_encoding(
+    ds: xr.Dataset,
+    time_source: xr.Dataset | None = None,
+) -> None:
+    """
+
+    Parameters
+    ----------
+    ds : xarray.Dataset
+        Dataset whose encodings will be updated in-place.
+    time_source : xarray.Dataset, optional
+        If provided, use its time variables to replace those from ``ds``.
+
+    Returns
+    -------
+    xarray.Dataset
+        The same dataset instance with encodings updated.
+    """
+    copy_time = True
+    if time_source is None:
+        time_source = ds
+        copy_time = False
+
+    if 'time' not in time_source.variables:
+        raise ValueError(
+            'Dataset has no time variable; cannot ensure cftime time encoding.'
+        )
+    if 'time_bnds' not in time_source.variables:
+        raise ValueError(
+            'Dataset has time but no time bounds variable. Time bounds are '
+            'required for all i7aof workflows with time.'
+        )
+
+    # Ensure values are cftime objects for predictable CF encoding
+    if not _is_cftime_array(time_source['time']):
+        raise ValueError(
+            'i7aof workflows require that time be a cftime array.'
+        )
+    if not _is_cftime_array(time_source['time_bnds']):
+        raise ValueError(
+            'i7aof workflows require that time_bnds be a cftime array.'
+        )
+
+    if copy_time:
+        ds['time'] = time_source['time']
+        ds['time_bnds'] = time_source['time_bnds']
+
+    cal = _extract_calendar(time_source)
+
+    if cal is None:
+        raise ValueError(
+            "Cannot determine calendar for 'time' variable; "
+            "please ensure 'calendar' is set in attributes or encoding."
+        )
+
+    # Remove attributes and instead set encoding to ensure that we get the
+    # desired encoding.
+    t = ds['time']
+    if isinstance(getattr(t, 'attrs', None), dict):
+        t.attrs.pop('units', None)
+        t.attrs.pop('calendar', None)
+    if isinstance(getattr(t, 'encoding', None), dict):
+        t.encoding['units'] = TIME_UNITS
+        t.encoding['calendar'] = cal
+        t.encoding['dtype'] = 'float64'
+
+    tb = ds['time_bnds']
+    if isinstance(getattr(tb, 'attrs', None), dict):
+        tb.attrs.pop('units', None)
+        tb.attrs.pop('calendar', None)
+    if isinstance(getattr(tb, 'encoding', None), dict):
+        tb.encoding['units'] = TIME_UNITS
+        tb.encoding['calendar'] = cal
+        tb.encoding['dtype'] = 'float64'
+
+
+def _extract_calendar(obj: xr.Dataset) -> str | None:
+    """Extract calendar string from a dataset's time variable."""
+    if 'time' not in obj.variables:
+        return None
+    t = obj['time']
+    # Prefer encoding (where xarray stores decoded meta), then attrs
+    if hasattr(t, 'encoding') and isinstance(t.encoding, dict):
+        cal_enc = t.encoding.get('calendar')
+        if isinstance(cal_enc, str) and cal_enc:
+            return cal_enc
+    tattrs = getattr(t, 'attrs', {}) or {}
+    return tattrs.get('calendar') or tattrs.get('calendar_type')
+
+
+def _apply_time_encoding(
     ds: xr.Dataset,
     encoding_dict: dict,
-    default_time_units: str = 'days since 1850-01-01',
 ) -> None:
     """
     Ensure consistent time/time_bnds encodings and clear conflicting attrs.
+
+    Target invariant for all workflows:
+
+    - time has attrs: bounds="time_bnds", units=<default_time_units>,
+      calendar=<calendar derived from input>
+    - time_bnds has no attrs
+    - neither variable has _FillValue in encoding or attrs
     """
     if 'time' not in ds.variables:
         return
-    time_var = ds['time']
-    was_num_time = numpy.issubdtype(time_var.dtype, numpy.number)
-    # Determine calendar, prefer existing (encoding), then attrs, else default
-    calendar = (
-        time_var.encoding.get('calendar')
-        if hasattr(time_var, 'encoding')
-        else None
-    )
-    if calendar is None:
-        calendar = time_var.attrs.get('calendar')
-    if calendar is None:
-        calendar = 'proleptic_gregorian'
 
-    # CF encoding expects units/calendar declared for consistent serialization.
-    time_units = default_time_units
-
-    # Intentionally nested helpers: these are only used within
-    # _apply_time_encoding; keeping them local reduces clutter and avoids
-    # expanding the module surface area.
-    def _units_in(var: xr.DataArray):
-        u = None
-        if isinstance(getattr(var, 'attrs', None), dict):
-            u = var.attrs.get('units') or u
-        if isinstance(getattr(var, 'encoding', None), dict) and u is None:
-            u = var.encoding.get('units')
-        return u
-
-    def _validate_numeric_units(units_str: str, kind: str) -> None:
-        u = (units_str or '').lower().strip()
-        if not (u.startswith('days since') or u.startswith('seconds since')):
-            raise ValueError(
-                f"Unsupported numeric {kind} units: '{units_str}'. "
-                "Supported prefixes: 'days since', 'seconds since'."
-            )
-
-    # Normalize dtype for time
-    is_dt64 = numpy.issubdtype(time_var.dtype, numpy.datetime64)
-    is_num = numpy.issubdtype(time_var.dtype, numpy.number)
-    units_present = _units_in(time_var)
-    if is_dt64:
+    if 'time_bnds' not in ds.variables:
         raise ValueError(
-            'time coordinate is numpy.datetime64 at write time; this is not '
-            'supported in this workflow. Ensure time is decoded to cftime '
-            'earlier (use read_dataset) or provide numeric CF time with '
-            "supported units ('days since' or 'seconds since')."
+            'Dataset has time but no time bounds variable. Time bounds are '
+            'required for all i7aof workflows with time.'
         )
-    if is_num and isinstance(units_present, str) and units_present:
-        # Validate units without converting to cftime
-        _validate_numeric_units(units_present, 'time')
-    # Clear conflicting attrs for cftime; preserve attrs for numeric
+    t = ds['time']
+    tb = ds['time_bnds']
+    # Determine calendar: prefer encoding, then attrs, else default
+    calendar = t.encoding.get('calendar') if hasattr(t, 'encoding') else None
+    if calendar is None:
+        calendar = t.attrs.get('calendar')
+    if calendar is None:
+        raise ValueError(
+            "Cannot determine calendar for 'time' variable; "
+            "please ensure 'calendar' is set in attributes or encoding."
+        )
 
-    def _apply_meta(var: xr.DataArray):
-        # Clear attrs to avoid conflicts; set encoding appropriately
-        if isinstance(getattr(var, 'attrs', None), dict):
-            if _is_cftime_array(var):
-                var.attrs.pop('units', None)
-                var.attrs.pop('calendar', None)
-            else:
-                var.attrs['units'] = time_units
-                var.attrs['calendar'] = calendar
+    # Keep time as decoded cftime and let xarray's CF encoder handle the
+    # numeric conversion. We provide a single, consistent encoding for
+    # units/calendar and ensure no conflicting attrs/encodings remain.
+
+    # time: attrs (no CF encoding keys here; those are set via encoding)
+    if isinstance(getattr(t, 'attrs', None), dict):
+        t.attrs['bounds'] = 'time_bnds'
+        t.attrs.pop('units', None)
+        t.attrs.pop('calendar', None)
+        t.attrs.pop('_FillValue', None)
+    # time_bnds: clear attrs to follow CF conventions
+    if isinstance(getattr(tb, 'attrs', None), dict):
+        tb.attrs.clear()
+
+    for var_name in ('time', 'time_bnds'):
+        if var_name not in ds.variables:
+            continue
+        var = ds[var_name]
+
+        # Remove any _FillValue from attrs or encoding
         if isinstance(getattr(var, 'encoding', None), dict):
-            if _is_cftime_array(var):
-                var.encoding['units'] = time_units
-                var.encoding['calendar'] = calendar
-                var.encoding['dtype'] = 'float64'
-            else:
-                var.encoding.pop('units', None)
-                var.encoding.pop('calendar', None)
-                var.encoding['dtype'] = 'float64'
+            enc = var.encoding
+            enc['units'] = TIME_UNITS
+            enc['calendar'] = calendar
+            enc['dtype'] = 'float64'
+            enc.pop('_FillValue', None)
 
-    _apply_meta(time_var)
-    # Guard: numeric time must remain numeric within this function
-    if was_num_time and _is_cftime_array(ds['time']):
-        raise ValueError(
-            'time was numeric entering _apply_time_encoding but became '
-            'cftime (object) during encoding. Refusing to write to avoid '
-            'microseconds units. This indicates an unintended conversion.'
-        )
-
-    # Ensure time_bnds (if present) uses identical units/calendar
-    if 'time_bnds' in ds.variables:
-        tb = ds['time_bnds']
-        was_num_tb = numpy.issubdtype(tb.dtype, numpy.number)
-        # Ensure dtype consistency for bounds; validate when numeric+units
-        is_dt64_tb = numpy.issubdtype(tb.dtype, numpy.datetime64)
-        is_num_tb = numpy.issubdtype(tb.dtype, numpy.number)
-        units_tb = _units_in(tb)
-        if is_dt64_tb:
-            raise ValueError(
-                'time_bnds is numpy.datetime64 at write time; this is not '
-                'supported in this workflow. Ensure bounds are cftime '
-                'earlier or provide numeric CF time with supported units.'
-            )
-        if is_num_tb and isinstance(units_tb, str) and units_tb:
-            _validate_numeric_units(units_tb, 'time_bnds')
-        _apply_meta(tb)
-        # Guard: numeric time_bnds must remain numeric
-        if was_num_tb and _is_cftime_array(ds['time_bnds']):
-            raise ValueError(
-                'time_bnds was numeric entering _apply_time_encoding but '
-                'became cftime (object) during encoding. Refusing to write '
-                'to avoid microseconds units. This indicates an unintended '
-                'conversion.'
-            )
+        # the encoding_dict overrides the encoding attribute so set that as
+        # well
+        enc = encoding_dict.get(var_name, {})
+        enc['units'] = TIME_UNITS
+        enc['calendar'] = calendar
+        enc['dtype'] = 'float64'
+        # Ensure no _FillValue is set
+        enc['_FillValue'] = None
+        encoding_dict[var_name] = enc
 
 
 def _build_encoding_dict(
-    dataset: xr.Dataset, numpy_fillvals: dict, has_fill_values
-) -> dict:
+    dataset: xr.Dataset,
+    numpy_fillvals: Dict[numpy.dtype, Any],
+    has_fill_values: Optional[Union[bool, List[str]]],
+    compression: Optional[Union[bool, List[str]]],
+    compression_opts: Optional[Dict[str, Any]],
+    engine: Optional[NetcdfEngine],
+) -> Dict[str, Dict[str, Any]]:
     """Build encoding dict for variables, including _FillValue decisions."""
     enc: dict = {}
     var_names_local = list(dataset.data_vars.keys()) + list(
@@ -310,62 +419,18 @@ def _build_encoding_dict(
     )
     for vn in var_names_local:
         var = dataset[vn]
-        enc_v = _var_encoding(vn, var, numpy_fillvals, has_fill_values)
+        enc_v = _var_encoding(
+            vn,
+            var,
+            numpy_fillvals,
+            has_fill_values,
+            compression,
+            compression_opts,
+            engine,
+        )
         if enc_v:
             enc[vn] = enc_v
     return enc
-
-
-def _cftime_class_for(calendar: str):
-    cal = (calendar or '').lower()
-    mapping = {
-        'noleap': cftime.DatetimeNoLeap,
-        '365_day': cftime.DatetimeNoLeap,
-        'all_leap': cftime.DatetimeAllLeap,
-        '366_day': cftime.DatetimeAllLeap,
-        'gregorian': cftime.DatetimeGregorian,
-        'proleptic_gregorian': cftime.DatetimeProlepticGregorian,
-        'julian': cftime.DatetimeJulian,
-        'standard': cftime.DatetimeProlepticGregorian,
-    }
-    return mapping.get(cal, cftime.DatetimeProlepticGregorian)
-
-
-def _to_cftime_array(datetimes: numpy.ndarray, calendar: str) -> numpy.ndarray:
-    """
-    Convert numpy.datetime64 array to cftime objects for the given calendar.
-    """
-    cls = _cftime_class_for(calendar)
-    # Ensure nanosecond resolution for consistent extraction
-    dtns = datetimes.astype('datetime64[ns]')
-    # Convert to Python-like components via ISO strings, then extract parts.
-    out = numpy.empty(dtns.size, dtype=object)
-    # Use ISO parsing with numpy for speed; fallback to python components
-    # Convert to structured y-m-d h:m:s via string slicing
-    iso = dtns.astype('datetime64[ns]').astype(str)
-    for i, s in enumerate(iso):
-        # s like 'YYYY-MM-DDThh:mm:ss.nnnnnnnnn'
-        date_time = s.split('T')
-        y, m, d = map(int, date_time[0].split('-'))
-        if len(date_time) > 1:
-            hms = date_time[1]
-            h, mi, sec = hms.split(':')
-            h = int(h)
-            mi = int(mi)
-            # sec may contain fractional seconds
-            if '.' in sec:
-                s_int, frac = sec.split('.')
-                s_val = int(s_int)
-                # cftime supports microseconds
-                micro = int(round(int(frac[:6].ljust(6, '0'))))
-            else:
-                s_val = int(sec)
-                micro = 0
-        else:
-            h = mi = s_val = 0
-            micro = 0
-        out[i] = cls(y, m, d, h, mi, s_val, microsecond=micro)
-    return out.reshape(datetimes.shape)
 
 
 def _is_cftime_array(var: xr.DataArray) -> bool:
@@ -390,169 +455,143 @@ def _is_cftime_array(var: xr.DataArray) -> bool:
     return isinstance(mod, str) and mod.startswith('cftime')
 
 
-def _num_to_cftime(
-    values: numpy.ndarray, units: str, calendar: str
-) -> numpy.ndarray:
-    """
-    Convert numeric time values with supported CF units into cftime objects.
-
-    Supported units prefixes: 'days since', 'seconds since'.
-    Raises ValueError for unsupported units (e.g., 'microseconds since').
-    """
-    units_l = units.lower().strip()
-    if not (
-        units_l.startswith('days since') or units_l.startswith('seconds since')
-    ):
-        raise ValueError(
-            f"Unsupported time units for conversion to cftime: '{units}'. "
-            "Supported prefixes: 'days since', 'seconds since'."
-        )
-    # cftime.num2date may raise ValueError for malformed units; let it surface.
-    return numpy.array(
-        cftime.num2date(values.astype(float), units, calendar=calendar),
-        dtype=object,
-    )
-
-
-def _ensure_cftime_time(ds: xr.Dataset, calendar: str) -> None:
-    """
-    Ensure ds['time'] and ds['time_bnds'] (if present) use cftime objects.
-
-    Converts from numpy.datetime64 or numeric arrays with supported
-    CF units ('days since', 'seconds since'). If numeric units are
-    not present or unsupported (e.g., 'microseconds since'), no
-    implicit conversion is performed here; callers can decide to error
-    or skip CF encoding based on the result.
-    """
-    if 'time' in ds.variables:
-        t = ds['time']
-        if not _is_cftime_array(t):
-            if numpy.issubdtype(t.dtype, numpy.datetime64):
-                ds['time'] = xr.DataArray(
-                    _to_cftime_array(t.values, calendar), dims=t.dims
-                )
-            elif numpy.issubdtype(t.dtype, numpy.number):
-                # numeric time with possible units in attrs/encoding
-                units = None
-                if hasattr(t, 'attrs') and isinstance(t.attrs, dict):
-                    units = t.attrs.get('units')
-                if (
-                    units is None
-                    and hasattr(t, 'encoding')
-                    and isinstance(t.encoding, dict)
-                ):
-                    units = t.encoding.get('units')
-                if isinstance(units, str) and units:
-                    ds['time'] = xr.DataArray(
-                        _num_to_cftime(t.values, units, calendar), dims=t.dims
-                    )
-    if 'time_bnds' in ds.variables:
-        tb = ds['time_bnds']
-        if not _is_cftime_array(tb):
-            if numpy.issubdtype(tb.dtype, numpy.datetime64):
-                ds['time_bnds'] = xr.DataArray(
-                    _to_cftime_array(tb.values, calendar), dims=tb.dims
-                )
-            elif numpy.issubdtype(tb.dtype, numpy.number):
-                units = None
-                if hasattr(tb, 'attrs') and isinstance(tb.attrs, dict):
-                    units = tb.attrs.get('units')
-                if (
-                    units is None
-                    and hasattr(tb, 'encoding')
-                    and isinstance(tb.encoding, dict)
-                ):
-                    units = tb.encoding.get('units')
-                if isinstance(units, str) and units:
-                    ds['time_bnds'] = xr.DataArray(
-                        _num_to_cftime(tb.values, units, calendar),
-                        dims=tb.dims,
-                    )
-
-
-def _decide_fill_value(var_name, var, numpy_fillvals, has_fill_values):
-    """Return an appropriate _FillValue (or None) for a variable.
-
-    - Respects caller directive (bool|dict|callable) when provided.
-    - Otherwise detects NaNs via xarray lazy ops (safe for chunked arrays).
-    """
+def _decide_fill_value(
+    var_name: str,
+    var: xr.DataArray,
+    numpy_fillvals: Dict[Any, Any],
+    has_fill_values: Optional[Union[bool, List[str]]],
+) -> Tuple[bool, Optional[Any]]:
     dtype = getattr(var, 'dtype', None)
     candidate = numpy_fillvals.get(dtype)
+
+    # 1. Global modes: has_fill_values is bool
+    if isinstance(has_fill_values, bool):
+        if has_fill_values:  # global enable
+            # Use candidate when available, otherwise explicitly suppress
+            return True, candidate if candidate is not None else None
+        # global disable: suppress for all
+        return True, None
+
+    # 2. List mode: per-variable control
+    if isinstance(has_fill_values, list):
+        in_list = var_name in has_fill_values
+        if in_list:
+            # Listed var must have a candidate
+            if candidate is None:
+                raise TypeError(
+                    f"Variable '{var_name}' (dtype={dtype}) is listed in "
+                    'has_fill_values but has no corresponding numpy_fillval.'
+                )
+            return True, candidate
+        # Not listed: always suppress backend default
+        return True, None
+
+    # 3. Auto mode (has_fill_values is None)
     if candidate is None:
-        return None
+        return False, None
 
-    # Caller directive overrides default behavior
-    if has_fill_values is not None:
-        if isinstance(has_fill_values, bool):
-            return candidate if has_fill_values else None
-        if isinstance(has_fill_values, dict):
-            choice = has_fill_values.get(var_name)
-            if choice is not None:
-                return candidate if choice else None
-        if callable(has_fill_values):
-            try:
-                choice = bool(has_fill_values(var_name, var))
-                return candidate if choice else None
-            except (TypeError, ValueError):
-                # Fall back to default behavior
-                pass
+    present_in_enc = '_FillValue' in getattr(var, 'encoding', {})
+    present_in_attrs = '_FillValue' in getattr(var, 'attrs', {})
+    if present_in_enc or present_in_attrs:
+        existing = var.encoding.get('_FillValue', var.attrs.get('_FillValue'))
+        return True, existing
 
-    # Default: detect NaNs using xarray (works well for chunked data)
     try:
         has_nan = bool(var.isnull().any().compute())
     except (RuntimeError, ValueError):
         has_nan = False
-    return candidate if has_nan else None
+    if has_nan:
+        return True, candidate
+
+    return False, None
 
 
-def _var_encoding(var_name, var, numpy_fillvals, has_fill_values):
-    """Compute per-variable encoding for _FillValue.
+def _decide_compression(
+    var_name: str,
+    var: xr.DataArray,
+    compression: Optional[Union[bool, List[str]]],
+    default_opts: Optional[Dict[str, Any]],
+    engine: Optional[NetcdfEngine],
+) -> Optional[Dict[str, Any]]:
+    """
+    Return a compression dict for a variable or None.
 
-    - If directive is False, set ``_FillValue`` to None to suppress backend
-      defaults.
-    - If directive is True, set to the type-appropriate candidate, even if
-      NaNs are not present.
-    - Otherwise, detect NaNs lazily and set only when needed.
-    - Preserve explicit values from var.encoding/attrs.
+    Supported return values are a dict of encoding keys (e.g. {'zlib': True,
+    'complevel': 4}) or None. The ``compression`` argument supports the same
+    three forms as ``has_fill_values``: bool or list. If a boolean
+    True is provided, ``default_opts`` are used. If a list contains the
+    variable name, compression is applied.
+    """
+    if compression is None:
+        return None
+
+    # If engine cannot support compression, signal None
+    if engine == 'scipy':
+        return None
+
+    # Determine default options (fall back to module default when None)
+    if default_opts is None:
+        default_opts = DEFAULT_COMPRESSION
+
+    # Caller directive overrides default behavior
+    if isinstance(compression, bool):
+        return default_opts if compression else None
+
+    if isinstance(compression, list):
+        return default_opts if var_name in compression else None
+
+    return None
+
+
+def _var_encoding(
+    var_name: str,
+    var: xr.DataArray,
+    numpy_fillvals: Dict[Any, Any],
+    has_fill_values: Optional[Union[bool, List[str]]],
+    compression: Optional[Union[bool, List[str]]],
+    compression_opts: Optional[Dict[str, Any]],
+    engine: Optional[NetcdfEngine],
+) -> Dict[str, Any]:
+    """
+    Compute per-variable encoding for _FillValue and compression.
+
+    Fill-value logic mirrors existing behavior. Compression decision follows
+    a similar directive system and preserves explicit encoding keys when
+    present on the variable.
     """
     encoding = {}
 
-    # Determine explicit directive
-    directive = None
-    if has_fill_values is not None:
-        if isinstance(has_fill_values, bool):
-            directive = has_fill_values
-        elif isinstance(has_fill_values, dict):
-            directive = has_fill_values.get(var_name)
-        elif callable(has_fill_values):
-            try:
-                directive = bool(has_fill_values(var_name, var))
-            except (TypeError, ValueError):
-                directive = None
+    # Consolidated fill-value decision
+    set_fill, fill_val = _decide_fill_value(
+        var_name, var, numpy_fillvals, has_fill_values
+    )
+    if set_fill:
+        # remove any existing _FillValue to avoid bypassing our logic
+        var.encoding.pop('_FillValue', None)
+        encoding['_FillValue'] = fill_val
 
-    # Explicitly disabled: prevent backend default by setting None
-    if directive is False:
-        encoding['_FillValue'] = None
-        return encoding
+    # Decide compression options and ensure variable-level compression
+    # settings do not override explicit write_netcdf() directives.
+    comp_opts = _decide_compression(
+        var_name,
+        var,
+        compression,
+        compression_opts,
+        engine,
+    )
 
-    # If explicitly enabled, override any existing value (e.g., from Zarr)
-    if directive is True:
-        fill = numpy_fillvals.get(getattr(var, 'dtype', None))
-        # Even if existing enc/attrs contain _FillValue (possibly NaN),
-        # honor the explicit directive and set the standard default.
-        encoding['_FillValue'] = fill
-        return encoding
+    # Keys we treat as compression-related
+    compression_keys = ('zlib', 'complevel', 'shuffle', 'chunksizes')
 
-    # Default behavior (no explicit directive): detect NaNs lazily and
-    # preserve explicit enc/attrs when present.
-    fill = _decide_fill_value(var_name, var, numpy_fillvals, None)
+    if isinstance(getattr(var, 'encoding', None), dict):
+        # If the caller has *any* compression directive (bool or list),
+        # scrub compression keys from var.encoding so our encoding_dict wins.
+        if compression is not None:
+            for key in compression_keys:
+                var.encoding.pop(key, None)
 
-    present_in_enc = '_FillValue' in var.encoding
-    present_in_attrs = '_FillValue' in var.attrs
-    if fill is not None or present_in_enc or present_in_attrs:
-        # Preserve explicit None to suppress backend auto-fill when present
-        encoding['_FillValue'] = var.encoding.get(
-            '_FillValue', var.attrs.get('_FillValue', fill)
-        )
+    if comp_opts:
+        # Apply caller’s compression options
+        encoding.update(comp_opts)
 
     return encoding

@@ -4,8 +4,8 @@ import numpy as np
 from pyremap import Remapper
 
 from i7aof.grid.ismip import (
+    ensure_ismip_grid,
     get_horiz_res_string,
-    get_ismip_grid_filename,
     ismip_proj4,
 )
 
@@ -261,7 +261,7 @@ def _get_remap_config(config):
     """
     Extract common remapping configuration values from config.
     """
-    ismip_grid_filename = get_ismip_grid_filename(config)
+    ismip_grid_filename = ensure_ismip_grid(config)
     horiz_res_str = get_horiz_res_string(config)
     out_mesh_name = f'ismip_{horiz_res_str}'
 

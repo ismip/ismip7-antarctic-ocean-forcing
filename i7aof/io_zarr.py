@@ -18,12 +18,11 @@ import warnings
 from collections.abc import Callable
 from contextlib import contextmanager
 
-import cftime
 import numpy as np
 import xarray as xr
 from xarray.coding.common import SerializationWarning
 
-from i7aof.io import _ensure_cftime_time, write_netcdf
+from i7aof.io import ensure_cf_time_encoding, write_netcdf
 
 __all__ = ['append_to_zarr', 'finalize_zarr_to_netcdf']
 
@@ -71,9 +70,8 @@ def finalize_zarr_to_netcdf(
     *,
     zarr_store: str,
     out_nc: str,
-    has_fill_values: Callable[[str, xr.DataArray], bool] | None = None,
-    progress_bar: bool = True,
     postprocess: Callable[[xr.Dataset], xr.Dataset] | None = None,
+    **kwargs,
 ) -> None:
     """Open a Zarr store, optionally postprocess, then write NetCDF and clean.
 
@@ -83,14 +81,11 @@ def finalize_zarr_to_netcdf(
         Path to the Zarr store directory to consolidate.
     out_nc : str
         Target NetCDF output path.
-    has_fill_values : callable, optional
-        Predicate called as ``has_fill_values(name, var)`` to decide whether
-        a variable should use a `_FillValue` in the NetCDF output.
-    progress_bar : bool, optional
-        Whether to show a write progress bar (forwarded to write_netcdf).
     postprocess : callable, optional
         Function mapping ``xr.Dataset -> xr.Dataset`` applied before writing
         NetCDF to allow attribute fixes, coordinate/bounds injection, etc.
+    **kwargs
+        Additional keyword arguments passed to ``i7aof.io.write_netcdf``.
     """
     # Avoid format-3 consolidated metadata warning and disable consolidated
     # metadata usage since we immediately convert to NetCDF
@@ -103,68 +98,17 @@ def finalize_zarr_to_netcdf(
         _mark_zarr_ready(zarr_store)
         if postprocess is not None:
             ds = postprocess(ds)
-        # Ensure deterministic CF-time encoding: cftime values and matching
-        # units/calendar for time and time_bnds right before NetCDF write.
+        # Ensure time/time_bnds are using cftime with a known calendar;
+        # write_netcdf will take care of consistent encoding/attrs.
         if 'time' in ds:
-            t = ds['time']
-            cal = (
-                (
-                    t.encoding.get('calendar')
-                    if isinstance(t.encoding, dict)
-                    else None
-                )
-                or t.attrs.get('calendar')
-                or 'proleptic_gregorian'
-            )
-            _ensure_cftime_time(ds, cal)
-            # Force-convert to numeric days since 1850 for both time and
-            # time_bnds to avoid backend-specific unit choices.
-            tunits = 'days since 1850-01-01 00:00:00'
+            ensure_cf_time_encoding(ds)
 
-            # time
-            tvals = np.array(
-                cftime.date2num(list(ds['time'].values), tunits, calendar=cal),
-                dtype=np.float64,
-            )
-            ds['time'] = xr.DataArray(tvals, dims=ds['time'].dims)
-            ds['time'].attrs['units'] = tunits
-            ds['time'].attrs['calendar'] = cal
-            if isinstance(ds['time'].encoding, dict):
-                ds['time'].encoding.clear()
-
-            # time_bnds
-            if 'time_bnds' in ds:
-                tb_vals = ds['time_bnds'].values
-                # vectorize over both columns
-                tb0 = np.array(
-                    cftime.date2num(list(tb_vals[:, 0]), tunits, calendar=cal),
-                    dtype=np.float64,
-                )
-                tb1 = np.array(
-                    cftime.date2num(list(tb_vals[:, 1]), tunits, calendar=cal),
-                    dtype=np.float64,
-                )
-                tb_num = np.stack([tb0, tb1], axis=1)
-                ds['time_bnds'] = xr.DataArray(
-                    tb_num, dims=ds['time_bnds'].dims
-                )
-                ds['time_bnds'].attrs['units'] = tunits
-                ds['time_bnds'].attrs['calendar'] = cal
-                if isinstance(ds['time_bnds'].encoding, dict):
-                    ds['time_bnds'].encoding.clear()
         # Write NetCDF to a temporary path first, then atomically move to the
         # final destination on success. This avoids leaving a partially-
         # written NetCDF when failures occur and removes the need for a
         # ".complete" file.
         out_tmp = f'{out_nc}.tmp'
-        write_netcdf(
-            ds,
-            out_tmp,
-            has_fill_values=(
-                has_fill_values if has_fill_values else (lambda *_: False)
-            ),
-            progress_bar=progress_bar,
-        )
+        write_netcdf(ds, out_tmp, **kwargs)
     finally:
         ds.close()
     # Finalize atomically: move tmp -> final, then remove Zarr store and any

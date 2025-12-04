@@ -26,6 +26,7 @@ import logging
 import os
 import shutil
 
+import xarray as xr
 from mpas_tools.config import MpasConfigParser
 from mpas_tools.logging import LoggingContext
 
@@ -290,7 +291,9 @@ def _ensure_extrapolated_file(
         raise FileNotFoundError(
             f'Expected vertical output missing: {vert_tmp}'
         )
-    ds_vert = read_dataset(vert_tmp)
+    # can't use read_dataset because the Fortran output doesn't have
+    # the required time_bnds variable
+    ds_vert = xr.open_dataset(vert_tmp, decode_times=False)
     # Drop the dummy singleton time dimension added for Fortran, but only
     # in the climatology workflow.
 

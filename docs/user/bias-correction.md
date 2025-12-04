@@ -1,51 +1,62 @@
 # Bias Correction
 
-This page describes the classic bias-correction workflow that aligns CMIP
-fields to an observational (or reanalysis) climatology on the ISMIP grid. It
-operates on extrapolated model fields and writes bias-corrected CT/SA.
+Aligns CMIP extrapolated CT/SA to an observational climatology on the ISMIP
+grid and writes bias‑corrected monthly CT/SA. This page covers the classic
+geographic‑space method; a timeslice/projection approach also exists for
+basin‑wise T–S corrections.
 
-Two approaches exist in the codebase:
+## Key behavior (classic)
 
-- A classic geographic-space bias correction (`i7aof.biascorr.classic`), with
-	a simple two-step method on gridded fields (model climatology vs reference).
-- A timeslice/projection approach (`i7aof.biascorr.timeslice`,
-	`i7aof.biascorr.projection`) operating in T–S space by basin.
+- Single invocation writes both scenarios: run once with the future scenario
+  argument; internally it reads historical and future extrapolated files,
+  computes the bias using the configured historical window, and writes
+  bias‑corrected monthly CT/SA for both scenarios.
+- Climatology: prefer the 06_nov (v2) set (e.g., `zhou_annual_06_nov`).
+- Inputs must be extrapolated CMIP and extrapolated climatology on the ISMIP grid.
 
-This page focuses on the classic approach.
+## CLI
 
-## Classic workflow (CLI)
+Run after remapping and extrapolation (Steps 3–4):
 
-Run after remapping and extrapolating CMIP CT/SA to the ISMIP grid:
-
-```text
-ismip7-antarctic-biascorr-cmip \
-	--model <MODEL> \
-	--scenario <SCENARIO> \
-	--clim <CLIM_NAME> \
-	--workdir <WORKDIR> \
-	--config <CONFIG>
+```bash
+ismip7-antarctic-bias-corr-classic \
+  --model <MODEL> \
+  --scenario <FUTURE_SCENARIO> \
+  --clim <CLIM_NAME> \
+  --workdir <WORKDIR> \
+  --config <CONFIG>
 ```
 
-Inputs expected under `<WORKDIR>`:
+Inputs under `<WORKDIR>`:
 
-- Extrapolated CMIP: `extrap/<MODEL>/<scenario>/Omon/ct_sa/*_{ct,sa}_*.nc`
-- Extrapolated reference climatology: `extrap/climatology/<CLIM_NAME>/*_extrap.nc`
+- CMIP extrapolated monthly: `extrap/<MODEL>/{historical,<future>}/Omon/ct_sa/*_{ct,sa}_extrap_*.nc`
+- Climatology extrapolated: `extrap/climatology/<CLIM_NAME>/*_{ct,sa}_extrap.nc`
 
 Outputs:
 
-- Bias-corrected CT/SA: `biascorr/<MODEL>/<scenario>/<CLIM_NAME>/Omon/ct_sa/*_{ct,sa}_*.nc`
+- Bias‑corrected CT/SA: `biascorr/<MODEL>/{historical,<future>}/<CLIM_NAME>/Omon/ct_sa/*_{ct,sa}_biascorr_*.nc`
 
-## What it does
+## Algorithm (classic)
 
-1. Compute model climatology over a configured historical window (e.g.,
-	 1995–2015) from extrapolated CMIP monthly files.
-2. Read extrapolated reference climatology on the ISMIP grid.
-3. Form the bias: `bias = model_climatology - reference` for CT and SA.
-4. Subtract the bias from each extrapolated monthly CT/SA file and write the
-	 corrected outputs with ISMIP coordinates/bounds.
+1. Build a model climatology from CMIP extrapolated monthly `ct` and `sa` over
+   the configured historical window (`[biascorr] climatology_start_year/_end_year`).
+2. Read the extrapolated reference climatology (`ct`, `sa`) on the ISMIP grid.
+3. Compute `bias = model_climatology - reference` for each variable.
+4. Subtract the bias from every CMIP extrapolated monthly file; preserve
+   coordinates and ISMIP bounds; write outputs per scenario.
 
-The `time_chunk` used for IO/chunking comes from `[biascorr] time_chunk` in
-the config. Coordinates and bounds are copied from the canonical ISMIP grid.
+## Configuration
+
+```
+[biascorr]
+climatology_start_year = 1995
+climatology_end_year   = 2024
+time_chunk = 12
+```
+
+Set `time_chunk` to balance IO/memory. The climatology window should match the
+reference period intended for alignment and be fully covered by the CMIP
+historical input.
 
 ## Python API
 
@@ -53,16 +64,15 @@ the config. Coordinates and bounds are copied from the canonical ISMIP grid.
 from i7aof.biascorr.classic import biascorr_cmip
 
 biascorr_cmip(
-		model='CESM2-WACCM',
-		scenario='ssp585',
-		clim_name='OI_Climatology',
-		workdir='/path/to/workdir',
-		user_config_filename='my-config.cfg',
+    model='CESM2-WACCM',
+    future_scenario='ssp585',
+    clim_name='zhou_annual_06_nov',
+    user_config_filename='my.cfg',
 )
 ```
 
 See also:
 
 - {py:mod}`i7aof.biascorr.classic` — implementation details
-- {doc}`../dev/packages/biascorr` — developer documentation with the
-	timeslice/projection approach
+- {doc}`workflows` — where bias correction fits in the pipeline
+- Timeslice/projection approach: {py:mod}`i7aof.biascorr.timeslice`, {py:mod}`i7aof.biascorr.projection`
