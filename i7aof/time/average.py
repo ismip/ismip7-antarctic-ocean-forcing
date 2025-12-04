@@ -237,6 +237,9 @@ def _process_single_file_annual(
         # should not. This avoids backend defaults and scanning.
         fill_and_compress = ['ct', 'sa', 'tf']
 
+        # more compression for the final datasets
+        compression_opts = {'zlib': True, 'complevel': 9, 'shuffle': True}
+
         # Write to a temporary file in the same directory, then atomically
         # replace the final file. This avoids read/write conflicts and leaves
         # no partial files if interrupted.
@@ -251,6 +254,7 @@ def _process_single_file_annual(
                 progress_bar=progress,
                 has_fill_values=fill_and_compress,
                 compression=fill_and_compress,
+                compression_opts=compression_opts,
             )
             # After successful write, replace/overwrite atomically
             os.replace(tmp_path, out_path)

@@ -570,7 +570,7 @@ def _var_encoding(
         var.encoding.pop('_FillValue', None)
         encoding['_FillValue'] = fill_val
 
-    # Decide compression options and make sure variable-level compression
+    # Decide compression options and ensure variable-level compression
     # settings do not override explicit write_netcdf() directives.
     comp_opts = _decide_compression(
         var_name,
@@ -579,12 +579,19 @@ def _var_encoding(
         compression_opts,
         engine,
     )
-    if comp_opts:
-        # Remove any existing compression keys from var.encoding so our
-        # encoding dict is authoritative.
-        if isinstance(getattr(var, 'encoding', None), dict):
-            for key in ('zlib', 'complevel', 'shuffle', 'chunksizes'):
+
+    # Keys we treat as compression-related
+    compression_keys = ('zlib', 'complevel', 'shuffle', 'chunksizes')
+
+    if isinstance(getattr(var, 'encoding', None), dict):
+        # If the caller has *any* compression directive (bool or list),
+        # scrub compression keys from var.encoding so our encoding_dict wins.
+        if compression is not None:
+            for key in compression_keys:
                 var.encoding.pop(key, None)
+
+    if comp_opts:
+        # Apply caller’s compression options
         encoding.update(comp_opts)
 
     return encoding
