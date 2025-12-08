@@ -10,11 +10,9 @@ from i7aof.config import load_config
 from i7aof.convert.teos10 import _pressure_from_z, compute_ct_freezing
 from i7aof.coords import (
     attach_grid_coords,
-    propagate_time_from,
-    strip_fill_on_non_data,
 )
 from i7aof.grid.ismip import ensure_ismip_grid, get_res_string
-from i7aof.io import read_dataset
+from i7aof.io import ensure_cf_time_encoding, read_dataset
 from i7aof.io_zarr import append_to_zarr, finalize_zarr_to_netcdf
 
 __all__ = ['cmip_ct_sa_to_tf', 'main_cmip', 'clim_ct_sa_to_tf', 'main_clim']
@@ -40,7 +38,7 @@ def cmip_ct_sa_to_tf(
 
         workdir/biascorr/<model>/<scenario>/<clim_name>/Omon/tf
 
-    Output filenames replace "ct" with "tf" (e.g., *_ct.nc -> *_tf.nc).
+    Output filenames replace "ct" with "tf" (e.g., ``*_ct.nc -> *_tf.nc``).
 
     Parameters
     ----------
@@ -312,8 +310,8 @@ def _collect_extrap_clim_ct_sa_pairs(
     """Collect pairs of extrapolated climatology ct/sa files in a folder.
 
     Looks for files matching patterns like:
-      *_ct_extrap.nc, *_ct_extrap_z.nc and pairs them with corresponding
-      *_sa_extrap*.nc files.
+        ``*_ct_extrap.nc``, ``*_ct_extrap_z.nc`` and pairs them with
+        corresponding ``*_sa_extrap*.nc`` files.
     """
     if not os.path.isdir(in_dir):
         return []
@@ -464,21 +462,23 @@ def _process_ct_sa_pair(
         # Attach ISMIP grid coordinates with validation and propagate time
         ds_final = attach_grid_coords(ds_final, config)
         if 'time' in ds_ct.dims:
-            ds_final = propagate_time_from(
-                ds_final,
-                ds_ct,
-                apply_cf_encoding=True,
-                units='days since 1850-01-01 00:00:00',
+            ensure_cf_time_encoding(
+                ds=ds_final,
+                time_source=ds_ct,
             )
-        ds_final = strip_fill_on_non_data(ds_final, data_vars=('tf',))
         return ds_final
+
+    # more compression for the final datasets
+    compression_opts = {'zlib': True, 'complevel': 9, 'shuffle': True}
 
     finalize_zarr_to_netcdf(
         zarr_store=zarr_store,
         out_nc=out_nc,
-        has_fill_values=lambda name, _v: name == 'tf',
-        progress_bar=True,
         postprocess=_post,
+        has_fill_values=['tf'],
+        compression=['tf'],
+        progress_bar=True,
+        compression_opts=compression_opts,
     )
 
     ds_ct.close()

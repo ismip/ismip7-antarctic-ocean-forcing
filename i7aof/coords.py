@@ -20,21 +20,16 @@ time-averaging, bias correction, TF computation, and CT/SA->thetao/so
 conversion workflows to ensure consistent coordinate handling.
 """
 
-from typing import Iterable
-
 import xarray as xr
 from mpas_tools.config import MpasConfigParser
 
 from i7aof.grid.ismip import ensure_ismip_grid
-from i7aof.io import _ensure_cftime_time, read_dataset
+from i7aof.io import read_dataset
 
 __all__ = [
     'attach_grid_coords',
     'dataset_with_var_and_bounds',
-    'strip_fill_on_non_data',
-    'propagate_time_from',
     'vertical_name_for',
-    'ensure_cf_time_encoding',
 ]
 
 
@@ -165,104 +160,6 @@ def dataset_with_var_and_bounds(ds: xr.Dataset, var_name: str) -> xr.Dataset:
     return ds[names]
 
 
-def strip_fill_on_non_data(
-    ds: xr.Dataset, data_vars: Iterable[str]
-) -> xr.Dataset:
-    """
-    Remove ``_FillValue`` from all non-data variables.
-
-    Parameters
-    ----------
-    ds : xarray.Dataset
-        Dataset to modify in-place.
-    data_vars : Iterable[str]
-        Names of data variables that should retain their ``_FillValue``.
-        All other variables (coordinates and auxiliaries) will have the
-        key removed from both ``.encoding`` and ``.attrs`` if present.
-
-    Returns
-    -------
-    xarray.Dataset
-        The same dataset instance with non-data variables cleared of
-        ``_FillValue``.
-    """
-    data_set = set(data_vars)
-    for name in list(ds.data_vars) + list(ds.coords):
-        if name in data_set:
-            continue
-        var = ds[name]
-        enc = getattr(var, 'encoding', None)
-        if isinstance(enc, dict) and '_FillValue' in enc:
-            try:
-                del enc['_FillValue']
-            except KeyError:
-                pass
-        attrs = getattr(var, 'attrs', None)
-        if isinstance(attrs, dict) and '_FillValue' in attrs:
-            attrs.pop('_FillValue', None)
-    return ds
-
-
-def propagate_time_from(
-    target: xr.Dataset,
-    source: xr.Dataset,
-    *,
-    apply_cf_encoding: bool = False,
-    units: str | None = None,
-    calendar: str | None = None,
-    prefer_source: xr.Dataset | None = None,
-) -> xr.Dataset:
-    """
-    Copy time coordinate and bounds from ``source`` into ``target``.
-
-    Parameters
-    ----------
-    target : xarray.Dataset
-        Dataset to receive the time coordinate and bounds.
-    source : xarray.Dataset
-        Dataset providing ``time`` and, optionally, ``time_bnds``.
-    apply_cf_encoding : bool, optional
-        When True, also ensure CF-compliant shared encoding (units,
-        calendar, dtype) for ``time`` and ``time_bnds`` on the returned
-        dataset. Default is False to keep this function side-effect free
-        for mid-pipeline use.
-    units : str, optional
-        CF time units string to apply if ``apply_cf_encoding`` is True.
-        Defaults to ``'days since 1850-01-01 00:00:00'`` when omitted.
-    calendar : str, optional
-        Calendar to apply if ``apply_cf_encoding`` is True. When None,
-        inferred from source or target, otherwise falls back to
-        ``'proleptic_gregorian'``.
-    prefer_source : xarray.Dataset, optional
-        If provided, use this dataset as the preferred source for
-        calendar inference when applying CF encoding. Defaults to the
-        ``source`` dataset.
-
-    Returns
-    -------
-    xarray.Dataset
-        Updated dataset where, if sizes match, ``time`` values and
-        attributes come from ``source`` and ``time_bnds`` is attached when
-        present. Also sets ``target['time'].attrs['bounds'] = 'time_bnds'``.
-        If ``apply_cf_encoding`` is True, shared encodings are applied to
-        ``time`` and ``time_bnds`` to ensure CF-compliant serialization.
-    """
-    if 'time' in target.dims and 'time' in source.dims:
-        if target.sizes.get('time') == source.sizes.get('time'):
-            target = target.assign_coords(time=source['time'])
-            if 'time_bnds' in source:
-                target['time_bnds'] = source['time_bnds']
-                target['time'].attrs['bounds'] = 'time_bnds'
-    if apply_cf_encoding:
-        ensure_cf_time_encoding(
-            target,
-            units=units or 'days since 1850-01-01 00:00:00',
-            calendar=calendar,
-            prefer_source=prefer_source or source,
-        )
-    return target
-
-
 def vertical_name_for(ds: xr.Dataset) -> str | None:
     """
     Infer the preferred vertical coordinate name for a dataset.
@@ -291,90 +188,3 @@ def vertical_name_for(ds: xr.Dataset) -> str | None:
         if c in ds.coords or c in ds.variables:
             return c
     return None
-
-
-def ensure_cf_time_encoding(
-    ds: xr.Dataset,
-    *,
-    units: str = 'days since 1850-01-01 00:00:00',
-    calendar: str | None = None,
-    prefer_source: xr.Dataset | None = None,
-) -> xr.Dataset:
-    """
-    Ensure CF-compliant, shared encoding for ``time`` and ``time_bnds``.
-
-    This sets identical ``units`` and (when appropriate) ``calendar``
-    encodings on both variables so xarray encodes them consistently and
-    avoids warnings about divergent encodings.
-
-    Parameters
-    ----------
-    ds : xarray.Dataset
-        Dataset whose encodings will be updated in-place.
-    units : str, optional
-        CF time units string to apply. Default is
-        ``'days since 1850-01-01 00:00:00'``.
-    calendar : str, optional
-        Calendar to apply. If ``None``, inferred from ``ds['time'].attrs``
-        (or from ``prefer_source['time'].attrs`` when provided). Falls back
-        to ``'proleptic_gregorian'``.
-    prefer_source : xarray.Dataset, optional
-        If provided, use its time attributes as a preferred source for
-        calendar inference.
-
-    Returns
-    -------
-    xarray.Dataset
-        The same dataset instance with encodings updated.
-    """
-    if 'time' not in ds:
-        return ds
-
-    # Determine calendar preference: prefer explicit arg, then source, then ds
-    cal = calendar
-
-    def _extract_calendar(obj: xr.Dataset) -> str | None:
-        if 'time' not in obj:
-            return None
-        t = obj['time']
-        # Prefer encoding (where xarray stores decoded meta), then attrs
-        if hasattr(t, 'encoding') and isinstance(t.encoding, dict):
-            cal_enc = t.encoding.get('calendar')
-            if isinstance(cal_enc, str) and cal_enc:
-                return cal_enc
-        tattrs = getattr(t, 'attrs', {}) or {}
-        return tattrs.get('calendar') or tattrs.get('calendar_type')
-
-    if cal is None and prefer_source is not None:
-        cal = _extract_calendar(prefer_source)
-    if cal is None:
-        cal = _extract_calendar(ds)
-    # Only default if no calendar is discoverable from either dataset
-    if cal is None:
-        cal = 'proleptic_gregorian'
-
-    # Ensure values are cftime objects for predictable CF encoding
-    _ensure_cftime_time(ds, cal)
-
-    # Place units/calendar in encoding for CF encoding; remove from attrs
-    # to avoid safe_setitem conflicts during serialization.
-    t = ds['time']
-    if isinstance(getattr(t, 'attrs', None), dict):
-        t.attrs.pop('units', None)
-        t.attrs.pop('calendar', None)
-    if isinstance(getattr(t, 'encoding', None), dict):
-        t.encoding['units'] = units
-        t.encoding['calendar'] = cal
-        t.encoding['dtype'] = 'float64'
-
-    if 'time_bnds' in ds:
-        tb = ds['time_bnds']
-        if isinstance(getattr(tb, 'attrs', None), dict):
-            tb.attrs.pop('units', None)
-            tb.attrs.pop('calendar', None)
-        if isinstance(getattr(tb, 'encoding', None), dict):
-            tb.encoding['units'] = units
-            tb.encoding['calendar'] = cal
-            tb.encoding['dtype'] = 'float64'
-
-    return ds

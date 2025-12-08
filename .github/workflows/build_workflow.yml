@@ -130,8 +130,7 @@ jobs:
         run: |
           set -e -o pipefail
           conda activate ismip7_test
-          # Verify Python package entry points
-          ismip7-antarctic-ocean-forcing --help
+          # Verify a few Python package entry points
           ismip7-antarctic-remap-cmip --help
           ismip7-antarctic-extrap-cmip --help
           # Verify Fortran executables are on PATH and executable

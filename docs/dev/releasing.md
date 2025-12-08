@@ -4,7 +4,7 @@ This project targets conda-forge as the primary distribution channel.
 
 ## Prep
 
-1. Update `i7aof/version.py` and `CHANGELOG.md`.
+1. Update `i7aof/version.py`.
 2. Ensure CI is green on `main`.
 3. Create a release candidate branch or PR if needed.
 

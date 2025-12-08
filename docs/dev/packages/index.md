@@ -7,11 +7,15 @@ Overview and deep dives into the code structure of `i7aof` packages. Each page o
 :caption: i7aof packages
 
 biascorr
+clim
+cmip
+convert
 extrap
 grid
 imbie
 io
 remap
+time
 topo
 vert
 ```

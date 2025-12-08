@@ -50,9 +50,19 @@ Import paths and brief descriptions by module:
     - Important attributes: `ref`, `modref`, `base`, `basinNumber`,
       `basinmask`, `basinmask_extrap`, `Nbins`, input filename patterns.
 
+- Module: {py:mod}`i7aof.biascorr.classic`
+  - {py:func}`biascorr_cmip() <i7aof.biascorr.classic.biascorr_cmip>`:
+      Classic geographic-space correction on gridded fields (CT/SA). Invoked
+      once with the future scenario; internally reads historical and future
+      extrapolated CT/SA, computes a bias over the configured historical
+      window, and writes monthly bias-corrected CT/SA for both scenarios under
+      ``biascorr/<model>/{historical,<future>}/<clim>/Omon/ct_sa``.
+    - CLI: `ismip7-antarctic-bias-corr-classic`
+    - Config: `[biascorr] climatology_start_year`, `_end_year`, `time_chunk`
+
 ## Required config options
 
-Section `[biascorr]` is required. Keys used by the workflow:
+Section `[biascorr]` is required. Keys used by the workflows:
 
 - Input datasets (NetCDF files or glob patterns):
   - `thetao_ref`, `so_ref` — reference dataset over the reference period
@@ -81,11 +91,11 @@ Assumptions:
 
 ## Outputs
 
-- Corrected NetCDF files written by {py:meth}`Projection.read_model` in the
-  current working directory, one pair per input chunk:
-  - `thetao_corrected_{startYear}_{endYear}.nc`
-  - `so_corrected_{startYear}_{endYear}.nc`
-- Optional: T–S diagram figure from
+- Classic: bias-corrected monthly CT/SA under
+  ``biascorr/<model>/{historical,<future>}/<clim>/Omon/ct_sa``.
+- Projection: corrected `thetao_corrected_{startYear}_{endYear}.nc`,
+  `so_corrected_{startYear}_{endYear}.nc` written by
+  {py:meth}`Projection.read_model`. Optional: T–S diagram figure from
   {py:meth}`Projection.plot_TS_diagrams(filename)`.
 
 ## Data model

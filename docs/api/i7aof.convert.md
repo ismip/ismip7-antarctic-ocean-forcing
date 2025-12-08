@@ -6,14 +6,14 @@ generation. The TEOS-10 steps use GSW via NumPy/xarray wrappers. See
 for usage and performance tips (e.g., time chunking).
 
 ```{eval-rst}
-.. automodule:: i7aof.convert.teos10
+.. automodule:: i7aof.convert.split
    :members:
    :undoc-members:
    :show-inheritance:
 ```
 
 ```{eval-rst}
-.. automodule:: i7aof.convert.paths
+.. automodule:: i7aof.convert.teos10
    :members:
    :undoc-members:
    :show-inheritance:
