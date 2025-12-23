@@ -20,13 +20,14 @@ ct/sa to the ISMIP grid using external Fortran executables.
 ## Required config options
 
 - `[workdir] base_dir` — required unless `workdir` arg is provided.
-- `[cmip_dataset]`
-  - `lon_var`, `lat_var`: variable/dimension names on input
 - `[extrap_cmip]`
   - `time_chunk`: int; time chunk size for extrapolation.
   - `num_workers`: int or 'auto'/'0'; controls process parallelism.
   - `time_chunk_resample`: int; time chunk size for post-extrap vertical
     resampling to z-levels (Zarr append chunk length).
+- `[extrap]`
+  - `mask_under_ice`: bool; if true, mask values where `ice_frac` exceeds the threshold before extrapolation.
+  - `under_ice_threshold`: float; threshold for masking under ice.
 
 ## Outputs
 
@@ -55,7 +56,7 @@ ct/sa to the ISMIP grid using external Fortran executables.
 - Core: `xarray`, `numpy`, `dask` (scheduler control), `mpas-tools` (config/logging).
 - Tools: Fortran executables `i7aof_extrap_horizontal` and `i7aof_extrap_vertical`.
 - Environment: `HDF5_USE_FILE_LOCKING=FALSE` set by default; OMP/BLAS/MKL threads
-  set to 1 per worker. `stdbuf` used for unbuffered Fortran output when available.
+  set to 1 per worker; `stdbuf` used for unbuffered Fortran output when available.
 
 ## Usage
 

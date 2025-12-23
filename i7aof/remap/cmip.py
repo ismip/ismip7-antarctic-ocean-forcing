@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import argparse
+import glob
 import os
 import shutil
 
@@ -7,8 +8,8 @@ from mpas_tools.logging import LoggingContext
 
 from i7aof.cmip import get_model_prefix
 from i7aof.config import load_config
-from i7aof.convert.paths import get_ct_sa_output_paths
 from i7aof.grid.ismip import get_res_string, write_ismip_grid
+from i7aof.io import read_dataset
 from i7aof.remap.shared import (
     _remap_horiz,
     _vert_mask_interp_norm_multi,
@@ -22,24 +23,33 @@ def remap_cmip(
     user_config_filename=None,
 ):
     """
-    Remap pre-converted CMIP ct/sa to the ISMIP grid in two stages:
+        Remap pre-converted CMIP ``ct``/``sa`` to the ISMIP grid in two stages:
 
-    1) vertical interpolation to ISMIP 'z_extrap' levels, then
-    2) horizontal remapping to the ISMIP lat/lon grid.
+        1. Vertical interpolation to ISMIP ``z_extrap`` levels
+        2. Horizontal remapping to the ISMIP lat/lon grid
 
-    Prerequisite
-    - Run the conversion step first so inputs contain variables 'ct' and
-      'sa' on the native grid. Use either:
-        * Python: i7aof.convert.cmip.convert_cmip
-        * CLI: ismip7-antarctic-convert-cmip
-      Then run the remap CLI: ismip7-antarctic-remap-cmip.
+        Prerequisites:
 
-    This function orchestrates the basic flow per input file:
-    - Prepare output dirs and ensure the ISMIP grid exists.
-    - For each monthly file:
-      * Vertical pipeline (see _vert_mask_interp_norm): mask invalid source
-        points -> interpolate in z -> normalize.
-      * Horizontal remap of the vertically processed data to ISMIP grid.
+        - Run the conversion step first so inputs contain variables ``ct`` and
+            ``sa`` on the native grid. Use either of:
+
+            - Python API: ``i7aof.convert.cmip.convert_cmip``
+
+            - CLI: ``ismip7-antarctic-convert-cmip``
+
+        - Then run the remap CLI: ``ismip7-antarctic-remap-cmip``
+
+        This function orchestrates the basic flow per input file:
+
+        - Prepare output dirs and ensure the ISMIP grid exists.
+
+        - For each monthly file:
+
+            - Vertical pipeline (see ``_vert_mask_interp_norm``): mask invalid
+              source points → interpolate in z → normalize
+
+            - Horizontal remap of the vertically processed data
+              to the ISMIP grid
 
     Parameters
     ----------
@@ -70,7 +80,6 @@ def remap_cmip(
 
     # Build input/output lists for ct/sa
     in_files, out_files = _build_io_lists(
-        config=config,
         scenario=scenario,
         outdir=outdir,
         ismip_res_str=ismip_res_str,
@@ -170,41 +179,47 @@ def _load_config_and_paths(
 
 
 def _build_io_lists(
-    config,
     scenario,
     outdir,
     ismip_res_str,
     model,
     workdir,
 ):
-    """Build lists of input and output files for ct/sa remapping.
+    """Build lists of input/output files for ct/sa remapping.
 
-    Inputs are the pre-converted ct_sa files on the native grid, whose paths
-    are derived from the thetao/so config using a shared helper to ensure
-    consistent naming across convert and remap stages.
+    New behavior: enumerate existing converted ct_sa files in the convert
+    directory instead of deriving names from thetao/so config. This supports
+    split conversion outputs (multiple year-range files).
     """
-    in_files = []
-    out_files = []
-
-    # Derive absolute paths to ct_sa native-grid files under workdir/convert
-    ct_sa_abs_paths = get_ct_sa_output_paths(
-        config=config,
-        model=model,
-        scenario=scenario,
-        workdir=workdir,
+    convert_ct_sa_dir = os.path.join(
+        workdir, 'convert', model, scenario, 'Omon', 'ct_sa'
     )
+    if not os.path.isdir(convert_ct_sa_dir):
+        raise ValueError(
+            f'Converted ct_sa directory not found: {convert_ct_sa_dir}'
+        )
+    # Glob all NetCDF outputs; ignore any .zarr stores or temporary files
+    ct_sa_abs_paths = sorted(
+        glob.glob(os.path.join(convert_ct_sa_dir, '*.nc'))
+    )
+    if not ct_sa_abs_paths:
+        raise ValueError(
+            f'No converted ct_sa NetCDF files found in: {convert_ct_sa_dir}'
+        )
 
+    in_files: list[str] = []
+    out_files: list[str] = []
     for abs_filename in ct_sa_abs_paths:
         base_filename = os.path.basename(abs_filename)
         if 'gn' not in base_filename:
             raise ValueError(
-                f'Expected input to be on native grid (gn): {base_filename}'
+                f'Expected input filename to contain native grid token "gn": '
+                f'{base_filename}'
             )
         out_filename = base_filename.replace('gn', f'ismip{ismip_res_str}')
         out_filename = os.path.join(outdir, out_filename)
         in_files.append(abs_filename)
         out_files.append(out_filename)
-
     return in_files, out_files
 
 
@@ -232,6 +247,18 @@ def _process_one(
         config, in_filename, outdir, ['ct', 'sa'], vert_tmpdir
     )
 
+    # Capture time bounds from the original converted ct/sa file before any
+    # vertical/horizontal processing so we can restore them at the end.
+    # For CMIP ct/sa remapping, we *require* well-defined time bounds
+    # matching the behavior of the conversion step.
+    ds_time_source = read_dataset(in_filename)
+    if 'time' not in ds_time_source.dims:
+        raise ValueError(
+            f'Expected time dimension on converted ct/sa input but none '
+            f'were found in {in_filename}. Ensure the conversion step '
+            f'preserved the time dimension.'
+        )
+
     with LoggingContext(__name__) as logger:
         _remap_horiz(
             config,
@@ -240,6 +267,8 @@ def _process_one(
             model_prefix,
             horiz_tmpdir,
             logger,
+            has_fill_values=['ct', 'sa'],
+            time_source=ds_time_source,
         )
 
     # Always clean up tmp dirs for this input file

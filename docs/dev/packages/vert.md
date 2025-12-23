@@ -132,6 +132,7 @@ da_norm = vi.normalize(da_interp)
 
 # src_frac_interp can be reused across time steps for same grid
 src_frac = vi.src_frac_interp
+```
 
 Conservative resampling from `z_extrap` to `z` (intensive fields):
 
