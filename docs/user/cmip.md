@@ -46,7 +46,7 @@ convert/<model>/<scenario>/Omon/ct_sa/*_{ct,sa}_native.nc
 remap/<model>/<scenario>/Omon/ct_sa/*_{ct,sa}_remap.nc
 extrap/<model>/<scenario>/Omon/ct_sa/*_{ct,sa}_extrap_*.nc
 biascorr/<model>/<scenario>/<clim>/Omon/ct_sa/*_{ct,sa}_biascorr_*.nc
-biascorr/<model>/<scenario>/<clim>/Omon/tf/*_tf_*.nc
+biascorr/<model>/<scenario>/<clim>/Omon/ct_sa_tf0/*_{ct,sa,tf}_*.nc
 biascorr/<model>/<scenario>/<clim>/Oyr/ct_sa_tf/*_ann.nc
 biascorr/<model>/<scenario>/<clim>/Oyr/thetao_so_tf/*_{thetao,so,tf}_ann.nc
 ```

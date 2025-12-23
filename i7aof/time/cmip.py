@@ -1,13 +1,9 @@
 """
 CMIP annual averaging driver for bias-corrected outputs.
 
-Discovers monthly CT/SA files under:
+Discovers monthly CT/SA/TF files under:
 
-    workdir/biascorr/<model>/<scenario>/<clim_name>/Omon/ct_sa
-
-and monthly TF files under:
-
-    workdir/biascorr/<model>/<scenario>/<clim_name>/Omon/tf
+    workdir/biascorr/<model>/<scenario>/<clim_name>/Omon/ct_sa_tf0
 
 Computes weighted annual means using i7aof.time.average.annual_average and
 writes results into a common directory:
@@ -84,11 +80,16 @@ def compute_cmip_annual_averages(
     workdir_base: str = config.get('workdir', 'base_dir')
 
     # Monthly input directories (bias-corrected)
-    ct_sa_dir = os.path.join(
-        workdir_base, 'biascorr', model, scenario, clim_name, 'Omon', 'ct_sa'
-    )
-    tf_dir = os.path.join(
-        workdir_base, 'biascorr', model, scenario, clim_name, 'Omon', 'tf'
+    # Prefer the new consolidated directory produced by ct_sa_to_tf:
+    #   Omon/ct_sa_tf0
+    monthly_dir = os.path.join(
+        workdir_base,
+        'biascorr',
+        model,
+        scenario,
+        clim_name,
+        'Omon',
+        'ct_sa_tf0',
     )
 
     # Annual output directory (combined variables)
@@ -99,17 +100,21 @@ def compute_cmip_annual_averages(
 
     # Collect monthly files to average
     in_files: list[str] = []
-    for d in (ct_sa_dir, tf_dir):
-        if os.path.isdir(d):
-            for name in sorted(os.listdir(d)):
-                if name.endswith('.nc'):
-                    in_files.append(os.path.join(d, name))
+    if not os.path.isdir(monthly_dir):
+        raise FileNotFoundError(
+            'Monthly bias-corrected CT/SA/TF directory not found:\n'
+            f'  {monthly_dir}\n'
+            'Run the CMIP TF step first.'
+        )
+    for name in sorted(os.listdir(monthly_dir)):
+        if name.endswith('.nc'):
+            in_files.append(os.path.join(monthly_dir, name))
 
     if not in_files:
         raise FileNotFoundError(
             'No monthly bias-corrected CT/SA/TF files found under:\n'
-            f'  {ct_sa_dir}\n  {tf_dir}\n'
-            'Run bias correction and TF computation first.'
+            f'  {monthly_dir}\n'
+            'Run the CMIP TF step first.'
         )
 
     # Compute annual averages into the requested directory.

@@ -19,8 +19,10 @@ CT/SA → thetao/so (back‑conversion), and splitting of native inputs.
 - Module: {py:mod}`i7aof.convert.ct_sa_to_tf`
   - {py:func}`cmip_ct_sa_to_tf() <i7aof.convert.ct_sa_to_tf.cmip_ct_sa_to_tf>`:
       Compute monthly TF from bias‑corrected CT/SA under
-      ``biascorr/{model}/{scenario}/{clim}/Omon/ct_sa`` and write to
-      ``.../Omon/tf``.
+  ``biascorr/{model}/{scenario}/{clim}/Omon/ct_sa`` and write corrected
+  monthly CT/SA/TF to ``.../Omon/ct_sa_tf0``. TF is clipped to be
+  nonnegative and CT is adjusted to equal CT_freezing wherever TF is
+  clipped.
   - {py:func}`clim_ct_sa_to_tf() <i7aof.convert.ct_sa_to_tf.clim_ct_sa_to_tf>`:
       Compute TF from extrapolated climatology CT/SA and write
       ``*_tf_extrap[_z].nc`` alongside the extrapolated files.
@@ -65,7 +67,7 @@ CT/SA → thetao/so (back‑conversion), and splitting of native inputs.
 - Native‑grid CT/SA (monthly):
   ``convert/{model}/{scenario}/Omon/ct_sa/*_{ct,sa}_native.nc``
 - Monthly TF (CMIP):
-  ``biascorr/{model}/{scenario}/{clim}/Omon/tf/*_tf_*.nc``
+  ``biascorr/{model}/{scenario}/{clim}/Omon/ct_sa_tf0/*_{ct,sa,tf}_*.nc``
 - TF from climatology:
   ``extrap/climatology/<clim>/*_tf_extrap[_z].nc``
 - Annual back‑conversion outputs:

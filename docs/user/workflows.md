@@ -100,14 +100,14 @@ See `example_job_scripts/` for examples of this approach.
 	- **CLI:** `ismip7-antarctic-cmip-ct-sa-to-tf`
 	- **Job:** `example_job_scripts/06_ct_sa_to_tf/job_script_tf_{hist,ssp}.bash`
 	- **Inputs:** Step 5 CMIP outputs
-	- **Outputs:** `biascorr/<model>/<scenario>/<clim>/Omon/tf/*_tf_*.nc`
+	- **Outputs:** `biascorr/<model>/<scenario>/<clim>/Omon/ct_sa_tf0/*_{ct,sa,tf}_*.nc`
 
 - **Step 7** — Annual averages (CMIP)
 	- **Purpose:** annual means of CT, SA, and TF.
 	- **Run:** historical and future.
 	- **CLI:** `ismip7-antarctic-cmip-annual-averages`
 	- **Job:** `example_job_scripts/07_annual/job_script_ann_{hist,ssp}.bash`
-	- **Inputs:** Step 5 and 6a outputs
+	- **Inputs:** Step 6b outputs
 	- **Outputs:** `biascorr/<model>/<scenario>/<clim>/Oyr/ct_sa_tf/*_ann.nc`
 
 - **Step 8a** — Back‑convert climatology CT/SA → `thetao/so`

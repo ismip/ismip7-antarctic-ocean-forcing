@@ -82,7 +82,7 @@ CT/SA; for climatology, the extrapolated fields.
 Inputs and outputs:
 
 - CMIP input: `<workdir>/biascorr/<model>/<scenario>/<clim>/Omon/ct_sa/*_biascorr_*.nc`
-- CMIP output: `<workdir>/biascorr/<model>/<scenario>/<clim>/Omon/tf/*_tf_*.nc`
+- CMIP output: `<workdir>/biascorr/<model>/<scenario>/<clim>/Omon/ct_sa_tf0/*_{ct,sa,tf}_*.nc`
 - Climatology input: `<workdir>/extrap/climatology/<clim>/*_{ct,sa}_extrap.nc`
 - Climatology output: `<workdir>/extrap/climatology/<clim>/*_tf_extrap.nc`
 

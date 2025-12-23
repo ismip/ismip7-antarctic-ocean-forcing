@@ -1,6 +1,7 @@
 import argparse
 import os
-from typing import List, Sequence, Tuple
+import shutil
+from typing import Callable, List, Sequence, Tuple
 
 import xarray as xr
 from mpas_tools.config import MpasConfigParser
@@ -34,9 +35,12 @@ def cmip_ct_sa_to_tf(
 
         workdir/biascorr/<model>/<scenario>/<clim_name>/Omon/ct_sa
 
-    and writes monthly thermal forcing into:
+    and writes corrected monthly CT/SA/TF into:
 
-        workdir/biascorr/<model>/<scenario>/<clim_name>/Omon/tf
+        workdir/biascorr/<model>/<scenario>/<clim_name>/Omon/ct_sa_tf0
+
+    where TF is clipped to be nonnegative and CT is adjusted to be equal to
+    CT_freezing wherever TF would otherwise be negative.
 
     Output filenames replace "ct" with "tf" (e.g., ``*_ct.nc -> *_tf.nc``).
 
@@ -73,7 +77,13 @@ def cmip_ct_sa_to_tf(
         workdir_base, 'biascorr', model, scenario, clim_name, 'Omon', 'ct_sa'
     )
     out_dir = os.path.join(
-        workdir_base, 'biascorr', model, scenario, clim_name, 'Omon', 'tf'
+        workdir_base,
+        'biascorr',
+        model,
+        scenario,
+        clim_name,
+        'Omon',
+        'ct_sa_tf0',
     )
     os.makedirs(out_dir, exist_ok=True)
 
@@ -93,16 +103,31 @@ def cmip_ct_sa_to_tf(
         )
 
     for ct_path, sa_path in pairs:
-        out_nc = _output_path_for_tf(ct_path, out_dir)
-        if os.path.exists(out_nc):
-            print(f'TF exists, skipping: {out_nc}')
+        out_tf = _output_path_for_tf(ct_path, out_dir)
+        out_ct = _output_path_for_ct(ct_path, out_dir)
+        out_sa = _output_path_for_sa(sa_path, out_dir)
+
+        tf_exists = os.path.exists(out_tf)
+        ct_exists = os.path.exists(out_ct)
+        sa_exists = os.path.exists(out_sa)
+
+        if tf_exists and ct_exists and sa_exists:
+            print(f'CT/SA/TF exist, skipping: {os.path.basename(out_tf)}')
             continue
-        print(f'Computing TF: {os.path.basename(out_nc)}')
+
+        # Copy SA for a self-contained monthly directory
+        if not sa_exists:
+            shutil.copyfile(sa_path, out_sa)
+
+        print(
+            f'Computing TF (tf>=0) + corrected CT: {os.path.basename(out_tf)}'
+        )
         _process_ct_sa_pair(
             ct_path=ct_path,
             sa_path=sa_path,
             config=config,
-            out_nc=out_nc,
+            out_tf=out_tf,
+            out_ct=out_ct,
             time_chunk=time_chunk,
             use_poly=use_poly,
             progress=progress,
@@ -213,7 +238,8 @@ def clim_ct_sa_to_tf(
             ct_path=ct_path,
             sa_path=sa_path,
             config=config,
-            out_nc=out_nc,
+            out_tf=out_nc,
+            out_ct=None,
             time_chunk=None,
             use_poly=_parse_use_poly(config),
             progress=progress,
@@ -304,6 +330,14 @@ def _output_path_for_tf(ct_path: str, out_dir: str) -> str:
     return os.path.join(out_dir, tf_base)
 
 
+def _output_path_for_ct(ct_path: str, out_dir: str) -> str:
+    return os.path.join(out_dir, os.path.basename(ct_path))
+
+
+def _output_path_for_sa(sa_path: str, out_dir: str) -> str:
+    return os.path.join(out_dir, os.path.basename(sa_path))
+
+
 def _collect_extrap_clim_ct_sa_pairs(
     in_dir: str, ismip_res_str: str
 ) -> List[Tuple[str, str]]:
@@ -361,22 +395,17 @@ def _compute_time_indices(
     return [(i0, min(i0 + chunk, nt)) for i0 in range(0, nt, chunk)]
 
 
-def _process_ct_sa_pair(
-    *,
-    ct_path: str,
-    sa_path: str,
-    config,
-    out_nc: str,
-    time_chunk: int | None,
-    use_poly: bool,
-    progress: bool,
-) -> None:
-    # Open inputs
+def _open_and_align_ct_sa(
+    ct_path: str, sa_path: str
+) -> Tuple[xr.Dataset, xr.Dataset]:
     ds_ct = read_dataset(ct_path)
     ds_sa = read_dataset(sa_path)
-    ds_ct, ds_sa = xr.align(ds_ct, ds_sa, join='exact')
+    return xr.align(ds_ct, ds_sa, join='exact')
 
-    # Load ISMIP grid for coords and lat/z (for pressure calc)
+
+def _load_grid_and_pressure(config) -> Tuple[xr.Dataset, xr.DataArray]:
+    """Load ISMIP grid and precompute pressure (dbar) as a DataArray."""
+
     grid_path = ensure_ismip_grid(config)
     ds_grid = read_dataset(grid_path)
     lat = ds_grid['lat'] if 'lat' in ds_grid else None
@@ -385,30 +414,40 @@ def _process_ct_sa_pair(
     if 'z' not in ds_grid:
         raise KeyError('ISMIP grid file missing required variable: z')
     z = ds_grid['z']
-    # Pre-compute pressure (dbar) once for the whole grid; reused for all
-    # time chunks to avoid repeated gsw.p_from_z calls inside the loop.
     p = _pressure_from_z(z, lat)
-    p_da = xr.DataArray(p)
+    return ds_grid, xr.DataArray(p)
 
-    # Determine per-file temporary Zarr store
+
+def _zarr_store_from_nc(out_nc: str) -> str:
     out_dir = os.path.dirname(out_nc)
     base = os.path.splitext(os.path.basename(out_nc))[0]
-    zarr_store = os.path.join(out_dir, f'{base}.zarr')
-    # No need to pre-clean; append_to_zarr will remove existing store on first
-    # creation to ensure a fresh write.
+    return os.path.join(out_dir, f'{base}.zarr')
 
-    time_indices = _compute_time_indices(ds_ct, time_chunk)
-    first = True
-    iterator = time_indices
-    if progress:
-        iterator = tqdm(
-            time_indices,
-            total=len(time_indices),
-            desc='time chunks',
-            leave=False,
-        )
-    # Define TF attributes once and apply to each chunk and final dataset
-    tf_attrs = {
+
+def _time_indices_iterator(
+    ds: xr.Dataset, time_chunk: int | None, progress: bool
+) -> Sequence[Tuple[int, int]] | tqdm:
+    time_indices = _compute_time_indices(ds, time_chunk)
+    if not progress:
+        return time_indices
+    return tqdm(
+        time_indices,
+        total=len(time_indices),
+        desc='time chunks',
+        leave=False,
+    )
+
+
+def _slice_time_if_present(
+    ds_ct: xr.Dataset, ds_sa: xr.Dataset, i0: int, i1: int
+) -> Tuple[xr.Dataset, xr.Dataset]:
+    if 'time' not in ds_ct.dims:
+        return ds_ct, ds_sa
+    return ds_ct.isel(time=slice(i0, i1)), ds_sa.isel(time=slice(i0, i1))
+
+
+def _tf_variable_attrs() -> dict:
+    return {
         'units': 'degC',
         'long_name': 'Thermal Forcing',
         'comment': (
@@ -416,70 +455,165 @@ def _process_ct_sa_pair(
             'freezing CT (gsw.CT_freezing) with saturation_fraction=0.'
         ),
     }
-    for i0, i1 in iterator:
-        if 'time' in ds_ct.dims:
-            ds_ct_chunk = ds_ct.isel(time=slice(i0, i1))
-            ds_sa_chunk = ds_sa.isel(time=slice(i0, i1))
-        else:
-            ds_ct_chunk = ds_ct
-            ds_sa_chunk = ds_sa
 
-        ct = ds_ct_chunk['ct']
-        sa = ds_sa_chunk['sa']
-        # Compute CT_freezing at saturation_fraction=0.0 using precomputed
-        # pressure to avoid recomputing p_from_z every chunk.
-        ct_freeze = compute_ct_freezing(
-            sa=sa, z_or_p=p_da, lat=None, is_pressure=True, use_poly=use_poly
-        )
-        tf = (ct - ct_freeze).astype('float32')
 
-        # Assemble output dataset for this chunk
-        ds_out = xr.Dataset({'tf': tf})
-        # Copy monthly time bounds if present on inputs
-        if 'time_bnds' in ds_ct_chunk:
-            ds_out['time_bnds'] = ds_ct_chunk['time_bnds']
-        # Coordinates/bounds will be attached after consolidating chunks.
+def _corrected_ct_variable_attrs(ct_var: xr.DataArray) -> dict:
+    ct_attrs = dict(ct_var.attrs)
+    ct_attrs.setdefault('units', 'degC')
+    ct_attrs.setdefault('long_name', 'Conservative Temperature')
+    ct_attrs['comment'] = (
+        'Bias-corrected CT, adjusted to be consistent with nonnegative TF: '
+        'where TF would be negative, CT is set to TEOS-10 CT_freezing '
+        '(gsw.CT_freezing) with saturation_fraction=0.'
+    )
+    return ct_attrs
 
-        # Variable attributes
-        ds_out['tf'].attrs = tf_attrs
 
-        # Append to Zarr store (create on first write)
-        first = append_to_zarr(
-            ds=ds_out,
-            zarr_store=zarr_store,
-            first=first,
-            append_dim='time' if 'time' in ds_out.dims else None,
-        )
+def _build_tf_and_ct_outputs(
+    *,
+    ds_ct_chunk: xr.Dataset,
+    ds_sa_chunk: xr.Dataset,
+    p_da: xr.DataArray,
+    use_poly: bool,
+    tf_attrs: dict,
+    ct_attrs: dict,
+    write_ct: bool,
+) -> Tuple[xr.Dataset, xr.Dataset | None]:
+    ct = ds_ct_chunk['ct']
+    sa = ds_sa_chunk['sa']
+    ct_freeze = compute_ct_freezing(
+        sa=sa, z_or_p=p_da, lat=None, is_pressure=True, use_poly=use_poly
+    )
 
-    # Finalize: convert Zarr to NetCDF (reapplying TF attrs) and remove store
-    # Intentionally nested: captures config and ensures local closure
-    # without expanding the module's public API.
+    tf_raw = ct - ct_freeze
+    neg = tf_raw < 0.0
+    tf = xr.where(neg, 0.0, tf_raw).astype('float32')
+
+    ds_out_tf = xr.Dataset({'tf': tf})
+    if 'time_bnds' in ds_ct_chunk:
+        ds_out_tf['time_bnds'] = ds_ct_chunk['time_bnds']
+    ds_out_tf['tf'].attrs = tf_attrs
+
+    if not write_ct:
+        return ds_out_tf, None
+
+    ct_out = xr.where(neg, ct_freeze, ct).astype('float32')
+    ds_out_ct = xr.Dataset({'ct': ct_out})
+    if 'time_bnds' in ds_ct_chunk:
+        ds_out_ct['time_bnds'] = ds_ct_chunk['time_bnds']
+    ds_out_ct['ct'].attrs = ct_attrs
+    return ds_out_tf, ds_out_ct
+
+
+def _postprocess_attach_coords(
+    *,
+    var_name: str,
+    var_attrs: dict,
+    config,
+    time_source: xr.Dataset,
+    has_time_dim: bool,
+) -> Callable[[xr.Dataset], xr.Dataset]:
     def _post(ds_final: xr.Dataset) -> xr.Dataset:
-        if 'tf' in ds_final:
-            if ds_final['tf'].dtype != 'float32':
-                ds_final['tf'] = ds_final['tf'].astype('float32')
-            ds_final['tf'].attrs = tf_attrs
-        # Attach ISMIP grid coordinates with validation and propagate time
+        if var_name in ds_final:
+            if ds_final[var_name].dtype != 'float32':
+                ds_final[var_name] = ds_final[var_name].astype('float32')
+            ds_final[var_name].attrs = var_attrs
         ds_final = attach_grid_coords(ds_final, config)
-        if 'time' in ds_ct.dims:
-            ensure_cf_time_encoding(
-                ds=ds_final,
-                time_source=ds_ct,
-            )
+        if has_time_dim:
+            ensure_cf_time_encoding(ds=ds_final, time_source=time_source)
         return ds_final
 
-    # more compression for the final datasets
+    return _post
+
+
+def _process_ct_sa_pair(
+    *,
+    ct_path: str,
+    sa_path: str,
+    config,
+    out_tf: str,
+    out_ct: str | None,
+    time_chunk: int | None,
+    use_poly: bool,
+    progress: bool,
+) -> None:
+    ds_ct, ds_sa = _open_and_align_ct_sa(ct_path, sa_path)
+    ds_grid, p_da = _load_grid_and_pressure(config)
+
+    zarr_store_tf = _zarr_store_from_nc(out_tf)
+    zarr_store_ct = _zarr_store_from_nc(out_ct) if out_ct is not None else None
+
+    tf_attrs = _tf_variable_attrs()
+    ct_attrs = _corrected_ct_variable_attrs(ds_ct['ct'])
+
+    iterator = _time_indices_iterator(ds_ct, time_chunk, progress)
+    has_time_dim = 'time' in ds_ct.dims
+    first_tf = True
+    first_ct = True
+
+    for i0, i1 in iterator:
+        ds_ct_chunk, ds_sa_chunk = _slice_time_if_present(ds_ct, ds_sa, i0, i1)
+        ds_out_tf, ds_out_ct = _build_tf_and_ct_outputs(
+            ds_ct_chunk=ds_ct_chunk,
+            ds_sa_chunk=ds_sa_chunk,
+            p_da=p_da,
+            use_poly=use_poly,
+            tf_attrs=tf_attrs,
+            ct_attrs=ct_attrs,
+            write_ct=(out_ct is not None),
+        )
+
+        first_tf = append_to_zarr(
+            ds=ds_out_tf,
+            zarr_store=zarr_store_tf,
+            first=first_tf,
+            append_dim='time' if 'time' in ds_out_tf.dims else None,
+        )
+
+        if zarr_store_ct is not None and ds_out_ct is not None:
+            first_ct = append_to_zarr(
+                ds=ds_out_ct,
+                zarr_store=zarr_store_ct,
+                first=first_ct,
+                append_dim='time' if 'time' in ds_out_ct.dims else None,
+            )
+
     compression_opts = {'zlib': True, 'complevel': 9, 'shuffle': True}
 
+    post_tf = _postprocess_attach_coords(
+        var_name='tf',
+        var_attrs=tf_attrs,
+        config=config,
+        time_source=ds_ct,
+        has_time_dim=has_time_dim,
+    )
     finalize_zarr_to_netcdf(
-        zarr_store=zarr_store,
-        out_nc=out_nc,
-        postprocess=_post,
+        zarr_store=zarr_store_tf,
+        out_nc=out_tf,
+        postprocess=post_tf,
         has_fill_values=['tf'],
         compression=['tf'],
         progress_bar=True,
         compression_opts=compression_opts,
     )
+
+    if zarr_store_ct is not None and out_ct is not None:
+        post_ct = _postprocess_attach_coords(
+            var_name='ct',
+            var_attrs=ct_attrs,
+            config=config,
+            time_source=ds_ct,
+            has_time_dim=has_time_dim,
+        )
+        finalize_zarr_to_netcdf(
+            zarr_store=zarr_store_ct,
+            out_nc=out_ct,
+            postprocess=post_ct,
+            has_fill_values=['ct'],
+            compression=['ct'],
+            progress_bar=True,
+            compression_opts=compression_opts,
+        )
 
     ds_ct.close()
     ds_sa.close()
