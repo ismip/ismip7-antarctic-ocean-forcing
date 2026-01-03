@@ -1,48 +1,48 @@
 # Quickstart
 
-This quickstart shows how to produce a small test forcing using built-in scripts.
+This page is a fast on‑ramp. If you want the full 8‑step pipeline, jump to the
+[End‑to‑End Workflows](workflows.md) page.
 
-## Command-line interfaces
+## Prerequisites
 
-Two entry points are provided:
+- Install the package and dependencies: see [Install](install.md)
+- Prepare an input base directory and a working directory
+- Optionally copy and adapt one of the example configs in `scripts/*.cfg`
 
-- `ismip7-antarctic-ocean-forcing` — main workflow driver (under development).
-- `ismip7-antarctic-remap-cmip` — remap CMIP data to the ISMIP grid.
+## 60‑second smoke check
 
-### Example: run remapping with a test config
+Verify the CLIs are available and show their options:
 
 ```bash
-ismip7-antarctic-remap-cmip \
-    --model CESM2-WACCM \
-    --variable thetao \
-    --scenario historical \
-    --config scripts/test_remap_cmip.cfg
+ismip7-antarctic-split-cmip --help
+ismip7-antarctic-remap-cmip --help
+ismip7-antarctic-extrap-cmip --help
+ismip7-antarctic-bias-corr-classic --help
 ```
 
-### Example: run bias correction test
+If these commands print usage information, you’re ready to run the workflow.
 
-```python
-#!/usr/bin/env python
-import os
+## Run your first model (simplest path)
 
-from mpas_tools.config import MpasConfigParser
+Use the provided job scripts as a starting point—they encode sane defaults and
+the correct step ordering. Pick a CMIP model and a future scenario (e.g.
+`ssp585`) and run the scripts in order for historical and the chosen future:
 
-from i7aof.biascorr.projection import Projection
+- `example_job_scripts/01_split/job_script_cmip_{hist,ssp}_split.bash`
+- `example_job_scripts/02_cmip_to_ct_sa/job_script_cmip_{hist,ssp}_to_ct_sa.bash`
+- `example_job_scripts/03_remap/job_script_remap_{clim,hist,ssp}.bash`
+- `example_job_scripts/04_extrap/job_script_extrap_{clim,hist,ssp}.bash`
+- `example_job_scripts/05_biascorr/job_script_biascorr.bash` (runs once; writes both scenarios)
+- `example_job_scripts/06_ct_sa_to_tf/job_script_tf_{clim,hist,ssp}.bash`
+- `example_job_scripts/07_annual/job_script_ann_{hist,ssp}.bash`
+- `example_job_scripts/08_ct_sa_to_thetao_so/job_script_thetao_{clim,hist,ssp}.bash`
 
-config = MpasConfigParser()
-config.add_from_package('i7aof', 'default.cfg')
-config.add_user_config('test_biascorr.cfg')
+Each script echoes the expected inputs and outputs and accepts overrides for the
+input/working directories, model, scenario, and climatology.
 
-work_base_dir = config.get('workdir', 'base_dir')
-os.makedirs(work_base_dir, exist_ok=True)
-os.chdir(work_base_dir)
+## Where next
 
-proj = Projection(config, logger=None)
-proj.read_reference()
-proj.compute_bias()
-proj.read_model()
-```
-
-Notes:
-- Use `--help` on any module for options.
-- Outputs will be written according to your config files.
+- Full details, inputs/outputs, and programmatic example: see
+    [End‑to‑End Workflows](workflows.md)
+- Background on climatologies, CMIP inputs, and remapping choices: see
+    [Climatology](clim.md), [CMIP](cmip.md), and [Remapping](remap.md)
