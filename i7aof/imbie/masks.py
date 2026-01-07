@@ -4,13 +4,13 @@ import numpy as np
 import shapefile
 import shapely.geometry
 import shapely.ops
-import skfmm
 import xarray as xr
 from inpoly import inpoly2
 from tqdm import tqdm
 
-from i7aof.grid.ismip import get_horiz_res_string, get_ismip_grid_filename
+from i7aof.grid.ismip import ensure_ismip_grid, get_horiz_res_string
 from i7aof.imbie.download import download_imbie
+from i7aof.imbie.extend import extend_imbie_basins
 from i7aof.io import read_dataset, write_netcdf
 
 
@@ -29,7 +29,8 @@ def make_imbie_masks(config):
         Configuration object providing resolution and file paths.
     """
     res = get_horiz_res_string(config)
-    ismip_grid_filename = get_ismip_grid_filename(config)
+
+    ismip_grid_filename = ensure_ismip_grid(config)
     basin_file_name = (
         'imbie2/ANT_Basins_IMBIE2_v1.6/ANT_Basins_IMBIE2_v1.6.shp'
     )
@@ -47,7 +48,9 @@ def make_imbie_masks(config):
     in_basin_data = _load_basin_shapes(basin_file_name)
 
     basin_number = _rasterize_basins(points, nx, ny, basins, in_basin_data)
-    basin_number = _extend_basins_to_ocean(basin_number, len(basins))
+    basin_number = extend_imbie_basins(
+        config=config, basin_number=basin_number, num_basins=len(basins)
+    )
 
     _write_basin_mask(x, y, basin_number, out_file_name)
 
@@ -131,23 +134,6 @@ def _rasterize_basins(points, nx, ny, basins, in_basin_data):
         basin_number = basin_number_flat.reshape((ny, nx))
 
     return basin_number
-
-
-def _extend_basins_to_ocean(basin_number, num_basins):
-    """Extend basin masks into ocean areas using a distance transform."""
-    print('Extending basins into the ocean...')
-    min_distance = np.full_like(basin_number, np.inf, dtype=float)
-    final_basin = -1 * np.ones_like(basin_number)
-
-    for index in range(num_basins):
-        mask = basin_number == index
-        phi = np.where(mask, -1.0, 1.0)
-        dist = skfmm.distance(phi)
-        update_mask = dist < min_distance
-        final_basin[update_mask] = index
-        min_distance[update_mask] = dist[update_mask]
-
-    return final_basin.astype(int)
 
 
 def _write_basin_mask(x, y, basin_number, filename):

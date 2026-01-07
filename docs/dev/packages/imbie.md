@@ -15,6 +15,17 @@ Import paths and brief descriptions by module:
   - {py:func}`make_imbie_masks() <i7aof.imbie.masks.make_imbie_masks>`:
       Generate merged basin masks on the ISMIP grid and write a NetCDF file.
 
+- Module: {py:mod}`i7aof.imbie.extend`
+  - {py:func}`extend_imbie_basins() <i7aof.imbie.extend.extend_imbie_basins>`:
+    Extend rasterized basin labels to the full ocean domain using a shelf-break
+    constraint (within the continental shelf) followed by a deep-ocean nearest-
+    distance fill.
+  - {py:func}`extend_imbie_basins_with_shelf_break() <i7aof.imbie.extend.extend_imbie_basins_with_shelf_break>`:
+    Shelf-only step (no deep-ocean fill); mainly useful for debugging.
+  - {py:func}`extend_basins_to_ocean_nearest() <i7aof.imbie.extend.extend_basins_to_ocean_nearest>`:
+    Nearest-distance fill used for the deep ocean and as a general-purpose
+    basin extension utility.
+
 ## Required config options
 
 Section: `[ismip_grid]` in your config (shared with grid package). Required keys:
@@ -28,6 +39,21 @@ Behavior:
 - The ISMIP grid NetCDF must exist; if not, generate it using
   {py:func}`i7aof.grid.ismip.write_ismip_grid` before calling
   {py:func}`i7aof.imbie.masks.make_imbie_masks`.
+
+Section: `[imbie]` in your config. Required keys:
+
+- `shelf_isobath_depth` (float, meters): shelf/deep-ocean split depth used to
+  define the continental shelf.
+- `frac_threshold` (float, unitless): ocean-fraction threshold used to define
+  the ocean mask from the topography product.
+- `seed_dilation_iters` (int): how far to dilate basin seeds when selecting
+  shelf regions connected to the basins (helps avoid island shelves).
+
+Notes:
+
+- The shelf-break method uses the configured topography remapped onto the ISMIP
+  grid (bed elevation and ocean fraction). Topography is built on demand under
+  `topo/` in the working directory if missing.
 
 ## Outputs
 
@@ -50,7 +76,7 @@ iteration order.
 
 ## Runtime and external requirements
 
-- Core: `numpy`, `xarray`, `shapely` (GEOS), `pyshp` (`shapefile`), `inpoly`, `scikit-fmm`, `tqdm`.
+- Core: `numpy`, `xarray`, `shapely` (GEOS), `pyshp` (`shapefile`), `inpoly`, `scikit-fmm`, `scipy`, `tqdm`.
 - Network/data: downloads IMBIE2 shapefiles from imbie.org and caches under `imbie/`.
 - For the authoritative conda-forge environment, see `dev-spec.txt` (note `pyproject.toml` lists a PyPI-only subset).
 
@@ -76,8 +102,11 @@ Implementation details in `i7aof/imbie/masks.py` (private helpers):
 - `_load_basin_shapes(shapefile_path)` — reads shapefile records to Shapely.
 - `_rasterize_basins(points, nx, ny, basins, in_basin_data)` — point-in-polygon
   rasterization using `inpoly2`.
-- `_extend_basins_to_ocean(basin_number, num_basins)` — distance transform to
-  assign nearest basin in ocean cells (via `skfmm.distance`).
+- Basin extension is implemented in {py:mod}`i7aof.imbie.extend` and used by
+  {py:func}`i7aof.imbie.masks.make_imbie_masks`:
+  - First, within the continental shelf, labels are assigned by projecting from
+    the shelf-break contour.
+  - Then, the deep ocean is filled by nearest distance (via `skfmm.distance`).
 - `_write_basin_mask(x, y, basin_number, filename)` — writes NetCDF via
   `i7aof.io.write_netcdf`.
 
@@ -93,4 +122,6 @@ Implementation details in `i7aof/imbie/masks.py` (private helpers):
 ## Extension points
 
 - Expose overwrite flags to force regeneration of outputs.
-- Parameterize the distance transform behavior (e.g., max ocean extension).
+- Parameterize the shelf-break behavior (isobath depth, seeding rules), or
+  optionally disable the shelf-break step to fall back to a pure nearest-distance
+  fill.
