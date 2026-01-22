@@ -32,22 +32,22 @@ years = np.arange(1950,2026,1)
 alph = ['(a) ', '(b) ', '(c) ', '(d) ' ]
 
 for kisf in range(len(isf)):
- 
+
    if ( isf[kisf] == 'Dotson' ):
       namisf = 'Dotson/Philbin_Inlet'
    else:
-      namisf = isf[kisf] 
-   idx = np.where( ( msk.NAME.values == namisf ) )[0][0] 
+      namisf = isf[kisf]
+   idx = np.where( ( msk.NAME.values == namisf ) )[0][0]
    print(isf[kisf], idx)
 
    mask = msk.Iceshelf.where( ((msk.Iceshelf == idx+1)&(bm.mask == 1)), 0 )/(idx+1)
- 
+
    aa = mask.sum(dim=["x","y"]).values
    print('   ',aa*8*8,' km2')
 
    for scenar in [ 'main', 'cold', 'warm', 'vary' ]:
 
-      file_in = 'tf_ISdraft_Oyr_contemporary_'+scenar+'_ismip8km_60m_1950-2025.nc' 
+      file_in = 'tf_ISdraft_Oyr_contemporary_'+scenar+'_ismip8km_60m_1950-2025.nc'
       ds = xr.open_dataset(file_in)
 
       tmp = ds.tf * mask
@@ -68,7 +68,7 @@ for kisf in range(len(isf)):
         lab = 'Varying plausible pathway'
         col = 'orange'
       axs[kisf].plot(years,mean_TF,color=col,linewidth=1.5,label=lab)
-     
+
    tit = alph[kisf]+isf[kisf]
    axs[kisf].set_title(tit,fontsize=20,fontweight='bold')
    axs[kisf].set_ylabel('Mean Thermal Forcing (°C)',fontsize=18)

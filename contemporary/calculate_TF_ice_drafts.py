@@ -11,7 +11,7 @@ Zdraft = bm.surface - bm.thickness
 
 for scenar in ['main','cold','warm','vary']:
 
-    file_in = 'tf_Oyr_contemporary_'+scenar+'_ismip8km_60m_1950-2025.nc' 
+    file_in = 'tf_Oyr_contemporary_'+scenar+'_ismip8km_60m_1950-2025.nc'
 
     file_out = file_in.replace('tf','tf_ISdraft')
     print(file_out)

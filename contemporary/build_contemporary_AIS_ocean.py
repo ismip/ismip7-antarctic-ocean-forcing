@@ -1,5 +1,5 @@
 ########################################################################
-# Builds the netcdf files for the AIS ocean ISMIP7 contemporary period  
+# Builds the netcdf files for the AIS ocean ISMIP7 contemporary period
 # for potential temperature, practical salinity and thermal forcing
 #
 # Nico Jourdain (IGE/CNRS/IRD), January 2026.
@@ -17,21 +17,21 @@ def add_standard_attributes_oce(ds,miss=9.969209968386869e36):
     ds.time.encoding['_FillValue'] = None
     ds.time.attrs['standard_name'] = 'time'
     ds.time.attrs['long_name'] = 'time'
-    
+
     ds.x.attrs['units'] = 'm'
     ds.x.encoding['_FillValue'] = None
     ds.x.attrs['long_name'] = 'x coordinate of projection'
     ds.x.attrs['standard_name'] = 'projection_x_coordinate'
     ds.x.attrs['axis'] = 'X'
     ds.x.attrs['bounds'] = 'x_bnds'
-    
+
     ds.y.attrs['units'] = 'm'
     ds.y.encoding['_FillValue'] = None
     ds.y.attrs['long_name'] = 'y coordinate of projection'
     ds.y.attrs['standard_name'] = 'projection_y_coordinate'
     ds.y.attrs['axis'] = 'Y'
     ds.y.attrs['bounds'] = 'y_bnds'
-    
+
     ds.z.attrs['units'] = 'm'
     ds.z.encoding['_FillValue'] = None
     ds.z.attrs['long_name'] = 'height relative to sea surface (positive up)'
@@ -39,31 +39,31 @@ def add_standard_attributes_oce(ds,miss=9.969209968386869e36):
     ds.z.attrs['positive'] = 'up'
     ds.z.attrs['axis'] = 'Z'
     ds.z.attrs['bounds'] = 'z_bnds'
-    
+
     ds.lon.attrs['units'] = 'degrees_east'
     ds.lon.encoding['_FillValue'] = None
     ds.lon.attrs['long_name'] = 'longitude coordinate'
     ds.lon.attrs['standard_name'] = 'longitude'
     ds.lon.attrs['bounds'] = 'lon_bnds'
-    
+
     ds.lat.attrs['units'] = 'degrees_north'
     ds.lat.encoding['_FillValue'] = None
     ds.lat.attrs['long_name'] = 'latitude coordinate'
     ds.lat.attrs['standard_name'] = 'latitude'
     ds.lat.attrs['bounds'] = 'lat_bnds'
-    
+
     if ( "thetao" in ds.data_vars ):
         ds.thetao.attrs['_FillValue'] = miss
         ds.thetao.attrs['units'] = 'degC'
         ds.thetao.attrs['long_name'] = 'Sea Water Potential Temperature'
         ds.thetao.attrs['standard_name'] = 'sea_water_potential_temperature'
-    
+
     if ( "so" in ds.data_vars ):
         ds.so.attrs['_FillValue'] = miss
         ds.so.attrs['units'] = '0.001'
         ds.so.attrs['long_name'] = 'Sea Water Salinity (practical salinity)'
         ds.so.attrs['standard_name'] = 'sea_water_salinity'
-        
+
     if ( "tf" in ds.data_vars ):
         ds.tf.attrs['_FillValue'] = miss
         ds.tf.attrs['units'] = 'degC'
@@ -75,13 +75,13 @@ def add_standard_attributes_oce(ds,miss=9.969209968386869e36):
 
 #======================================================================
 #-- Calculate 3d thermal forcing and define as xarray dataset:
-def calculate_TF(T,S):    
+def calculate_TF(T,S):
     lbd1 = -0.0573  # [degC PSU^-1] Liquidus slope
     lbd2 =  0.0832  # [degC]        Liquidus intercept
     lbd3 = -7.53e-8  # [degC Pa^-1]  Liquidus pressure coefficient
     g     = 9.81    # [m s^-2]
     rhosw = 1028.   # [kg m^-3]
-    
+
     Tzd = lbd1 * S + lbd2 - lbd3 * g * rhosw * dT.z
     TF = T - Tzd
     return TF
@@ -205,7 +205,7 @@ for ks in range(len(scenar)):
     varlong=['thetao','so']
     var=['T','S']
     dTout_xxxx = xr.Dataset( {  "thetao": (["time", "z", "y", "x"],np.float32(T_xxxx)),
-                                "lat": (["y","x"],np.float64(dT.lat)), "lon": (["y","x"],np.float64(dT.lon)), 
+                                "lat": (["y","x"],np.float64(dT.lat)), "lon": (["y","x"],np.float64(dT.lon)),
                                 "lat_bnds": (["y","x","nv"],np.float64(dT.lat_bnds)), "lon_bnds": (["y","x","nv"],np.float64(dT.lon_bnds)),
                                 "x_bnds": (["x","bnds"],np.float64(dT.x_bnds)), "y_bnds": (["y","bnds"],np.float64(dT.y_bnds)), "z_bnds": (["z","bnds"],np.float64(dT.z_bnds))  },
                              coords={  "time": time_val, "z": np.float64(dT.z.values), "y": np.float64(dT.y.values), "x": np.float64(dT.x.values) },
@@ -213,7 +213,7 @@ for ks in range(len(scenar)):
                                       "project": "ISMIP7 AIS ocean contemporary forcing",
                                       "scenario": scenar_long[ks]  } )
     dSout_xxxx = xr.Dataset( {  "so": (["time", "z", "y", "x"],np.float32(S_xxxx)),
-                                "lat": (["y","x"],np.float64(dT.lat)), "lon": (["y","x"],np.float64(dT.lon)), 
+                                "lat": (["y","x"],np.float64(dT.lat)), "lon": (["y","x"],np.float64(dT.lon)),
                                 "lat_bnds": (["y","x","nv"],np.float64(dT.lat_bnds)), "lon_bnds": (["y","x","nv"],np.float64(dT.lon_bnds)),
                                 "x_bnds": (["x","bnds"],np.float64(dT.x_bnds)), "y_bnds": (["y","bnds"],np.float64(dT.y_bnds)), "z_bnds": (["z","bnds"],np.float64(dT.z_bnds))  },
                              coords={  "time": time_val, "z": np.float64(dT.z.values), "y": np.float64(dT.y.values), "x": np.float64(dT.x.values) },
@@ -224,7 +224,7 @@ for ks in range(len(scenar)):
     print('    Calculating 3d thermal forcing and define as xarray dataset...')
     TF_xxxx = calculate_TF(dTout_xxxx.thetao,dSout_xxxx.so)
     dTFout_xxxx = xr.Dataset( {  "tf": (["time", "z", "y", "x"],np.float32(TF_xxxx)),
-                                 "lat": (["y","x"],np.float64(dT.lat)), "lon": (["y","x"],np.float64(dT.lon)), 
+                                 "lat": (["y","x"],np.float64(dT.lat)), "lon": (["y","x"],np.float64(dT.lon)),
                                  "lat_bnds": (["y","x","nv"],np.float64(dT.lat_bnds)), "lon_bnds": (["y","x","nv"],np.float64(dT.lon_bnds)),
                                  "x_bnds": (["x","bnds"],np.float64(dT.x_bnds)), "y_bnds": (["y","bnds"],np.float64(dT.y_bnds)), "z_bnds": (["z","bnds"],np.float64(dT.z_bnds))  },
                              coords={  "time": time_val, "z": np.float64(dT.z.values), "y": np.float64(dT.y.values), "x": np.float64(dT.x.values) },
