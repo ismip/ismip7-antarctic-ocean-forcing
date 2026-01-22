@@ -19,6 +19,7 @@ import os
 import shutil
 import subprocess
 
+import cftime
 import numpy as np
 import xarray as xr
 from dask import config as dask_config
@@ -28,13 +29,11 @@ from xarray.coders import CFDatetimeCoder
 
 from i7aof.coords import (
     attach_grid_coords,
-    propagate_time_from,
-    strip_fill_on_non_data,
 )
 from i7aof.extrap import load_template_text
 from i7aof.grid.ismip import get_horiz_res_string
 from i7aof.imbie.masks import make_imbie_masks
-from i7aof.io import read_dataset, write_netcdf
+from i7aof.io import ensure_cf_time_encoding, read_dataset, write_netcdf
 from i7aof.io_zarr import append_to_zarr, finalize_zarr_to_netcdf
 from i7aof.topo import get_topo
 from i7aof.vert.resamp import VerticalResampler
@@ -195,9 +194,34 @@ def _prepare_input_single(
     # order with its (x, y, z, time) expectations.
     if add_dummy_time and 'time' not in ds_in.dims:
         ds_in = ds_in.expand_dims({'time': [0]})
-        # Provide required attributes accessed by the Fortran codes
-        ds_in['time'].attrs.setdefault('units', 'days since 0001-01-01')
-        ds_in['time'].attrs.setdefault('calendar', 'gregorian')
+        times = [
+            cftime.datetime(1850, 1, 1, calendar='noleap'),
+        ]
+        time_bnds = [
+            [
+                cftime.datetime(1850, 1, 1, calendar='noleap'),
+                cftime.datetime(1851, 1, 1, calendar='noleap'),
+            ],
+        ]
+        coder = CFDatetimeCoder(use_cftime=True)
+        da_time = xr.DataArray(data=times, dims=('time',))
+        xr.DataArray(
+            coder.decode(da_time.variable),
+            dims=da_time.dims,
+            coords=da_time.coords,
+        )
+        da_time_bnds = xr.DataArray(data=time_bnds, dims=('time', 'bnds'))
+        xr.DataArray(
+            coder.decode(da_time_bnds.variable),
+            dims=da_time_bnds.dims,
+            coords=da_time_bnds.coords,
+        )
+        da_time.attrs.setdefault('calendar', 'noleap')
+        da_time.attrs.setdefault('bounds', 'time_bnds')
+        ds_in = ds_in.assign_coords(
+            {'time': da_time, 'time_bnds': da_time_bnds}
+        )
+
         # Ensure a history attribute exists (Fortran reads it)
         ds_in.attrs.setdefault(
             'history',
@@ -235,13 +259,14 @@ def _prepare_input_single(
             os.remove(tmp_out)
     except OSError:  # pragma: no cover - best effort
         pass
+    # Load into memory before write to reduce backend I/O overhead
+    ds_in = ds_in.load()
     with dask_config.set(scheduler='synchronous'):
         write_netcdf(
             ds_in,
             tmp_out,
-            has_fill_values=lambda name, var: name == variable,
-            format='NETCDF4',
-            engine='netcdf4',
+            has_fill_values=[variable],
+            format='NETCDF3_64BIT',
             progress_bar=False,
         )
     os.replace(tmp_out, out_prepared_path)
@@ -291,23 +316,47 @@ def _finalize_output_with_grid(
     variable: str,
     logger: logging.Logger,
     src_attr_path: str,
+    time_bounds: tuple[str, xr.DataArray] | None = None,
+    time_prefer_source: xr.Dataset | None = None,
 ) -> None:
-    """Finalize a (single) vertical output by injecting grid variables."""
-    # Attach standard ISMIP grid coordinate variables and lat/lon/crs
+    """Finalize a vertical output by injecting grid + restoring time bounds.
+
+    Parameters
+    ----------
+    ds_in : xr.Dataset
+        Dataset to finalize (output of concatenated vertical chunks).
+    config : MpasConfigParser
+        Configuration object for locating ISMIP grid.
+    final_out_path : str
+        Path to final extrapolated NetCDF file.
+    variable : str
+        Name of the data variable being extrapolated (e.g., 'ct' or 'sa').
+    logger : logging.Logger
+        Logger for status messages.
+    src_attr_path : str
+        Path to original remapped input used to copy variable attrs + time.
+    time_bounds : (str, DataArray) | None, optional
+        Captured time bounds tuple (name, DataArray) from the original
+        remapped input file. Injected if present.
+    time_prefer_source : xr.Dataset | None, optional
+        Dataset whose time coordinate metadata should be preferred when
+        applying CF encodings (calendar inference).
+    """
+    # Attach ISMIP grid coordinates and geodetic metadata
     ds_out = attach_grid_coords(ds_in, config)
 
-    # Copy over original variable attributes from source input
+    # Copy original variable attributes and capture time metadata
     with read_dataset(src_attr_path) as src:
-        # Preserve a shallow copy to avoid sharing references
         ds_out[variable].attrs = dict(src[variable].attrs)
+        if 'time' in ds_out.dims and 'time' in src.dims:
+            # Propagate time coordinate values (and existing bounds if any)
+            ensure_cf_time_encoding(ds=ds_out, time_source=src)
 
-    # Ensure no stray fill values on coords/aux variables
-    ds_out = strip_fill_on_non_data(ds_out, data_vars=(variable,))
     logger.info(f'Writing extrapolated output: {final_out_path}')
     write_netcdf(
         ds_out,
         final_out_path,
-        has_fill_values=lambda name, var: name == variable,
+        has_fill_values=[variable],
         progress_bar=True,
     )
 
@@ -377,9 +426,8 @@ def _apply_under_ice_mask_to_file(
         write_netcdf(
             ds_prep,
             tmp_out,
-            has_fill_values=lambda name, var: name == variable,
-            format='NETCDF4',
-            engine='netcdf4',
+            has_fill_values=[variable],
+            format='NETCDF3_64BIT',
             progress_bar=False,
         )
     os.replace(tmp_out, prepared_path)
@@ -496,15 +544,10 @@ def _vertically_resample_to_coarse_ismip_grid(
     def _post(ds_z: xr.Dataset) -> xr.Dataset:
         # Reopen the original source and propagate time/time_bnds
         try:
-            with read_dataset(
-                in_path,
-                decode_times=CFDatetimeCoder(use_cftime=True),
-            ) as _src:
-                ds_z = propagate_time_from(
-                    ds_z,
-                    _src,
-                    apply_cf_encoding=True,
-                    units='days since 1850-01-01 00:00:00',
+            with read_dataset(in_path) as _src:
+                ensure_cf_time_encoding(
+                    ds=ds_z,
+                    time_source=_src,
                 )
         except Exception as e:  # pragma: no cover - non-fatal
             log.warning('Failed to propagate time metadata: %s', e)
@@ -512,8 +555,11 @@ def _vertically_resample_to_coarse_ismip_grid(
         # Attach ISMIP grid coordinates and geodetic coords; validate dims
         ds_z = attach_grid_coords(ds_z, config)
 
-        # Ensure coordinates and non-target variables do not carry _FillValue
-        ds_z = strip_fill_on_non_data(ds_z, data_vars=(variable,))
+        # Drop fine vertical coord and its bounds if still present after
+        # resampling to the coarse ISMIP vertical grid.
+        drop_names = [n for n in ('z_extrap', 'z_extrap_bnds') if n in ds_z]
+        if drop_names:
+            ds_z = ds_z.drop_vars(drop_names, errors='ignore')
 
         var_da = ds_z[variable]
         chunks = getattr(var_da, 'chunks', None)
@@ -524,7 +570,7 @@ def _vertically_resample_to_coarse_ismip_grid(
     finalize_zarr_to_netcdf(
         zarr_store=zarr_store,
         out_nc=out_nc,
-        has_fill_values=lambda name, v, _v=variable: name == _v,
+        has_fill_values=[variable],
         progress_bar=True,
         postprocess=_post,
     )

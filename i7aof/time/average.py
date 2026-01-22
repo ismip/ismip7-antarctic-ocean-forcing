@@ -42,7 +42,6 @@ import cftime
 import numpy as np
 import xarray as xr
 
-from i7aof.coords import strip_fill_on_non_data
 from i7aof.io import read_dataset, write_netcdf
 
 __all__ = [
@@ -175,6 +174,9 @@ def _process_single_file_annual(
     # Only chunk along time; allow spatial chunking to follow storage layout
     ds = read_dataset(in_path, chunks=chunk_spec)
     try:
+        # we'll replace time_bnds later and it causes trouble in the time
+        # averaging
+        ds = ds.drop_vars('time_bnds')
         months_per_year = ds['time'].dt.month.groupby('time.year').count()
         if int(months_per_year.min()) < 12 or int(months_per_year.max()) > 12:
             bad_years = months_per_year.where(months_per_year != 12, drop=True)
@@ -230,15 +232,13 @@ def _process_single_file_annual(
         if calendar is not None:
             ds_out['time'].encoding['calendar'] = calendar
             ds_out['time_bnds'].encoding['calendar'] = calendar
-        # Consistent with other workflows: no fill values on coords/bounds
-        ds_out = strip_fill_on_non_data(ds_out, data_vars=var_names)
         # Build explicit fill-value policy: only 'ct', 'sa', and 'tf'
         # should carry _FillValue; all others (including coords/bounds)
         # should not. This avoids backend defaults and scanning.
-        fill_true = {'ct', 'sa', 'tf'}
-        hv: dict[str, bool] = {}
-        for vn in list(ds_out.data_vars.keys()) + list(ds_out.coords.keys()):
-            hv[vn] = vn in fill_true
+        fill_and_compress = ['ct', 'sa', 'tf']
+
+        # more compression for the final datasets
+        compression_opts = {'zlib': True, 'complevel': 9, 'shuffle': True}
 
         # Write to a temporary file in the same directory, then atomically
         # replace the final file. This avoids read/write conflicts and leaves
@@ -252,7 +252,9 @@ def _process_single_file_annual(
                 ds_out,
                 tmp_path,
                 progress_bar=progress,
-                has_fill_values=hv,
+                has_fill_values=fill_and_compress,
+                compression=fill_and_compress,
+                compression_opts=compression_opts,
             )
             # After successful write, replace/overwrite atomically
             os.replace(tmp_path, out_path)
@@ -301,16 +303,18 @@ def _make_out_path(in_path: str, out_dir: str | None, suffix: str) -> str:
     return os.path.join(out_dir or os.path.dirname(in_path), out_name)
 
 
-def _get_calendar(ds: xr.Dataset) -> str | None:
+def _get_calendar(ds: xr.Dataset) -> str:
     """Best-effort extraction of the calendar string from the dataset."""
     # encoding is a dict and .get is safe; 'time' exists earlier in flow
     cal = ds['time'].encoding.get('calendar')
     if cal is None:
         cal = ds['time'].attrs.get('calendar')
+    if cal is None:
+        raise ValueError('Cannot determine calendar for time coordinate.')
     return cal
 
 
-def _build_time_and_bounds(years: np.ndarray, calendar: str | None):
+def _build_time_and_bounds(years: np.ndarray, calendar: str):
     """
     Create start-of-year time coordinates and [start, next-start] bounds.
 
@@ -338,7 +342,7 @@ def _build_time_and_bounds(years: np.ndarray, calendar: str | None):
         'standard': cftime.DatetimeGregorian,
         'proleptic_gregorian': cftime.DatetimeProlepticGregorian,
     }
-    cal_key = calendar or 'proleptic_gregorian'
+    cal_key = calendar
     dt_class = (
         cal_map[cal_key]
         if cal_key in cal_map

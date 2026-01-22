@@ -15,11 +15,9 @@ from i7aof.convert.teos10 import _pressure_from_z, _sanitize_lat
 from i7aof.coords import (
     attach_grid_coords,
     dataset_with_var_and_bounds,
-    propagate_time_from,
-    strip_fill_on_non_data,
 )
 from i7aof.grid.ismip import ensure_ismip_grid, get_res_string
-from i7aof.io import read_dataset, write_netcdf
+from i7aof.io import ensure_cf_time_encoding, read_dataset, write_netcdf
 from i7aof.io_zarr import append_to_zarr
 
 __all__ = [
@@ -148,7 +146,7 @@ def cmip_ct_sa_ann_to_thetao_so_tf(
             outputs.append(tf_out)
             continue
         print(f'Copying TF annual: {os.path.basename(tf_out)}')
-        _copy_netcdf(tf_in, tf_out)
+        shutil.copyfile(tf_in, tf_out)
         outputs.append(tf_out)
 
     # Now convert CT/SA -> thetao and so per pair of files
@@ -304,13 +302,19 @@ def clim_ct_sa_to_thetao_so(
             grid_path=grid_path,
             config=config,
         )
+
+        # more compression for the final datasets
+        compression_opts = {'zlib': True, 'complevel': 9, 'shuffle': True}
+
         if not thetao_exists:
             ds_write = _dataset_for_output(ds_out, 'thetao')
             write_netcdf(
                 ds_write,
                 out_thetao,
                 progress_bar=progress,
-                has_fill_values=True,
+                has_fill_values=['thetao'],
+                compression=['thetao'],
+                compression_opts=compression_opts,
             )
             outputs.append(out_thetao)
         if not so_exists:
@@ -319,7 +323,9 @@ def clim_ct_sa_to_thetao_so(
                 ds_write,
                 out_so,
                 progress_bar=progress,
-                has_fill_values=True,
+                has_fill_values=['so'],
+                compression=['so'],
+                compression_opts=compression_opts,
             )
             outputs.append(out_so)
 
@@ -511,12 +517,6 @@ def _compute_time_indices(
     return [(i0, min(i0 + chunk, nt)) for i0 in range(0, nt, chunk)]
 
 
-def _copy_netcdf(src: str, dst: str) -> None:
-    # Simple pass-through copy using project helper
-    with read_dataset(src) as ds:
-        write_netcdf(ds, dst, progress_bar=True, has_fill_values=True)
-
-
 def _process_ct_sa_clim_pair(
     *,
     ct_path: str,
@@ -656,7 +656,6 @@ def _process_ct_sa_annual_pair(
         # Attach ISMIP grid coords/lat-lon/bounds consistently
         ds_final = attach_grid_coords(ds_final, config)
         # Ensure no fills on coordinates/bounds
-        ds_final = strip_fill_on_non_data(ds_final, data_vars=('thetao', 'so'))
         return ds_final
 
     # Open Zarr, apply post, and write two separate NetCDF outputs
@@ -674,12 +673,13 @@ def _process_ct_sa_annual_pair(
         ds_final = _post(ds_final)
 
         # Propagate time/time_bnds from original NetCDF (bypassing Zarr quirks)
-        ds_final = propagate_time_from(
-            ds_final,
-            ds_ct,
-            apply_cf_encoding=True,
-            units='days since 1850-01-01 00:00:00',
+        ensure_cf_time_encoding(
+            ds=ds_final,
+            time_source=ds_ct,
         )
+
+        # more compression for the final datasets
+        compression_opts = {'zlib': True, 'complevel': 9, 'shuffle': True}
 
         # Write thetao dataset (with bounds)
         if not os.path.exists(out_thetao):
@@ -687,8 +687,10 @@ def _process_ct_sa_annual_pair(
             write_netcdf(
                 ds_write,
                 out_thetao,
-                has_fill_values=lambda name, _v: name == 'thetao',
+                has_fill_values=['thetao'],
+                compression=['thetao'],
                 progress_bar=progress,
+                compression_opts=compression_opts,
             )
         # Write so dataset (with bounds)
         if not os.path.exists(out_so):
@@ -696,8 +698,10 @@ def _process_ct_sa_annual_pair(
             write_netcdf(
                 ds_write,
                 out_so,
-                has_fill_values=lambda name, _v: name == 'so',
+                has_fill_values=['so'],
+                compression=['so'],
                 progress_bar=progress,
+                compression_opts=compression_opts,
             )
     finally:
         ds_final.close()

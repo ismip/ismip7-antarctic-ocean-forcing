@@ -23,6 +23,7 @@ dependencies = [
     "cftime",
     "dask",
     "gsw",
+    "h5netcdf",
     "inpoly",
     "jinja2",
     "matplotlib",
@@ -62,7 +63,7 @@ include = ["i7aof*"]
 i7aof = ["*.cfg", "**/*.cfg", "**/*.nml.j2"]
 
 [project.scripts]
-ismip7-antarctic-ocean-forcing = "i7aof.__main__:main"
+ismip7-antarctic-split-cmip = "i7aof.convert.split:main"
 ismip7-antarctic-convert-cmip-to-ct-sa = "i7aof.convert.cmip_to_ct_sa:main"
 ismip7-antarctic-remap-clim = "i7aof.remap.clim:main"
 ismip7-antarctic-remap-cmip = "i7aof.remap.cmip:main"

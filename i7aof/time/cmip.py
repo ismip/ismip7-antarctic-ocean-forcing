@@ -1,13 +1,9 @@
 """
 CMIP annual averaging driver for bias-corrected outputs.
 
-Discovers monthly CT/SA files under:
+Discovers monthly CT/SA/TF files under:
 
-    workdir/biascorr/<model>/<scenario>/<clim_name>/Omon/ct_sa
-
-and monthly TF files under:
-
-    workdir/biascorr/<model>/<scenario>/<clim_name>/Omon/tf
+    workdir/biascorr/<model>/<scenario>/<clim_name>/Omon/ct_sa_tf0
 
 Computes weighted annual means using i7aof.time.average.annual_average and
 writes results into a common directory:
@@ -29,7 +25,7 @@ import uuid
 from typing import List
 
 from i7aof.config import load_config
-from i7aof.coords import attach_grid_coords, strip_fill_on_non_data
+from i7aof.coords import attach_grid_coords
 from i7aof.io import read_dataset, write_netcdf
 from i7aof.time.average import annual_average
 
@@ -84,11 +80,16 @@ def compute_cmip_annual_averages(
     workdir_base: str = config.get('workdir', 'base_dir')
 
     # Monthly input directories (bias-corrected)
-    ct_sa_dir = os.path.join(
-        workdir_base, 'biascorr', model, scenario, clim_name, 'Omon', 'ct_sa'
-    )
-    tf_dir = os.path.join(
-        workdir_base, 'biascorr', model, scenario, clim_name, 'Omon', 'tf'
+    # Prefer the new consolidated directory produced by ct_sa_to_tf:
+    #   Omon/ct_sa_tf0
+    monthly_dir = os.path.join(
+        workdir_base,
+        'biascorr',
+        model,
+        scenario,
+        clim_name,
+        'Omon',
+        'ct_sa_tf0',
     )
 
     # Annual output directory (combined variables)
@@ -99,17 +100,21 @@ def compute_cmip_annual_averages(
 
     # Collect monthly files to average
     in_files: list[str] = []
-    for d in (ct_sa_dir, tf_dir):
-        if os.path.isdir(d):
-            for name in sorted(os.listdir(d)):
-                if name.endswith('.nc'):
-                    in_files.append(os.path.join(d, name))
+    if not os.path.isdir(monthly_dir):
+        raise FileNotFoundError(
+            'Monthly bias-corrected CT/SA/TF directory not found:\n'
+            f'  {monthly_dir}\n'
+            'Run the CMIP TF step first.'
+        )
+    for name in sorted(os.listdir(monthly_dir)):
+        if name.endswith('.nc'):
+            in_files.append(os.path.join(monthly_dir, name))
 
     if not in_files:
         raise FileNotFoundError(
             'No monthly bias-corrected CT/SA/TF files found under:\n'
-            f'  {ct_sa_dir}\n  {tf_dir}\n'
-            'Run bias correction and TF computation first.'
+            f'  {monthly_dir}\n'
+            'Run the CMIP TF step first.'
         )
 
     # Compute annual averages into the requested directory.
@@ -129,24 +134,15 @@ def compute_cmip_annual_averages(
             try:
                 ds_ann = read_dataset(out_path)
                 ds_ann = attach_grid_coords(ds_ann, config)
-                data_vars = [
-                    str(v) for v in ds_ann.data_vars if v not in ds_ann.coords
-                ]
-                ds_ann = strip_fill_on_non_data(ds_ann, data_vars=data_vars)
                 # Only 'ct', 'sa', and 'tf' should carry _FillValue; all
                 # others (including coords and bounds) should not.
-                fill_true = {'ct', 'sa', 'tf'}
-                hv: dict[str, bool] = {}
-                all_names = list(ds_ann.data_vars.keys()) + list(
-                    ds_ann.coords.keys()
-                )
-                for vn in all_names:
-                    hv[vn] = vn in fill_true
+                fill_and_compress = ['ct', 'sa', 'tf']
                 write_netcdf(
                     ds_ann,
                     tmp_path,
                     progress_bar=progress,
-                    has_fill_values=hv,
+                    has_fill_values=fill_and_compress,
+                    compression=fill_and_compress,
                 )
                 wrote_tmp = True
             finally:

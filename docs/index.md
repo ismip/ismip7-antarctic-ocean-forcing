@@ -2,9 +2,21 @@
 hide-toc: true
 ---
 
+```{image} _static/ismip7_ant_ocn_frc.png
+:align: center
+:width: 360 px
+```
+
 # ISMIP7 Antarctic Ocean Forcing (i7aof)
 
 Welcome to the documentation for the `i7aof` package — tools to produce Antarctic ocean forcing for ISMIP7.
+
+::: {card} Getting Started
+:link: getting-started
+:link-type: doc
+
+One canonical install path for all users, including the required Fortran executables.
+:::
 
 ::: {card} User Guide
 :link: user/index
@@ -27,15 +39,6 @@ Contribute code, design choices, testing, and release process.
 Public modules, functions, and CLI entry points.
 :::
 
-::: {card} Changelog
-:link: changelog
-:link-type: doc
-
-Notable changes between releases.
-:::
-
-:::
-
 ## About
 
 `i7aof` aims to provide a reproducible toolkit to:
@@ -51,8 +54,8 @@ This project is under active development; interfaces may change.
 ```{toctree}
 :hidden:
 
+getting-started
 user/index
 dev/index
 api/index
-changelog
 ```

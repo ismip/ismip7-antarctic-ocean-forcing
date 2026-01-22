@@ -1,13 +1,13 @@
 """
 Extrapolate remapped CMIP ``ct``/``sa`` fields horizontally and vertically.
 
-Workflow
-========
-Consumes remapped monthly ``ct``/``sa`` files produced by the remap step:
+Extrapolation workflow
+======================
+Consumes remapped monthly ``ct``/``sa`` files produced by the remap step::
 
     workdir/remap/<model>/<scenario>/Omon/ct_sa/*ismip<res>.nc
 
-Produces per input file and per variable vertically extrapolated outputs:
+Produces per input file and per variable vertically extrapolated outputs::
 
     workdir/extrap/<model>/<scenario>/Omon/ct_sa/*ismip<res>_extrap.nc
 
@@ -32,8 +32,7 @@ stdout/stderr and any Python traceback in a chunk log under
 ``<out>_tmp/logs``. Abrupt worker failures are detected and reported with
 the set of completed vs. pending chunks for quick triage.
 
-Supporting data (auto-generated if missing)
-------------------------------------------
+**Supporting data (auto-generated if missing)**
 If required inputs for IMBIE basin masks or topography are absent, the
 workflow attempts to build them on the fly inside ``workdir``:
 
@@ -45,7 +44,7 @@ workflow attempts to build them on the fly inside ``workdir``:
         via :func:`i7aof.topo.get_topo`; if the remapped ISMIP file is
         missing it runs ``download_and_preprocess_topo()`` (which may
         require a manually downloaded source file for licensed data)
-        followed by``remap_topo_to_ismip()``.
+        followed by ``remap_topo_to_ismip()``.
 
 If a required manual download (e.g., BedMachine source) is not present
 an informative ``FileNotFoundError`` is raised.
@@ -68,7 +67,6 @@ import xarray as xr
 from dask import config as dask_config
 from mpas_tools.config import MpasConfigParser
 from mpas_tools.logging import LoggingContext
-from xarray.coders import CFDatetimeCoder
 
 from i7aof.cmip import get_model_prefix
 from i7aof.config import load_config
@@ -83,6 +81,7 @@ from i7aof.extrap.shared import (
 )
 from i7aof.grid.ismip import ensure_ismip_grid, get_res_string
 from i7aof.io import read_dataset, write_netcdf
+from i7aof.time.bounds import capture_time_bounds
 
 __all__ = ['extrap_cmip', 'main']
 
@@ -358,6 +357,14 @@ def _process_task(
     num_workers_override: int | str | None = None,
     workdir: str | None = None,
 ) -> None:
+    # Capture time bounds from remapped input before any processing so
+    # they can be restored on both extrapolated and resampled outputs.
+    with read_dataset(task.in_path) as ds_src_tb:
+        time_bounds = capture_time_bounds(ds_src_tb)
+        time_prefer_source = (
+            ds_src_tb[['time']].copy() if 'time' in ds_src_tb else None
+        )
+
     # Ensure the extrapolated file exists (run if missing)
     _ensure_extrapolated_file(
         task=task,
@@ -367,6 +374,8 @@ def _process_task(
         topo_file=topo_file,
         keep_intermediate=keep_intermediate,
         num_workers_override=num_workers_override,
+        time_bounds=time_bounds,
+        time_prefer_source=time_prefer_source,
     )
 
     # After extrapolation (or if it already existed), conservatively resample
@@ -700,14 +709,11 @@ def _prepare_input_with_coords(
     ds_in = read_dataset(
         in_path,
         chunks={'time': 1},
-        decode_times=CFDatetimeCoder(use_cftime=True),
     )
     if time_slice is not None and 'time' in ds_in.dims:
         i0, i1 = time_slice
         ds_in = ds_in.isel(time=slice(i0, i1))
-    ds_grid = read_dataset(
-        grid_path, decode_times=CFDatetimeCoder(use_cftime=True)
-    )
+    ds_grid = read_dataset(grid_path)
 
     # Log dimensions early for debugging
     dims_repr = ', '.join(f'{k}={v}' for k, v in ds_in.sizes.items())
@@ -746,7 +752,7 @@ def _prepare_input_with_coords(
 
     # Keep only variables needed by the Fortran tools: the target variable
     # and essential coordinate variables (time, x, y, z or z_extrap)
-    keep_vars = {var_name, 'time', 'x', 'y'}
+    keep_vars = {var_name, 'time', 'time_bnds', 'x', 'y'}
     if 'z_extrap' in ds_in.variables:
         keep_vars.add('z_extrap')
     elif 'z' in ds_in.variables:
@@ -782,13 +788,14 @@ def _prepare_input_with_coords(
     except OSError:
         pass
 
+    # Load into memory to reduce many small reads during write
+    ds_in = ds_in.load()
     with dask_config.set(scheduler='synchronous'):
         write_netcdf(
             ds_in,
             tmp_out,
-            has_fill_values=lambda name, var: name == var_name,
+            has_fill_values=[var_name],
             format='NETCDF4',
-            engine='netcdf4',
             progress_bar=False,
         )
 
@@ -816,6 +823,8 @@ def _ensure_extrapolated_file(
     topo_file: str,
     keep_intermediate: bool,
     num_workers_override: int | str | None = None,
+    time_bounds: tuple[str, xr.DataArray] | None = None,
+    time_prefer_source: xr.Dataset | None = None,
 ) -> None:
     """Run chunked extrapolation and finalize output if missing.
 
@@ -859,9 +868,7 @@ def _ensure_extrapolated_file(
         )
 
         # Open source input lazily to compute chunk indices
-        with read_dataset(
-            task.in_path, decode_times=CFDatetimeCoder(use_cftime=True)
-        ) as ds_meta:
+        with read_dataset(task.in_path) as ds_meta:
             if 'time' not in ds_meta.dims:
                 raise ValueError(
                     'Extrapolation CMIP input is missing a time dimension. '
@@ -894,18 +901,15 @@ def _ensure_extrapolated_file(
 
         # Sort by start index and concatenate along time
         vertical_chunks.sort(key=lambda t: t[0])
+        # Don't use read_dataset because the Fortran output doesn't have
+        # time bounds
         if len(vertical_chunks) == 1:
-            ds_final_in = read_dataset(
-                vertical_chunks[0][2],
-                decode_times=CFDatetimeCoder(use_cftime=True),
+            ds_final_in = xr.open_dataset(
+                vertical_chunks[0][2], decode_times=False
             )
         else:
             ds_list = [
-                read_dataset(
-                    path,
-                    decode_times=CFDatetimeCoder(use_cftime=True),
-                    chunks={'time': 1},
-                )
+                xr.open_dataset(path, decode_times=False, chunks={'time': 1})
                 for (_i0, _i1, path) in vertical_chunks
             ]
             logger.info(
@@ -921,6 +925,8 @@ def _ensure_extrapolated_file(
             variable=task.variable,
             logger=logger,
             src_attr_path=task.in_path,
+            time_bounds=time_bounds,
+            time_prefer_source=time_prefer_source,
         )
 
         if not keep_intermediate:

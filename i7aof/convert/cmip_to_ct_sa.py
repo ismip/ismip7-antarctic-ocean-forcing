@@ -1,7 +1,9 @@
 import argparse
+import glob
 import os
+import re
 import shutil
-from typing import Optional, Sequence, Tuple
+from typing import Sequence, Tuple
 
 import numpy as np
 import xarray as xr
@@ -9,17 +11,15 @@ from mpas_tools.config import MpasConfigParser
 from tqdm import tqdm
 
 from i7aof.config import load_config
-from i7aof.convert.paths import get_ct_sa_output_paths
 from i7aof.convert.teos10 import convert_dataset_to_ct_sa
-from i7aof.coords import ensure_cf_time_encoding
-from i7aof.io import read_dataset
+from i7aof.io import ensure_cf_time_encoding, read_dataset
 from i7aof.io_zarr import append_to_zarr, finalize_zarr_to_netcdf
+from i7aof.time.bounds import capture_time_bounds, inject_time_bounds
 
 
 def convert_cmip_to_ct_sa(
     model: str,
     scenario: str,
-    inputdir: str | None = None,
     workdir: str | None = None,
     user_config_filename: str | None = None,
 ) -> None:
@@ -54,21 +54,13 @@ def convert_cmip_to_ct_sa(
 
     config = load_config(
         model=model,
-        inputdir=inputdir,
+        inputdir=None,
         workdir=workdir,
         user_config_filename=user_config_filename,
     )
 
-    if not config.has_option('inputdir', 'base_dir'):
-        raise ValueError(
-            'Missing configuration option: [inputdir] base_dir. '
-            'Please supply a user config file or command-line option that '
-            'defines this option.'
-        )
     workdir_base: str = config.get('workdir', 'base_dir')
-    inputdir_base: str = config.get('inputdir', 'base_dir')
 
-    print(f'Using input directory: {inputdir_base}')
     print(f'Using working directory: {workdir_base}')
 
     outdir = os.path.join(
@@ -87,29 +79,53 @@ def convert_cmip_to_ct_sa(
     )
     time_chunk = _parse_time_chunk(config)
 
-    thetao_paths = list(config.getexpression(f'{scenario}_files', 'thetao'))
-    so_paths = list(config.getexpression(f'{scenario}_files', 'so'))
-    if len(thetao_paths) != len(so_paths):  # pragma: no cover - sanity guard
+    # Inputs now come from the split workflow under workdir/split
+    split_base = os.path.join(workdir_base, 'split', model, scenario, 'Omon')
+    th_dir = os.path.join(split_base, 'thetao')
+    so_dir = os.path.join(split_base, 'so')
+    if not os.path.isdir(th_dir) or not os.path.isdir(so_dir):
         raise ValueError(
-            'Mismatched number of thetao and so files for scenario '
-            f"'{scenario}'."
+            'Expected split inputs not found. Please run the split workflow: '
+            f"missing directories '{th_dir}' or '{so_dir}'."
         )
 
-    out_paths = get_ct_sa_output_paths(
-        config=config,
-        model=model,
-        scenario=scenario,
-        workdir=workdir_base,
-    )
+    th_files = sorted(glob.glob(os.path.join(th_dir, '*.nc')))
+    so_files = sorted(glob.glob(os.path.join(so_dir, '*.nc')))
 
-    for th_rel, so_rel, out_abs in zip(
-        thetao_paths, so_paths, out_paths, strict=True
-    ):
+    # Pair files by their trailing year range _YYYY-YYYY
+    def _key(path: str) -> tuple[int, int]:
+        base = os.path.basename(path)
+        m = re.search(r'_(\d{4})-(\d{4})\.nc$', base)
+        if not m:
+            raise ValueError(
+                'Split filename missing year range suffix: ' + base
+            )
+        y0, y1 = int(m.group(1)), int(m.group(2))
+        return y0, y1
+
+    th_map = {_key(p): p for p in th_files}
+    so_map = {_key(p): p for p in so_files}
+    missing = [k for k in th_map.keys() if k not in so_map]
+    if missing:
+        raise ValueError(
+            'Missing matching so files for thetao ranges: '
+            + ', '.join([f'{a}-{b}' for a, b in sorted(missing)])
+        )
+
+    for y0y1 in sorted(th_map.keys()):
+        th_abs = th_map[y0y1]
+        so_abs = so_map[y0y1]
+        # output path based on thetao basename with variable token replaced
+        th_base = os.path.basename(th_abs)
+        ct_base = (
+            th_base.replace('thetao', 'ct_sa')
+            if 'thetao' in th_base
+            else f'ct_sa_{th_base}'
+        )
+        out_abs = os.path.join(outdir, ct_base)
         if os.path.exists(out_abs):
             print(f'Converted file exists, skipping: {out_abs}')
             continue
-        th_abs = os.path.join(inputdir_base, th_rel)
-        so_abs = os.path.join(inputdir_base, so_rel)
         print(f'Converting to CT/SA:\n{th_abs}\n{so_abs}\n{out_abs}')
         _process_file_pair(
             th_abs,
@@ -141,13 +157,6 @@ def main() -> None:
         help='Scenario (historical, ssp585, ...: required).',
     )
     parser.add_argument(
-        '-i',
-        '--inputdir',
-        dest='inputdir',
-        required=False,
-        help='Base input directory (optional).',
-    )
-    parser.add_argument(
         '-w',
         '--workdir',
         dest='workdir',
@@ -165,7 +174,6 @@ def main() -> None:
     convert_cmip_to_ct_sa(
         model=args.model,
         scenario=args.scenario,
-        inputdir=args.inputdir,
         workdir=args.workdir,
         user_config_filename=args.config,
     )
@@ -194,6 +202,20 @@ def _process_file_pair(
     # Standardize time bounds name to 'time_bnds' (from e.g., 'time_bounds')
     ds_thetao = _standardize_time_bounds_to_time_bnds(ds_thetao)
     ds_so = _standardize_time_bounds_to_time_bnds(ds_so)
+    # Enforce presence of time/time_bnds after normalization; there is no
+    # point in proceeding without well-defined time bounds.
+    if 'time' not in ds_thetao.dims:
+        raise ValueError(
+            'Expected a time dimension in thetao input but none were found. '
+            f'File: {th_abs}'
+        )
+    if 'time_bnds' not in ds_thetao.variables:
+        raise ValueError(
+            'Expected time_bnds variable in thetao input after '
+            'standardization but none were found. Ensure original CMIP '
+            'files provide time bounds. File: '
+            f'{th_abs}'
+        )
     ds_thetao, ds_so = xr.align(ds_thetao, ds_so, join='exact')
 
     time_indices = _compute_time_indices(ds_thetao, time_chunk)
@@ -202,17 +224,12 @@ def _process_file_pair(
     if os.path.isdir(zarr_store):
         shutil.rmtree(zarr_store, ignore_errors=True)
 
-    bounds_records, time_bounds = _capture_bounds(
-        ds_thetao, depth_var, lat_var, lon_var
-    )
+    bounds_records = _capture_bounds(ds_thetao, depth_var, lat_var, lon_var)
+    time_bounds = capture_time_bounds(ds_thetao)
     first = True
     for t0, t1 in tqdm(time_indices, desc='time chunks', unit='chunk'):
-        if 'time' in ds_thetao.dims:
-            ds_th_chunk = ds_thetao.isel(time=slice(t0, t1))
-            ds_so_chunk = ds_so.isel(time=slice(t0, t1))
-        else:
-            ds_th_chunk = ds_thetao
-            ds_so_chunk = ds_so
+        ds_th_chunk = ds_thetao.isel(time=slice(t0, t1))
+        ds_so_chunk = ds_so.isel(time=slice(t0, t1))
         ds_ctsa = _convert_chunk_and_strip_bounds(
             ds_th_chunk,
             ds_so_chunk,
@@ -226,26 +243,33 @@ def _process_file_pair(
             ds=ds_ctsa,
             zarr_store=zarr_store,
             first=first,
-            append_dim='time' if 'time' in ds_ctsa.dims else None,
+            append_dim='time',
         )
 
     # Intentionally nested: captures ds_thetao and ensures CF encoding
     # without widening the helper API.
     def _post(ds_z: xr.Dataset) -> xr.Dataset:
-        _inject_bounds(ds_z, ds_thetao, bounds_records, time_bounds)
-        # Ensure CF-consistent encodings for time/time_bnds so units "stick"
+        # Restore spatial bounds/coords for depth/lat/lon
+        _inject_bounds(ds_z, ds_thetao, bounds_records)
+
+        # Ensure time coordinate (values + attrs) and time_bnds come
+        # directly from the standardized thetao dataset so any attribute
+        # manipulations in intermediate chunks don't erase the bounds
+        # relationship.
+        ds_z['time'] = ds_thetao['time']
+        inject_time_bounds(ds_z, time_bounds)
+
+        # Ensure CF-consistent encodings for time/time_bnds so units "stick".
         ensure_cf_time_encoding(
-            ds_z,
-            units='days since 1850-01-01 00:00:00',
-            calendar=None,
-            prefer_source=ds_thetao,
+            ds=ds_z,
+            time_source=ds_thetao,
         )
         return ds_z
 
     finalize_zarr_to_netcdf(
         zarr_store=zarr_store,
         out_nc=out_abs,
-        has_fill_values=lambda name, v: name in ('ct', 'sa'),
+        has_fill_values=['ct', 'sa'],
         progress_bar=True,
         postprocess=_post,
     )
@@ -262,7 +286,10 @@ def _standardize_time_bounds_to_time_bnds(ds: xr.Dataset) -> xr.Dataset:
     dataset is returned unchanged.
     """
     if 'time' not in ds:
-        return ds
+        raise ValueError(
+            'Expected time coordinate but none was found. '
+            'Ensure the dataset provides time.'
+        )
     tbname: str | None = None
     tcoord = ds['time']
     battr = tcoord.attrs.get('bounds') if hasattr(tcoord, 'attrs') else None
@@ -276,24 +303,23 @@ def _standardize_time_bounds_to_time_bnds(ds: xr.Dataset) -> xr.Dataset:
             tbname = 'time_bounds'
 
     if tbname is None:
-        return ds
+        raise ValueError(
+            'Expected time bounds for time coordinate but none were found. '
+            'Ensure the dataset provides time_bnds/time_bounds.'
+        )
 
     if tbname != 'time_bnds':
         ds = ds.rename({tbname: 'time_bnds'})
-    # Normalize the second dimension name to 'bnds' for consistency
-    if 'time_bnds' in ds:
-        bnds_var = ds['time_bnds']
-        dims = list(bnds_var.dims)
-        if len(dims) == 2:
-            _time_dim, second_dim = dims
-            if second_dim != 'bnds':
-                second_size = ds.sizes.get(second_dim)
-                # Rename only if no conflicting 'bnds' dimension exists
-                if (
-                    'bnds' not in ds.dims
-                    or ds.sizes.get('bnds') == second_size
-                ):
-                    ds = ds.rename({second_dim: 'bnds'})
+
+    bnds_var = ds['time_bnds']
+    dims = list(bnds_var.dims)
+    if len(dims) == 2:
+        _time_dim, second_dim = dims
+        if second_dim != 'bnds':
+            second_size = ds.sizes.get(second_dim)
+            # Rename only if no conflicting 'bnds' dimension exists
+            if 'bnds' not in ds.dims or ds.sizes.get('bnds') == second_size:
+                ds = ds.rename({second_dim: 'bnds'})
     # Ensure the time coord points to the standardized name
     t_attrs = dict(getattr(ds['time'], 'attrs', {}))
     t_attrs['bounds'] = 'time_bnds'
@@ -304,8 +330,6 @@ def _standardize_time_bounds_to_time_bnds(ds: xr.Dataset) -> xr.Dataset:
 def _compute_time_indices(
     ds_thetao: xr.Dataset, time_chunk: int | None
 ) -> Sequence[Tuple[int, int]]:
-    if 'time' not in ds_thetao.dims:
-        return [(0, 0)]
     nt = ds_thetao.sizes['time']
     if time_chunk is None or time_chunk <= 0:
         return [(0, nt)]
@@ -318,12 +342,8 @@ def _capture_bounds(
     depth_var: str,
     lat_var: str,
     lon_var: str,
-) -> tuple[
-    list[tuple[str, str, xr.DataArray]],
-    Optional[tuple[str, str, xr.DataArray]],
-]:
+) -> list[tuple[str, str, xr.DataArray]]:
     records: list[tuple[str, str, xr.DataArray]] = []
-    time_bounds: tuple[str, str, xr.DataArray] | None = None
     for coord_name in (depth_var, lat_var, lon_var):
         if coord_name not in ds_thetao:
             continue
@@ -340,13 +360,7 @@ def _capture_bounds(
         raise ValueError(
             'Missing expected bounds for coordinates: ' + ', '.join(missing)
         )
-    # Optionally capture time bounds (do not error if absent)
-    if 'time' in ds_thetao:
-        tcoord = ds_thetao['time']
-        tbname = tcoord.attrs.get('bounds')
-        if isinstance(tbname, str) and tbname in ds_thetao:
-            time_bounds = ('time', tbname, ds_thetao[tbname])
-    return records, time_bounds
+    return records
 
 
 def _convert_chunk_and_strip_bounds(
@@ -356,7 +370,7 @@ def _convert_chunk_and_strip_bounds(
     lon_var: str,
     depth_var: str,
     bounds_records: list[tuple[str, str, xr.DataArray]],
-    time_bounds: tuple[str, str, xr.DataArray] | None,
+    time_bounds: tuple[str, xr.DataArray] | None,
 ) -> xr.Dataset:
     ds_ctsa = convert_dataset_to_ct_sa(
         ds_th_chunk,
@@ -377,14 +391,10 @@ def _convert_chunk_and_strip_bounds(
             ds_ctsa[coord_name].attrs.pop('bounds', None)
         if bname in ds_ctsa.variables:
             ds_ctsa = ds_ctsa.drop_vars(bname)
-    # Drop time bounds and its attribute, if present in the chunk
+    # Drop time bounds and its attribute (time is mandatory here)
     if time_bounds is not None:
-        tcoord_name, tbname, _tbda = time_bounds
-        if (
-            tcoord_name in ds_ctsa.coords
-            and 'bounds' in ds_ctsa[tcoord_name].attrs
-        ):
-            ds_ctsa[tcoord_name].attrs.pop('bounds', None)
+        tbname, _tbda = time_bounds
+        ds_ctsa['time'].attrs.pop('bounds', None)
         if tbname in ds_ctsa.variables:
             ds_ctsa = ds_ctsa.drop_vars(tbname)
     return ds_ctsa
@@ -394,7 +404,6 @@ def _inject_bounds(
     ds_final: xr.Dataset,
     ds_thetao: xr.Dataset,
     bounds_records: list[tuple[str, str, xr.DataArray]],
-    time_bounds: tuple[str, str, xr.DataArray] | None,
 ) -> None:
     for coord_name, bname, bda in bounds_records:
         ds_final[bname] = bda.load()
@@ -403,12 +412,3 @@ def _inject_bounds(
                 {coord_name: ds_thetao[coord_name]}
             )
         ds_final[coord_name].attrs['bounds'] = bname
-    # Inject time bounds if available
-    if time_bounds is not None:
-        tcoord_name, tbname, bda = time_bounds
-        ds_final[tbname] = bda.load()
-        if tcoord_name not in ds_final.coords:
-            ds_final = ds_final.assign_coords(
-                {tcoord_name: ds_thetao[tcoord_name]}
-            )
-        ds_final[tcoord_name].attrs['bounds'] = tbname
