@@ -77,30 +77,10 @@ def _ensure_imbie_masks(config: MpasConfigParser, workdir: str) -> str:
 
 
 def _ensure_topography(config: MpasConfigParser, workdir: str) -> str:
-    """Ensure topography on ISMIP grid exists; build if missing."""
+    """Ensure topography on ISMIP grid exists; publish if missing."""
     logger = logging.getLogger(__name__)
-    cwd = os.getcwd()
-    try:
-        os.makedirs(os.path.join(workdir, 'topo'), exist_ok=True)
-        os.chdir(workdir)
-        topo_obj = get_topo(config, logger)
-        topo_path = topo_obj.get_topo_on_ismip_path()
-        if not os.path.exists(topo_path):
-            try:
-                topo_obj.download_and_preprocess_topo()
-            except FileNotFoundError as e:  # pragma: no cover
-                raise FileNotFoundError(
-                    f'Topography prerequisite missing: {e}. '
-                    'Please fetch required source data.'
-                ) from e
-            topo_obj.remap_topo_to_ismip()
-        if not os.path.exists(topo_path):  # pragma: no cover
-            raise FileNotFoundError(
-                f'Failed to build topography file: {topo_path}'
-            )
-    finally:
-        os.chdir(cwd)
-    return os.path.join(workdir, topo_path)
+    topo_obj = get_topo(config, logger)
+    return topo_obj.ensure_topography_on_ismip(workdir)
 
 
 def _render_namelist(

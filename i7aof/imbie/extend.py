@@ -66,7 +66,9 @@ def extend_imbie_basins(
 
     params = _get_shelf_params(config)
 
-    topo_file = _ensure_topography_on_ismip(config=config, workdir=workdir)
+    logger = logging.getLogger(__name__)
+    topo_obj = get_topo(config, logger)
+    topo_file = topo_obj.ensure_topography_on_ismip(workdir)
     ds_topo = read_dataset(topo_file)
 
     bed = ds_topo['bed'].values
@@ -453,30 +455,6 @@ def _get_shelf_params(config) -> ShelfParams:
         frac_threshold=frac_threshold,
         seed_dilation_iters=seed_dilation_iters,
     )
-
-
-def _ensure_topography_on_ismip(*, config, workdir: str) -> str:
-    """
-    Ensure configured topography exists on the ISMIP grid and return path.
-    """
-
-    logger = logging.getLogger(__name__)
-    cwd = os.getcwd()
-    try:
-        os.makedirs(os.path.join(workdir, 'topo'), exist_ok=True)
-        os.chdir(workdir)
-        topo_obj = get_topo(config, logger)
-        topo_rel_path = topo_obj.get_topo_on_ismip_path()
-        if not os.path.exists(topo_rel_path):
-            topo_obj.download_and_preprocess_topo()
-            topo_obj.remap_topo_to_ismip()
-        if not os.path.exists(topo_rel_path):
-            raise FileNotFoundError(
-                f'Failed to build topography file: {topo_rel_path}'
-            )
-        return os.path.join(workdir, topo_rel_path)
-    finally:
-        os.chdir(cwd)
 
 
 def _select_shelf_region_seeded_by_basins(
