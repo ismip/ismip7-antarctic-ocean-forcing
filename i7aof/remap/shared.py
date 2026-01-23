@@ -158,6 +158,8 @@ def _write_mask_stage(
         ds_out[var] = da_masked.astype(np.float32)
     ds_out['src_valid'] = interpolator.src_valid.astype(np.float32)
 
+    ds_out = _check_and_copy_lat_lon(ds, ds_out)
+
     if 'time' in ds_out.dims:
         ensure_cf_time_encoding(ds=ds_out, time_source=ds)
 
@@ -190,6 +192,8 @@ def _write_interp_stage(
     if 'lev' in ds_out:
         ds_out = ds_out.drop_vars(['lev'])
 
+    ds_out = _check_and_copy_lat_lon(ds, ds_out)
+
     if 'time' in ds_out.dims:
         ensure_cf_time_encoding(ds=ds_out, time_source=ds)
 
@@ -219,6 +223,8 @@ def _write_normalize_stage(
         ds_out[var] = da_norm.astype(np.float32)
     ds_out['src_frac_interp'] = interpolator.src_frac_interp.astype(np.float32)
     ds_out['z_extrap_bnds'] = ds_ismip['z_extrap_bnds']
+
+    ds_out = _check_and_copy_lat_lon(ds, ds_out)
 
     if 'time' in ds_out.dims:
         ensure_cf_time_encoding(ds=ds_out, time_source=ds)
@@ -282,8 +288,7 @@ def _run_remap_with_temp_cwd(
                 shutil.rmtree(tmp_cwd, ignore_errors=True)
             else:
                 logger.warning(
-                    'Preserving ESMF log directory for debugging: %s',
-                    tmp_cwd,
+                    f'Preserving ESMF log directory for debugging: {tmp_cwd}',
                 )
 
 
@@ -648,3 +653,18 @@ def _remap_with_time(
         remapped_chunks.append(remapped_chunk)
 
     return remapped_chunks
+
+
+def _check_and_copy_lat_lon(ds, ds_out):
+    """
+    Ensure lat/lon coordinates are copied from source to output dataset.
+    """
+    for coord in ('lat', 'lon'):
+        assert coord in ds, f'Missing coordinate {coord} in input dataset'
+        assert 'units' in ds[coord].attrs, (
+            f'Missing units attribute for coordinate {coord}'
+        )
+        ds_out = ds_out.assign_coords({coord: ds[coord]})
+        ds_out[coord].attrs = dict(ds[coord].attrs)
+
+    return ds_out
