@@ -10,6 +10,7 @@ from mpas_tools.logging import LoggingContext
 from i7aof.config import load_config
 from i7aof.grid.ismip import get_res_string, write_ismip_grid
 from i7aof.io import read_dataset, write_netcdf
+from i7aof.paths import get_stage_dir
 from i7aof.remap.shared import (
     _remap_horiz,
     _vert_mask_interp_norm_multi,
@@ -75,7 +76,9 @@ def remap_climatology(
     workdir = config.get('workdir', 'base_dir')
     inputdir = config.get('inputdir', 'base_dir')
 
-    outdir = os.path.join(workdir, 'remap', 'climatology', clim_name)
+    outdir = os.path.join(
+        get_stage_dir(config, 'remap'), 'climatology', clim_name
+    )
     os.makedirs(outdir, exist_ok=True)
 
     os.chdir(workdir)

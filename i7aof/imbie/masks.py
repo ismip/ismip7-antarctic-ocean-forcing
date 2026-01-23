@@ -1,4 +1,5 @@
 import os
+import shutil
 
 import numpy as np
 import shapefile
@@ -12,6 +13,11 @@ from i7aof.grid.ismip import ensure_ismip_grid, get_horiz_res_string
 from i7aof.imbie.download import download_imbie
 from i7aof.imbie.extend import extend_imbie_basins
 from i7aof.io import read_dataset, write_netcdf
+from i7aof.paths import (
+    build_imbie_basins_dir,
+    build_imbie_basins_filename,
+    get_output_version,
+)
 
 
 def make_imbie_masks(config):
@@ -53,6 +59,16 @@ def make_imbie_masks(config):
     )
 
     _write_basin_mask(x, y, basin_number, out_file_name)
+
+    # Publish a final, user-facing copy
+    if os.path.exists(out_file_name):
+        version = get_output_version(config)
+        final_dir = build_imbie_basins_dir(config, version=version)
+        os.makedirs(final_dir, exist_ok=True)
+        final_name = build_imbie_basins_filename(version=version)
+        final_path = os.path.join(final_dir, final_name)
+        if not os.path.exists(final_path):
+            shutil.copyfile(out_file_name, final_path)
 
 
 def _get_basin_definitions():

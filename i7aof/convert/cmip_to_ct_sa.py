@@ -14,6 +14,7 @@ from i7aof.config import load_config
 from i7aof.convert.teos10 import convert_dataset_to_ct_sa
 from i7aof.io import ensure_cf_time_encoding, read_dataset
 from i7aof.io_zarr import append_to_zarr, finalize_zarr_to_netcdf
+from i7aof.paths import get_stage_dir
 from i7aof.time.bounds import capture_time_bounds, inject_time_bounds
 
 
@@ -64,7 +65,11 @@ def convert_cmip_to_ct_sa(
     print(f'Using working directory: {workdir_base}')
 
     outdir = os.path.join(
-        workdir_base, 'convert', model, scenario, 'Omon', 'ct_sa'
+        get_stage_dir(config, 'convert_cmip'),
+        model,
+        scenario,
+        'Omon',
+        'ct_sa',
     )
     os.makedirs(outdir, exist_ok=True)
 
@@ -79,8 +84,10 @@ def convert_cmip_to_ct_sa(
     )
     time_chunk = _parse_time_chunk(config)
 
-    # Inputs now come from the split workflow under workdir/split
-    split_base = os.path.join(workdir_base, 'split', model, scenario, 'Omon')
+    # Inputs now come from the split workflow under intermediate/01_split
+    split_base = os.path.join(
+        get_stage_dir(config, 'split'), model, scenario, 'Omon'
+    )
     th_dir = os.path.join(split_base, 'thetao')
     so_dir = os.path.join(split_base, 'so')
     if not os.path.isdir(th_dir) or not os.path.isdir(so_dir):

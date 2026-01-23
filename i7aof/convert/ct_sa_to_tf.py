@@ -15,6 +15,7 @@ from i7aof.coords import (
 from i7aof.grid.ismip import ensure_ismip_grid, get_res_string
 from i7aof.io import ensure_cf_time_encoding, read_dataset
 from i7aof.io_zarr import append_to_zarr, finalize_zarr_to_netcdf
+from i7aof.paths import get_stage_dir
 
 __all__ = ['cmip_ct_sa_to_tf', 'main_cmip', 'clim_ct_sa_to_tf', 'main_clim']
 
@@ -33,11 +34,11 @@ def cmip_ct_sa_to_tf(
 
     Discovers bias-corrected monthly ct/sa files under:
 
-        workdir/biascorr/<model>/<scenario>/<clim_name>/Omon/ct_sa
+        workdir/<intermediate>/05_biascorr/<model>/<scenario>/<clim_name>/Omon/ct_sa
 
     and writes corrected monthly CT/SA/TF into:
 
-        workdir/biascorr/<model>/<scenario>/<clim_name>/Omon/ct_sa_tf0
+        workdir/<intermediate>/06_ct_sa_to_tf/<model>/<scenario>/<clim_name>/Omon/ct_sa_tf0
 
     where TF is clipped to be nonnegative and CT is adjusted to be equal to
     CT_freezing wherever TF would otherwise be negative.
@@ -70,15 +71,18 @@ def cmip_ct_sa_to_tf(
         workdir=workdir,
         user_config_filename=user_config_filename,
     )
-    workdir_base: str = config.get('workdir', 'base_dir')
 
     # Input/output directories
     in_dir = os.path.join(
-        workdir_base, 'biascorr', model, scenario, clim_name, 'Omon', 'ct_sa'
+        get_stage_dir(config, 'biascorr'),
+        model,
+        scenario,
+        clim_name,
+        'Omon',
+        'ct_sa',
     )
     out_dir = os.path.join(
-        workdir_base,
-        'biascorr',
+        get_stage_dir(config, 'ct_sa_to_tf'),
         model,
         scenario,
         clim_name,
@@ -217,9 +221,10 @@ def clim_ct_sa_to_tf(
         workdir=workdir,
         user_config_filename=user_config_filename,
     )
-    workdir_base: str = config.get('workdir', 'base_dir')
 
-    in_dir = os.path.join(workdir_base, 'extrap', 'climatology', clim_name)
+    in_dir = os.path.join(
+        get_stage_dir(config, 'extrap'), 'climatology', clim_name
+    )
     ismip_res_str = get_res_string(config, extrap=False)
     pairs = _collect_extrap_clim_ct_sa_pairs(in_dir, ismip_res_str)
     if not pairs:

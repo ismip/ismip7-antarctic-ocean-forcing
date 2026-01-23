@@ -7,11 +7,11 @@ namelist rendering, executable invocation, and finalization.
 
 Expected input (produced by ``ismip7-antarctic-remap-clim``):
 
-    workdir/remap/climatology/<name>/<file>_ismip<res>.nc
+    workdir/<intermediate>/03_remap/climatology/<name>/<file>_ismip<res>.nc
 
 Outputs (per variable) are written to:
 
-    workdir/extrap/climatology/<name>/<file>_ismip<res>_<var>_extrap.nc
+    workdir/<intermediate>/04_extrap/climatology/<name>/<file>_ismip<res>_<var>_extrap.nc
 
 Two external Fortran executables are invoked sequentially:
 
@@ -43,6 +43,13 @@ from i7aof.extrap.shared import (
 )
 from i7aof.grid.ismip import ensure_ismip_grid, get_res_string
 from i7aof.io import read_dataset
+from i7aof.paths import (
+    build_obs_climatology_dir,
+    build_obs_climatology_filename,
+    get_output_version,
+    get_stage_dir,
+    parse_year_range,
+)
 
 __all__ = ['extrap_climatology', 'main']
 
@@ -79,7 +86,9 @@ def extrap_climatology(
     workdir_base: str = config.get('workdir', 'base_dir')
 
     # Locate remapped input file
-    remap_dir = os.path.join(workdir_base, 'remap', 'climatology', clim_name)
+    remap_dir = os.path.join(
+        get_stage_dir(config, 'remap'), 'climatology', clim_name
+    )
     if not os.path.isdir(remap_dir):
         raise FileNotFoundError(
             f'Remapped climatology directory not found: {remap_dir}. '
@@ -101,7 +110,9 @@ def extrap_climatology(
         base_in = candidates[0]
     in_path = os.path.join(remap_dir, base_in)
 
-    out_dir = os.path.join(workdir_base, 'extrap', 'climatology', clim_name)
+    out_dir = os.path.join(
+        get_stage_dir(config, 'extrap'), 'climatology', clim_name
+    )
     os.makedirs(out_dir, exist_ok=True)
 
     basin_file = _ensure_imbie_masks(config, workdir_base)
@@ -163,6 +174,30 @@ def extrap_climatology(
                 zarr_store=zarr_store,
                 logger=logger,
             )
+
+            # Publish a final (user-facing) observational climatology copy
+            year_range = parse_year_range(os.path.basename(out_nc))
+            if year_range is None:
+                logger.warning(
+                    'Could not infer year range from climatology filename: '
+                    f'{os.path.basename(out_nc)}'
+                )
+            else:
+                version = get_output_version(config)
+                final_dir = build_obs_climatology_dir(
+                    config, clim_name=clim_name, variable=var, version=version
+                )
+                os.makedirs(final_dir, exist_ok=True)
+                final_name = build_obs_climatology_filename(
+                    variable=var,
+                    clim_name=clim_name,
+                    version=version,
+                    year_range=year_range,
+                )
+                final_path = os.path.join(final_dir, final_name)
+                if not os.path.exists(final_path):
+                    shutil.copyfile(out_nc, final_path)
+                    logger.info(f'Published climatology: {final_path}')
 
 
 def main():

@@ -1,8 +1,16 @@
+import os
+import shutil
+
 import numpy as np
 import xarray as xr
 
 from i7aof.grid.ismip import get_horiz_res_string
 from i7aof.io import read_dataset, write_netcdf
+from i7aof.paths import (
+    build_topography_dir,
+    build_topography_filename,
+    get_output_version,
+)
 
 
 class TopoBase:
@@ -114,6 +122,24 @@ class TopoBase:
             ds[field].attrs = attrs
 
         write_netcdf(ds, out_filename)
+        self._publish_topography(out_filename)
+
+    def _publish_topography(self, out_filename: str) -> None:
+        """Publish a final, user-facing topography file."""
+        if not os.path.exists(out_filename):
+            return
+        dataset = str(self.config.get('topo', 'dataset'))
+        version = get_output_version(self.config)
+        final_dir = build_topography_dir(
+            self.config, dataset=dataset, version=version
+        )
+        os.makedirs(final_dir, exist_ok=True)
+        final_name = build_topography_filename(
+            dataset=dataset, version=version
+        )
+        final_path = os.path.join(final_dir, final_name)
+        if not os.path.exists(final_path):
+            shutil.copyfile(out_filename, final_path)
 
     def check(self, ds):
         """

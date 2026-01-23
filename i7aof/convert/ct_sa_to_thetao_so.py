@@ -19,6 +19,13 @@ from i7aof.coords import (
 from i7aof.grid.ismip import ensure_ismip_grid, get_res_string
 from i7aof.io import ensure_cf_time_encoding, read_dataset, write_netcdf
 from i7aof.io_zarr import append_to_zarr
+from i7aof.paths import (
+    build_cmip_final_dir,
+    build_cmip_final_filename,
+    get_output_version,
+    get_stage_dir,
+    parse_year_range,
+)
 
 __all__ = [
     'cmip_ct_sa_ann_to_thetao_so_tf',
@@ -56,11 +63,11 @@ def cmip_ct_sa_ann_to_thetao_so_tf(
 
     Inputs are discovered under:
 
-        workdir/biascorr/<model>/<scenario>/<clim_name>/Oyr/ct_sa_tf
+        workdir/<intermediate>/07_annual/<model>/<scenario>/<clim_name>/Oyr/ct_sa_tf
 
     Annual outputs are written into:
 
-        workdir/biascorr/<model>/<scenario>/<clim_name>/Oyr/thetao_so_tf
+        workdir/<intermediate>/08_ct_sa_to_thetao_so/<model>/<scenario>/<clim_name>/Oyr/thetao_so_tf
 
     - thetao/so are computed from ct/sa per time chunk and written via a
       temporary Zarr store for robustness and memory efficiency.
@@ -92,12 +99,10 @@ def cmip_ct_sa_ann_to_thetao_so_tf(
         workdir=workdir,
         user_config_filename=user_config_filename,
     )
-    workdir_base: str = config.get('workdir', 'base_dir')
 
     # Directories
     in_dir = os.path.join(
-        workdir_base,
-        'biascorr',
+        get_stage_dir(config, 'annual'),
         model,
         scenario,
         clim_name,
@@ -105,8 +110,7 @@ def cmip_ct_sa_ann_to_thetao_so_tf(
         'ct_sa_tf',
     )
     out_dir = os.path.join(
-        workdir_base,
-        'biascorr',
+        get_stage_dir(config, 'ct_sa_to_thetao_so'),
         model,
         scenario,
         clim_name,
@@ -144,10 +148,24 @@ def cmip_ct_sa_ann_to_thetao_so_tf(
         if os.path.exists(tf_out):
             print(f'TF annual exists, skipping: {tf_out}')
             outputs.append(tf_out)
+            _publish_final_annual(
+                config=config,
+                model=model,
+                scenario=scenario,
+                var='tf',
+                in_path=tf_out,
+            )
             continue
         print(f'Copying TF annual: {os.path.basename(tf_out)}')
         shutil.copyfile(tf_in, tf_out)
         outputs.append(tf_out)
+        _publish_final_annual(
+            config=config,
+            model=model,
+            scenario=scenario,
+            var='tf',
+            in_path=tf_out,
+        )
 
     # Now convert CT/SA -> thetao and so per pair of files
     for ct_path, sa_path in ct_sa_pairs:
@@ -177,8 +195,22 @@ def cmip_ct_sa_ann_to_thetao_so_tf(
         )
         if not thetao_exists:
             outputs.append(out_thetao)
+            _publish_final_annual(
+                config=config,
+                model=model,
+                scenario=scenario,
+                var='thetao',
+                in_path=out_thetao,
+            )
         if not so_exists:
             outputs.append(out_so)
+            _publish_final_annual(
+                config=config,
+                model=model,
+                scenario=scenario,
+                var='so',
+                in_path=out_so,
+            )
 
     return outputs
 
@@ -253,7 +285,7 @@ def clim_ct_sa_to_thetao_so(
 
     Discovers extrapolated CT/SA files under:
 
-        workdir/extrap/climatology/<clim_name>
+        workdir/<intermediate>/04_extrap/climatology/<clim_name>
 
     and writes separate thetao and so files next to them by replacing
     `_ct_extrap` with `_thetao_extrap` and `_so_extrap` in the filenames
@@ -267,9 +299,10 @@ def clim_ct_sa_to_thetao_so(
         workdir=workdir,
         user_config_filename=user_config_filename,
     )
-    workdir_base: str = config.get('workdir', 'base_dir')
 
-    in_dir = os.path.join(workdir_base, 'extrap', 'climatology', clim_name)
+    in_dir = os.path.join(
+        get_stage_dir(config, 'extrap'), 'climatology', clim_name
+    )
     ismip_res_str = get_res_string(config, extrap=False)
     pairs = _collect_extrap_clim_ct_sa_pairs(in_dir, ismip_res_str)
     if not pairs:
@@ -376,6 +409,43 @@ def _parse_time_chunk_years(config: MpasConfigParser) -> int | None:
     if raw in ('', 'None', 'none'):
         return None
     return int(raw)
+
+
+def _publish_final_annual(
+    *,
+    config: MpasConfigParser,
+    model: str,
+    scenario: str,
+    var: str,
+    in_path: str,
+) -> None:
+    year_range = parse_year_range(os.path.basename(in_path))
+    if year_range is None:
+        print(
+            'Warning: could not infer year range for final output from '
+            f'{os.path.basename(in_path)}'
+        )
+        return
+    version = get_output_version(config)
+    final_dir = build_cmip_final_dir(
+        config,
+        model=model,
+        scenario=scenario,
+        variable=var,
+        version=version,
+    )
+    os.makedirs(final_dir, exist_ok=True)
+    final_name = build_cmip_final_filename(
+        variable=var,
+        model=model,
+        scenario=scenario,
+        version=version,
+        year_range=year_range,
+    )
+    final_path = os.path.join(final_dir, final_name)
+    if not os.path.exists(final_path):
+        shutil.copyfile(in_path, final_path)
+        print(f'Published final output: {final_path}')
 
 
 def _collect_annual_ct_sa_files(
