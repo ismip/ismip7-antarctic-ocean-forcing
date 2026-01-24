@@ -9,13 +9,21 @@ from i7aof.grid.ismip import (
 )
 
 
-def _make_config(dx_m: float, dy_m: float, dz_m: float, dzx_m: float):
+def _make_config(
+    dx_m: float,
+    dy_m: float,
+    dz_m: float,
+    dzx_m: float,
+    base_dir: str = '.',
+):
     cfg = configparser.ConfigParser()
     cfg.add_section('ismip_grid')
     cfg.set('ismip_grid', 'dx', str(dx_m))
     cfg.set('ismip_grid', 'dy', str(dy_m))
     cfg.set('ismip_grid', 'dz', str(dz_m))
     cfg.set('ismip_grid', 'dz_extrap', str(dzx_m))
+    cfg.add_section('workdir')
+    cfg.set('workdir', 'base_dir', str(base_dir))
     return cfg
 
 
@@ -26,7 +34,7 @@ def test_write_ismip_grid_minimal(tmp_path, monkeypatch):
     dz = 1800.0
     dzx = 1800.0
 
-    cfg = _make_config(dx, dy, dz, dzx)
+    cfg = _make_config(dx, dy, dz, dzx, base_dir=str(tmp_path))
 
     # run in a temp dir so output is isolated
     monkeypatch.chdir(tmp_path)
