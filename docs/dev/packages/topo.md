@@ -77,6 +77,10 @@ Behavior and constraints:
     - Examples: `topo/bedmap3_ismip_10km.nc`,
       `topo/BedMachineAntarctica-v3_ismip_10km.nc`
 
+- Final published (user-facing) topography:
+  - Path:
+    `final/AIS/Obs/Ocean/topography/{topography-dataset}/{version}/{topography-dataset}_AIS_Obs_Ocean_topography_{version}.nc`
+
 - Intermediates (created or overwritten as needed):
   - Preprocessed source-grid file: `topo/intermediate/{name}_processed.nc`
   - Remapped (pre-renormalization): `topo/intermediate/{name}_remapped.nc`

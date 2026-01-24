@@ -36,7 +36,7 @@ See `example_job_scripts/` for examples of this approach.
 	- **CLI:** `ismip7-antarctic-split-cmip`
 	- **Job:** `example_job_scripts/01_split/job_script_cmip_{hist,ssp}_split.bash`
 	- **Inputs:** raw CMIP under input base dir
-	- **Outputs:** `split/<model>/<scenario>/Omon/{thetao,so}/*_<YYYY>-<YYYY>.nc`
+	- **Outputs:** `intermediate/01_split/<model>/<scenario>/Omon/{thetao,so}/*_<YYYY>-<YYYY>.nc`
 
 - **Step 2** — Convert to CT/SA (TEOS‑10)
 	- **Purpose:** `thetao/so` → `ct/sa` on native model grid.
@@ -44,7 +44,7 @@ See `example_job_scripts/` for examples of this approach.
 	- **CLI:** `ismip7-antarctic-convert-cmip-to-ct-sa`
 	- **Job:** `example_job_scripts/02_cmip_to_ct_sa/job_script_cmip_{hist,ssp}_to_ct_sa.bash`
 	- **Inputs:** Step 1 outputs
-	- **Outputs:** `convert/<model>/<scenario>/Omon/ct_sa/*_{ct,sa}_native.nc`
+	- **Outputs:** `intermediate/02_cmip_to_ct_sa/<model>/<scenario>/Omon/ct_sa/*_{ct,sa}_native.nc`
 
 - **Step 3a** — Remap climatology
 	- **Purpose:** remap climatology CT/SA to ISMIP grid and `z_extrap`.
@@ -52,7 +52,7 @@ See `example_job_scripts/` for examples of this approach.
 	- **CLI:** `ismip7-antarctic-remap-clim`
 	- **Job:** `example_job_scripts/03_remap/job_script_remap_clim.bash`
 	- **Inputs:** climatology under input base dir
-	- **Outputs:** `remap/climatology/<clim>/*_ismip<res>.nc`
+	- **Outputs:** `intermediate/03_remap/climatology/<clim>/*_ismip<res>.nc`
 
 - **Step 3b** — Remap CMIP
 	- **Purpose:** remap CMIP CT/SA to ISMIP grid and `z_extrap`.
@@ -60,7 +60,7 @@ See `example_job_scripts/` for examples of this approach.
 	- **CLI:** `ismip7-antarctic-remap-cmip`
 	- **Job:** `example_job_scripts/03_remap/job_script_remap_{hist,ssp}.bash`
 	- **Inputs:** Step 2 outputs
-	- **Outputs:** `remap/<model>/<scenario>/Omon/ct_sa/*_{ct,sa}_remap.nc`
+	- **Outputs:** `intermediate/03_remap/<model>/<scenario>/Omon/ct_sa/*_{ct,sa}_remap.nc`
 
 - **Step 4a** — Extrapolate climatology + resample
 	- **Purpose:** fill gaps; resample `z_extrap→z`.
@@ -68,7 +68,7 @@ See `example_job_scripts/` for examples of this approach.
 	- **CLI:** `ismip7-antarctic-extrap-clim`
 	- **Job:** `example_job_scripts/04_extrap/job_script_extrap_clim.bash`
 	- **Inputs:** Step 3a outputs
-	- **Outputs:** `extrap/climatology/<clim>/*_{ct,sa}_extrap.nc` and `*_z.nc`
+	- **Outputs:** `intermediate/04_extrap/climatology/<clim>/*_{ct,sa}_extrap.nc` and `*_z.nc`
 
 - **Step 4b** — Extrapolate CMIP + resample
 	- **Purpose:** fill gaps; resample `z_extrap→z`.
@@ -76,7 +76,7 @@ See `example_job_scripts/` for examples of this approach.
 	- **CLI:** `ismip7-antarctic-extrap-cmip`
 	- **Job:** `example_job_scripts/04_extrap/job_script_extrap_{hist,ssp}.bash`
 	- **Inputs:** Step 3b outputs
-	- **Outputs:** `extrap/<model>/<scenario>/Omon/ct_sa/*_{ct,sa}_extrap_*.nc`
+	- **Outputs:** `intermediate/04_extrap/<model>/<scenario>/Omon/ct_sa/*_{ct,sa}_extrap_*.nc`
 
 - **Step 5** — Bias correction (classic)
 	- **Purpose:** bias‑correct CMIP CT/SA toward the extrapolated climatology.
@@ -84,7 +84,7 @@ See `example_job_scripts/` for examples of this approach.
 	- **CLI:** `ismip7-antarctic-bias-corr-classic`
 	- **Job:** `example_job_scripts/05_biascorr/job_script_biascorr.bash`
 	- **Inputs:** Step 4a and 4b (historical + future)
-	- **Outputs:** `biascorr/<model>/{historical,<future>}/<clim>/Omon/ct_sa/*_biascorr_*.nc`
+	- **Outputs:** `intermediate/05_biascorr/<model>/{historical,<future>}/<clim>/Omon/ct_sa/*_biascorr_*.nc`
 
 - **Step 6a** — Thermal Forcing (climatology)
 	- **Purpose:** compute TF from extrapolated climatology CT/SA.
@@ -92,7 +92,7 @@ See `example_job_scripts/` for examples of this approach.
 	- **CLI:** `ismip7-antarctic-clim-ct-sa-to-tf`
 	- **Job:** `example_job_scripts/06_ct_sa_to_tf/job_script_tf_clim.bash`
 	- **Inputs:** Step 4a outputs
-	- **Outputs:** `extrap/climatology/<clim>/*_tf_extrap.nc`
+	- **Outputs:** `intermediate/04_extrap/climatology/<clim>/*_tf_extrap.nc`
 
 - **Step 6b** — Thermal Forcing (CMIP)
 	- **Purpose:** compute TF from bias‑corrected CMIP CT/SA.
@@ -100,7 +100,7 @@ See `example_job_scripts/` for examples of this approach.
 	- **CLI:** `ismip7-antarctic-cmip-ct-sa-to-tf`
 	- **Job:** `example_job_scripts/06_ct_sa_to_tf/job_script_tf_{hist,ssp}.bash`
 	- **Inputs:** Step 5 CMIP outputs
-	- **Outputs:** `biascorr/<model>/<scenario>/<clim>/Omon/ct_sa_tf0/*_{ct,sa,tf}_*.nc`
+	- **Outputs:** `intermediate/06_ct_sa_to_tf/<model>/<scenario>/<clim>/Omon/ct_sa_tf0/*_{ct,sa,tf}_*.nc`
 
 - **Step 7** — Annual averages (CMIP)
 	- **Purpose:** annual means of CT, SA, and TF.
@@ -108,7 +108,7 @@ See `example_job_scripts/` for examples of this approach.
 	- **CLI:** `ismip7-antarctic-cmip-annual-averages`
 	- **Job:** `example_job_scripts/07_annual/job_script_ann_{hist,ssp}.bash`
 	- **Inputs:** Step 6b outputs
-	- **Outputs:** `biascorr/<model>/<scenario>/<clim>/Oyr/ct_sa_tf/*_ann.nc`
+	- **Outputs:** `intermediate/07_annual/<model>/<scenario>/<clim>/Oyr/ct_sa_tf/*_ann.nc`
 
 - **Step 8a** — Back‑convert climatology CT/SA → `thetao/so`
 	- **Purpose:** provide static `thetao/so` derived from climatology CT/SA.
@@ -116,7 +116,7 @@ See `example_job_scripts/` for examples of this approach.
 	- **CLI:** `ismip7-antarctic-clim-ct-sa-to-thetao-so`
 	- **Job:** `example_job_scripts/08_ct_sa_to_thetao_so/job_script_thetao_clim.bash`
 	- **Inputs:** Step 4a climatology outputs
-	- **Outputs:** `extrap/climatology/<clim>/*_{thetao,so}_extrap.nc`
+	- **Outputs:** `intermediate/04_extrap/climatology/<clim>/*_{thetao,so}_extrap.nc`
 
 - **Step 8b** — Back‑convert CMIP annual CT/SA → `thetao/so`
 	- **Purpose:** provide CMIP annual `thetao/so` (TF carried alongside).
@@ -124,7 +124,7 @@ See `example_job_scripts/` for examples of this approach.
 	- **CLI:** `ismip7-antarctic-cmip-annual-ct-sa-to-thetao-so`
 	- **Job:** `example_job_scripts/08_ct_sa_to_thetao_so/job_script_thetao_{hist,ssp}.bash`
 	- **Inputs:** Step 7 CMIP annual outputs
-	- **Outputs:** `biascorr/<model>/<scenario>/<clim>/Oyr/thetao_so_tf/*_{thetao,so,tf}_ann.nc`
+	- **Outputs:** `intermediate/08_ct_sa_to_thetao_so/<model>/<scenario>/<clim>/Oyr/thetao_so_tf/*_{thetao,so,tf}_ann.nc`
 
 ---
 
@@ -228,6 +228,11 @@ base_dir = /path/to/cmip_and_clim_inputs
 
 [workdir]
 base_dir = /scratch/work_i7aof
+intermediate_dir = intermediate
+final_dir = final
+
+[output]
+version = v1
 
 [split_cmip]
 months_per_file = 120

@@ -38,17 +38,21 @@ annual averages, back‑conversion) run per scenario using those corrected field
 
 ## Directory & Naming Conventions (CMIP portion)
 
-The pipeline builds a predictable hierarchy under `<workdir>`:
+The pipeline builds a predictable hierarchy under `<workdir>` with separate
+`intermediate` and `final` trees:
 
 ```
-split/<model>/<scenario>/Omon/{thetao,so}/...
-convert/<model>/<scenario>/Omon/ct_sa/*_{ct,sa}_native.nc
-remap/<model>/<scenario>/Omon/ct_sa/*_{ct,sa}_remap.nc
-extrap/<model>/<scenario>/Omon/ct_sa/*_{ct,sa}_extrap_*.nc
-biascorr/<model>/<scenario>/<clim>/Omon/ct_sa/*_{ct,sa}_biascorr_*.nc
-biascorr/<model>/<scenario>/<clim>/Omon/ct_sa_tf0/*_{ct,sa,tf}_*.nc
-biascorr/<model>/<scenario>/<clim>/Oyr/ct_sa_tf/*_ann.nc
-biascorr/<model>/<scenario>/<clim>/Oyr/thetao_so_tf/*_{thetao,so,tf}_ann.nc
+intermediate/01_split/<model>/<scenario>/Omon/{thetao,so}/...
+intermediate/02_cmip_to_ct_sa/<model>/<scenario>/Omon/ct_sa/*_{ct,sa}_native.nc
+intermediate/03_remap/<model>/<scenario>/Omon/ct_sa/*_{ct,sa}_remap.nc
+intermediate/04_extrap/<model>/<scenario>/Omon/ct_sa/*_{ct,sa}_extrap_*.nc
+intermediate/05_biascorr/<model>/<scenario>/<clim>/Omon/ct_sa/*_{ct,sa}_biascorr_*.nc
+intermediate/06_ct_sa_to_tf/<model>/<scenario>/<clim>/Omon/ct_sa_tf0/*_{ct,sa,tf}_*.nc
+intermediate/07_annual/<model>/<scenario>/<clim>/Oyr/ct_sa_tf/*_ann.nc
+intermediate/08_ct_sa_to_thetao_so/<model>/<scenario>/<clim>/Oyr/thetao_so_tf/*_{thetao,so,tf}_ann.nc
+
+final/AIS/<model>/<scenario>/Ocean/<variable>/<version>/<variable>_AIS_<model>_<scenario>_Ocean_<version>_<YYYY-YYYY>.nc
+final/AIS/<model>/<scenario>/Ocean/extras/{climatology,bias}/<variable>/<version>/<variable>_AIS_<model>_<scenario>_Ocean_extras_{climatology,bias}_<version>_<YYYY-YYYY>.nc
 ```
 
 Key points:

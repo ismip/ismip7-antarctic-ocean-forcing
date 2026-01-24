@@ -55,7 +55,7 @@ Job script: `example_job_scripts/03_remap/job_script_remap_clim.bash`
 Outputs:
 
 ```
-<workdir>/remap/climatology/<clim_name>/*_ismip<res>.nc
+<workdir>/intermediate/03_remap/climatology/<clim_name>/*_ismip<res>.nc
 ```
 
 ## Extrapolate + Resample (Step 4a)
@@ -78,8 +78,8 @@ Job script: `example_job_scripts/04_extrap/job_script_extrap_clim.bash`
 Outputs:
 
 ```
-<workdir>/extrap/climatology/<clim_name>/*_{ct,sa}_extrap.nc
-<workdir>/extrap/climatology/<clim_name>/*_z.nc
+<workdir>/intermediate/04_extrap/climatology/<clim_name>/*_{ct,sa}_extrap.nc
+<workdir>/intermediate/04_extrap/climatology/<clim_name>/*_z.nc
 ```
 
 Dimension order for final climatology products is `(z, y, x)` (no time).
@@ -104,7 +104,7 @@ Job script: `example_job_scripts/06_ct_sa_to_tf/job_script_tf_clim.bash`
 Outputs:
 
 ```
-<workdir>/extrap/climatology/<clim_name>/*_tf_extrap.nc
+<workdir>/intermediate/04_extrap/climatology/<clim_name>/*_tf_extrap.nc
 ```
 
 ## Back‑convert to thetao/so (Step 8b)
@@ -124,7 +124,13 @@ Job script: `example_job_scripts/08_ct_sa_to_thetao_so/job_script_thetao_clim.ba
 Outputs:
 
 ```
-<workdir>/extrap/climatology/<clim_name>/*_{thetao,so}_extrap.nc
+<workdir>/intermediate/04_extrap/climatology/<clim_name>/*_{thetao,so}_extrap.nc
+
+Final published climatology outputs (Obs) are written to:
+
+```
+<workdir>/final/AIS/Obs/Ocean/climatology/<clim_name>/<variable>/<version>/<variable>_AIS_Obs_Ocean_climatology_<clim_name>_<version>_<YYYY-YYYY>.nc
+```
 ```
 
 ## Configuration Keys
