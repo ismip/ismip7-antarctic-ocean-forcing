@@ -202,13 +202,14 @@ def _load_config_and_paths(
 
 def _collect_extrap_outputs(
     extrap_root: str, model: str, future_scenario: str, ismip_res_str: str
-) -> Dict[str, List[str]]:
+) -> Dict[str, List[Dict[str, str]]]:
     """Collect all extrapolated ct and sa files from historical and future.
 
-    Returns a dict: { 'ct': [...], 'sa': [...] } across both scenarios.
+    Returns a dict: { 'ct': [{'path': ..., 'scenario': ...}],
+                     'sa': [{'path': ..., 'scenario': ...}] }
     """
-    ct_files: List[str] = []
-    sa_files: List[str] = []
+    ct_files: List[Dict[str, str]] = []
+    sa_files: List[Dict[str, str]] = []
     for scenario in ['historical', future_scenario]:
         extrap_dir = os.path.join(
             extrap_root, model, scenario, 'Omon', 'ct_sa'
@@ -222,12 +223,22 @@ def _collect_extrap_outputs(
                     ct_name = name
                     sa_name = ct_name.replace('ct', 'sa')
                     if sa_name in allfiles:
-                        ct_files.append(os.path.join(extrap_dir, ct_name))
-                        sa_files.append(os.path.join(extrap_dir, sa_name))
+                        ct_files.append(
+                            {
+                                'path': os.path.join(extrap_dir, ct_name),
+                                'scenario': scenario,
+                            }
+                        )
+                        sa_files.append(
+                            {
+                                'path': os.path.join(extrap_dir, sa_name),
+                                'scenario': scenario,
+                            }
+                        )
 
     # Sort for stable processing order
-    ct_files = sorted(ct_files)
-    sa_files = sorted(sa_files)
+    ct_files = sorted(ct_files, key=lambda item: item['path'])
+    sa_files = sorted(sa_files, key=lambda item: item['path'])
     return {'ct': ct_files, 'sa': sa_files}
 
 
@@ -238,7 +249,7 @@ def _compute_biases(
     future_scenario,
     ismip_res_str,
     clim_name,
-    var_files: Dict[str, List[str]],
+    var_files: Dict[str, List[Dict[str, str]]],
 ):
     """Compute the bias if not already done"""
 
@@ -340,7 +351,7 @@ def _compute_biases(
         ds_clim = read_dataset(climfile)
 
         # Open combined historical + future dataset (all files for variable)
-        files_to_open = sorted(all_files)
+        files_to_open = sorted(item['path'] for item in all_files)
         ds_hist_ssp = xr.open_mfdataset(
             files_to_open,
             combine='by_coords',
@@ -410,28 +421,19 @@ def _apply_biascorrection(
 
     time_chunk = config.get('biascorr', 'time_chunk')
 
-    for ct_file, sa_file in zip(ct_files, sa_files, strict=True):
-        for var, file in zip(['ct', 'sa'], [ct_file, sa_file], strict=True):
+    for ct_item, sa_item in zip(ct_files, sa_files, strict=True):
+        for var, item in zip(['ct', 'sa'], [ct_item, sa_item], strict=True):
             # Read biases
             biasfile = bias_files[var]
             ds_bias = read_dataset(biasfile)
 
             # Read CMIP files (extrapolated inputs prior to bias correction)
-            ds_cmip = read_dataset(file)
+            file_path = item['path']
+            scenario_name = item['scenario']
+            ds_cmip = read_dataset(file_path)
             da_cmip = ds_cmip[var].chunk({'time': time_chunk})
 
             # Define per-file output directory and filename
-            # Detect scenario from the input path
-            parts = os.path.normpath(file).split(os.sep)
-            # Expect structure: .../extrap/<model>/<scenario>/Omon/ct_sa/...
-            try:
-                model_idx = parts.index('extrap') + 1
-                scenario_name = parts[model_idx + 1]
-            except (ValueError, IndexError):
-                # Fallback: default to future scenario layout if unexpected
-                scenario_name = (
-                    'historical' if 'historical' in file else 'unknown'
-                )
             outdir = os.path.join(
                 get_stage_dir(config, 'biascorr'),
                 model,
@@ -441,7 +443,7 @@ def _apply_biascorrection(
                 'ct_sa',
             )
             os.makedirs(outdir, exist_ok=True)
-            outfile = os.path.join(outdir, os.path.basename(file))
+            outfile = os.path.join(outdir, os.path.basename(file_path))
             if os.path.exists(outfile):
                 print(f'Corrected files already exist: {outfile}')
             else:
@@ -457,7 +459,7 @@ def _apply_biascorrection(
                 # other CMIP workflows.
                 if 'time_bnds' not in ds_cmip:
                     raise ValueError(
-                        f'Missing time_bnds in source file: {file}'
+                        f'Missing time_bnds in source file: {file_path}'
                     )
                 ds_out['time_bnds'] = ds_cmip['time_bnds']
                 # Propagate time coord and bounds from CMIP source
