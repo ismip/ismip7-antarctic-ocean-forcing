@@ -85,6 +85,7 @@ version = { attr = "i7aof.version.__version__" }
 
 [tool.ruff]
 exclude = [".git",
+           "contemporary",
            "docs",
            "*.ipynb"]
 line-length = 79
