@@ -21,6 +21,12 @@ from i7aof.coords import (
 )
 from i7aof.grid.ismip import get_res_string
 from i7aof.io import ensure_cf_time_encoding, read_dataset, write_netcdf
+from i7aof.paths import (
+    build_cmip_final_dir,
+    build_cmip_final_filename,
+    get_output_version,
+    get_stage_dir,
+)
 
 
 def biascorr_cmip(
@@ -68,7 +74,10 @@ def biascorr_cmip(
 
     # Collect extrapolated files (historical + future) to bias-correct
     var_files = _collect_extrap_outputs(
-        workdir, model, future_scenario, ismip_res_str
+        get_stage_dir(config, 'extrap'),
+        model,
+        future_scenario,
+        ismip_res_str,
     )
     ct_files = var_files.get('ct', [])
     sa_files = var_files.get('sa', [])
@@ -172,8 +181,7 @@ def _load_config_and_paths(
     workdir_base: str = config.get('workdir', 'base_dir')
 
     outdir = os.path.join(
-        workdir_base,
-        'biascorr',
+        get_stage_dir(config, 'biascorr'),
         model,
         future_scenario,
         clim_name,
@@ -193,17 +201,18 @@ def _load_config_and_paths(
 
 
 def _collect_extrap_outputs(
-    workdir: str, model: str, future_scenario: str, ismip_res_str: str
-) -> Dict[str, List[str]]:
+    extrap_root: str, model: str, future_scenario: str, ismip_res_str: str
+) -> Dict[str, List[Dict[str, str]]]:
     """Collect all extrapolated ct and sa files from historical and future.
 
-    Returns a dict: { 'ct': [...], 'sa': [...] } across both scenarios.
+    Returns a dict: { 'ct': [{'path': ..., 'scenario': ...}],
+                     'sa': [{'path': ..., 'scenario': ...}] }
     """
-    ct_files: List[str] = []
-    sa_files: List[str] = []
+    ct_files: List[Dict[str, str]] = []
+    sa_files: List[Dict[str, str]] = []
     for scenario in ['historical', future_scenario]:
         extrap_dir = os.path.join(
-            workdir, 'extrap', model, scenario, 'Omon', 'ct_sa'
+            extrap_root, model, scenario, 'Omon', 'ct_sa'
         )
         if not os.path.isdir(extrap_dir):
             continue
@@ -214,12 +223,22 @@ def _collect_extrap_outputs(
                     ct_name = name
                     sa_name = ct_name.replace('ct', 'sa')
                     if sa_name in allfiles:
-                        ct_files.append(os.path.join(extrap_dir, ct_name))
-                        sa_files.append(os.path.join(extrap_dir, sa_name))
+                        ct_files.append(
+                            {
+                                'path': os.path.join(extrap_dir, ct_name),
+                                'scenario': scenario,
+                            }
+                        )
+                        sa_files.append(
+                            {
+                                'path': os.path.join(extrap_dir, sa_name),
+                                'scenario': scenario,
+                            }
+                        )
 
     # Sort for stable processing order
-    ct_files = sorted(ct_files)
-    sa_files = sorted(sa_files)
+    ct_files = sorted(ct_files, key=lambda item: item['path'])
+    sa_files = sorted(sa_files, key=lambda item: item['path'])
     return {'ct': ct_files, 'sa': sa_files}
 
 
@@ -230,24 +249,26 @@ def _compute_biases(
     future_scenario,
     ismip_res_str,
     clim_name,
-    var_files: Dict[str, List[str]],
+    var_files: Dict[str, List[Dict[str, str]]],
 ):
     """Compute the bias if not already done"""
 
-    biasdir = os.path.join(workdir, 'biascorr', model, 'bias', clim_name)
-    os.makedirs(biasdir, exist_ok=True)
+    version = get_output_version(config)
 
-    modclimdir = os.path.join(workdir, 'biascorr', model, 'climatology')
-    os.makedirs(modclimdir, exist_ok=True)
-
-    climdir = os.path.join(workdir, 'extrap', 'climatology', clim_name)
+    climdir = os.path.join(
+        get_stage_dir(config, 'extrap'), 'climatology', clim_name
+    )
 
     # Ensure at least some files exist for both historical and future
     hist_dir = os.path.join(
-        workdir, 'extrap', model, 'historical', 'Omon', 'ct_sa'
+        get_stage_dir(config, 'extrap'), model, 'historical', 'Omon', 'ct_sa'
     )
     ssp_dir = os.path.join(
-        workdir, 'extrap', model, future_scenario, 'Omon', 'ct_sa'
+        get_stage_dir(config, 'extrap'),
+        model,
+        future_scenario,
+        'Omon',
+        'ct_sa',
     )
     if not os.path.isdir(hist_dir) or not os.path.isdir(ssp_dir):
         raise FileNotFoundError(
@@ -269,32 +290,53 @@ def _compute_biases(
                 f'No extrapolated files available for {var}.'
             )
 
-        # Determine a representative basename using a historical file
-        hist_files_for_var = [
-            f for f in all_files if os.sep + 'historical' + os.sep in f
-        ]
-        if not hist_files_for_var:
-            raise FileNotFoundError(
-                f'No historical extrapolated files available for {var}'
-            )
-        basename = os.path.basename(hist_files_for_var[0])
-        # remove "Omon" and years from filename
-        basename = basename.replace('_Omon', '')
-        basename = basename[0 : basename.rfind('_')]
-        # add climatology years
-        ref_filename = f'{basename}_{start_year}-{end_year}.nc'
+        year_range = f'{start_year}-{end_year}'
 
-        # Define filename for bias and skip if it's already present
+        clim_dir = build_cmip_final_dir(
+            config,
+            model=model,
+            scenario='historical',
+            variable=var,
+            version=version,
+            extras='climatology',
+        )
+        bias_dir = build_cmip_final_dir(
+            config,
+            model=model,
+            scenario='historical',
+            variable=var,
+            version=version,
+            extras='bias',
+        )
+        os.makedirs(clim_dir, exist_ok=True)
+        os.makedirs(bias_dir, exist_ok=True)
+
+        modclimfile = os.path.join(
+            clim_dir,
+            build_cmip_final_filename(
+                variable=var,
+                model=model,
+                scenario='historical',
+                version=version,
+                year_range=year_range,
+                extras='climatology',
+            ),
+        )
         biasfile = os.path.join(
-            biasdir, ref_filename.replace('historical', 'bias')
+            bias_dir,
+            build_cmip_final_filename(
+                variable=var,
+                model=model,
+                scenario='historical',
+                version=version,
+                year_range=year_range,
+                extras='bias',
+            ),
         )
         bias_files[var] = biasfile
         if os.path.exists(biasfile):
             print(f'Bias file already exists, skipping: {biasfile}')
             continue
-        modclimfile = os.path.join(
-            modclimdir, ref_filename.replace('historical', 'climatology')
-        )
 
         # Get climatology file for this variable
         climfile = os.path.join(
@@ -309,7 +351,7 @@ def _compute_biases(
         ds_clim = read_dataset(climfile)
 
         # Open combined historical + future dataset (all files for variable)
-        files_to_open = sorted(all_files)
+        files_to_open = sorted(item['path'] for item in all_files)
         ds_hist_ssp = xr.open_mfdataset(
             files_to_open,
             combine='by_coords',
@@ -379,31 +421,21 @@ def _apply_biascorrection(
 
     time_chunk = config.get('biascorr', 'time_chunk')
 
-    for ct_file, sa_file in zip(ct_files, sa_files, strict=True):
-        for var, file in zip(['ct', 'sa'], [ct_file, sa_file], strict=True):
+    for ct_item, sa_item in zip(ct_files, sa_files, strict=True):
+        for var, item in zip(['ct', 'sa'], [ct_item, sa_item], strict=True):
             # Read biases
             biasfile = bias_files[var]
             ds_bias = read_dataset(biasfile)
 
             # Read CMIP files (extrapolated inputs prior to bias correction)
-            ds_cmip = read_dataset(file)
+            file_path = item['path']
+            scenario_name = item['scenario']
+            ds_cmip = read_dataset(file_path)
             da_cmip = ds_cmip[var].chunk({'time': time_chunk})
 
             # Define per-file output directory and filename
-            # Detect scenario from the input path
-            parts = os.path.normpath(file).split(os.sep)
-            # Expect structure: .../extrap/<model>/<scenario>/Omon/ct_sa/...
-            try:
-                model_idx = parts.index('extrap') + 1
-                scenario_name = parts[model_idx + 1]
-            except (ValueError, IndexError):
-                # Fallback: default to future scenario layout if unexpected
-                scenario_name = (
-                    'historical' if 'historical' in file else 'unknown'
-                )
             outdir = os.path.join(
-                workdir,
-                'biascorr',
+                get_stage_dir(config, 'biascorr'),
                 model,
                 scenario_name,
                 clim_name,
@@ -411,7 +443,7 @@ def _apply_biascorrection(
                 'ct_sa',
             )
             os.makedirs(outdir, exist_ok=True)
-            outfile = os.path.join(outdir, os.path.basename(file))
+            outfile = os.path.join(outdir, os.path.basename(file_path))
             if os.path.exists(outfile):
                 print(f'Corrected files already exist: {outfile}')
             else:
@@ -427,7 +459,7 @@ def _apply_biascorrection(
                 # other CMIP workflows.
                 if 'time_bnds' not in ds_cmip:
                     raise ValueError(
-                        f'Missing time_bnds in source file: {file}'
+                        f'Missing time_bnds in source file: {file_path}'
                     )
                 ds_out['time_bnds'] = ds_cmip['time_bnds']
                 # Propagate time coord and bounds from CMIP source

@@ -9,6 +9,7 @@ from mpas_tools.config import MpasConfigParser
 
 from i7aof.config import load_config
 from i7aof.io import read_dataset, write_netcdf
+from i7aof.paths import get_stage_dir
 
 
 def split_cmip(
@@ -23,7 +24,7 @@ def split_cmip(
 
     Outputs are written under:
 
-        {workdir}/split/{model}/{scenario}/Omon/{variable}/
+        {workdir}/<intermediate>/01_split/{model}/{scenario}/Omon/{variable}/
 
     Each output filename is based on the input basename with any trailing
     "_YYYY[MM]-YYYY[MM]" suffix removed and replaced by
@@ -62,10 +63,11 @@ def split_cmip(
             'Please supply a user config file or command-line option that '
             'defines this option.'
         )
-    workdir_base: str = config.get('workdir', 'base_dir')
     inputdir_base: str = config.get('inputdir', 'base_dir')
 
-    out_base_dir = os.path.join(workdir_base, 'split', model, scenario, 'Omon')
+    out_base_dir = os.path.join(
+        get_stage_dir(config, 'split'), model, scenario, 'Omon'
+    )
     os.makedirs(out_base_dir, exist_ok=True)
 
     months_per_file = _parse_months_per_file(config)

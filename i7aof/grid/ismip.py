@@ -1,10 +1,16 @@
 import os
+import shutil
 
 import numpy as np
 import xarray as xr
 from pyproj import Proj
 
 from i7aof.io import write_netcdf
+from i7aof.paths import (
+    build_grid_dir,
+    build_grid_filename,
+    get_output_version,
+)
 
 # size of the ISMIP grid in meters
 ismip_lx = 6080e3
@@ -49,6 +55,23 @@ def write_ismip_grid(config):
 
     # Grid variables should not have _FillValue in outputs
     write_netcdf(ds, out_filename, has_fill_values=False)
+
+    # Publish final grid (dz resolution only; not dz_extrap)
+    _publish_ismip_grid(config, out_filename)
+
+
+def _publish_ismip_grid(config, out_filename: str) -> None:
+    if not os.path.exists(out_filename):
+        return
+    hres = get_horiz_res_string(config)
+    vres = get_ver_res_string(config, extrap=False)
+    version = get_output_version(config)
+    final_dir = build_grid_dir(config, hres=hres, vres=vres, version=version)
+    os.makedirs(final_dir, exist_ok=True)
+    final_name = build_grid_filename(hres=hres, vres=vres, version=version)
+    final_path = os.path.join(final_dir, final_name)
+    if not os.path.exists(final_path):
+        shutil.copyfile(out_filename, final_path)
 
 
 def ensure_ismip_grid(config) -> str:

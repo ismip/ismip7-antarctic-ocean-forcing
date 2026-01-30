@@ -10,6 +10,7 @@ from i7aof.cmip import get_model_prefix
 from i7aof.config import load_config
 from i7aof.grid.ismip import get_res_string, write_ismip_grid
 from i7aof.io import read_dataset
+from i7aof.paths import get_stage_dir
 from i7aof.remap.shared import (
     _remap_horiz,
     _vert_mask_interp_norm_multi,
@@ -80,11 +81,7 @@ def remap_cmip(
 
     # Build input/output lists for ct/sa
     in_files, out_files = _build_io_lists(
-        scenario=scenario,
-        outdir=outdir,
-        ismip_res_str=ismip_res_str,
-        model=model,
-        workdir=workdir,
+        config, scenario, outdir, ismip_res_str, model, workdir
     )
 
     # Ensure the destination ISMIP grid files exist (used by both steps)
@@ -169,7 +166,7 @@ def _load_config_and_paths(
 
     workdir_base: str = config.get('workdir', 'base_dir')
     outdir = os.path.join(
-        workdir_base, 'remap', model, scenario, 'Omon', 'ct_sa'
+        get_stage_dir(config, 'remap'), model, scenario, 'Omon', 'ct_sa'
     )
     os.makedirs(outdir, exist_ok=True)
     os.chdir(workdir_base)
@@ -179,6 +176,7 @@ def _load_config_and_paths(
 
 
 def _build_io_lists(
+    config,
     scenario,
     outdir,
     ismip_res_str,
@@ -192,7 +190,11 @@ def _build_io_lists(
     split conversion outputs (multiple year-range files).
     """
     convert_ct_sa_dir = os.path.join(
-        workdir, 'convert', model, scenario, 'Omon', 'ct_sa'
+        get_stage_dir(config, 'convert_cmip'),
+        model,
+        scenario,
+        'Omon',
+        'ct_sa',
     )
     if not os.path.isdir(convert_ct_sa_dir):
         raise ValueError(

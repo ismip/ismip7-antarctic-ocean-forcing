@@ -5,11 +5,11 @@ Extrapolation workflow
 ======================
 Consumes remapped monthly ``ct``/``sa`` files produced by the remap step::
 
-    workdir/remap/<model>/<scenario>/Omon/ct_sa/*ismip<res>.nc
+    workdir/<intermediate>/03_remap/<model>/<scenario>/Omon/ct_sa/*ismip<res>.nc
 
 Produces per input file and per variable vertically extrapolated outputs::
 
-    workdir/extrap/<model>/<scenario>/Omon/ct_sa/*ismip<res>_extrap.nc
+    workdir/<intermediate>/04_extrap/<model>/<scenario>/Omon/ct_sa/*ismip<res>_extrap.nc
 
 with ``ct_sa`` in the filename replaced by the variable name (``ct`` or
 ``sa``).
@@ -81,6 +81,7 @@ from i7aof.extrap.shared import (
 )
 from i7aof.grid.ismip import ensure_ismip_grid, get_res_string
 from i7aof.io import read_dataset, write_netcdf
+from i7aof.paths import get_stage_dir
 from i7aof.time.bounds import capture_time_bounds
 
 __all__ = ['extrap_cmip', 'main']
@@ -320,10 +321,10 @@ def _prepare_paths_and_config(
     )
     workdir_base: str = config.get('workdir', 'base_dir')
     remap_dir = os.path.join(
-        workdir_base, 'remap', model, scenario, 'Omon', 'ct_sa'
+        get_stage_dir(config, 'remap'), model, scenario, 'Omon', 'ct_sa'
     )
     out_dir = os.path.join(
-        workdir_base, 'extrap', model, scenario, 'Omon', 'ct_sa'
+        get_stage_dir(config, 'extrap'), model, scenario, 'Omon', 'ct_sa'
     )
     os.makedirs(out_dir, exist_ok=True)
     ismip_res_str = get_res_string(config, extrap=True)

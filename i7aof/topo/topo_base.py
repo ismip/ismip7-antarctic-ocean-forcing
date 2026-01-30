@@ -1,8 +1,16 @@
+import os
+import shutil
+
 import numpy as np
 import xarray as xr
 
 from i7aof.grid.ismip import get_horiz_res_string
 from i7aof.io import read_dataset, write_netcdf
+from i7aof.paths import (
+    build_topography_dir,
+    build_topography_filename,
+    get_output_version,
+)
 
 
 class TopoBase:
@@ -81,6 +89,51 @@ class TopoBase:
             'remap_topo_to_ismip must be implemented in a subclass'
         )
 
+    def ensure_topography_on_ismip(self, workdir: str) -> str:
+        """Ensure topography exists on ISMIP grid and publish if missing.
+
+        This method will:
+
+        - Build the topography on the ISMIP grid if absent.
+
+        - Publish the final topography if the published copy is missing,
+          even when the ISMIP-grid topography already exists.
+
+        Parameters
+        ----------
+        workdir : str
+            Base working directory containing ``topo/``.
+
+        Returns
+        -------
+        str
+            Absolute path to the topography on the ISMIP grid.
+        """
+        cwd = os.getcwd()
+        try:
+            os.makedirs(os.path.join(workdir, 'topo'), exist_ok=True)
+            os.chdir(workdir)
+            topo_rel_path = self.get_topo_on_ismip_path()
+            if not os.path.exists(topo_rel_path):
+                try:
+                    self.download_and_preprocess_topo()
+                except FileNotFoundError as e:  # pragma: no cover
+                    raise FileNotFoundError(
+                        f'Topography prerequisite missing: {e}. '
+                        'Please fetch required source data.'
+                    ) from e
+                self.remap_topo_to_ismip()
+            if not os.path.exists(topo_rel_path):  # pragma: no cover
+                raise FileNotFoundError(
+                    f'Failed to build topography file: {topo_rel_path}'
+                )
+
+            # Publish if missing, even if topo already exists.
+            self._publish_topography(topo_rel_path)
+            return os.path.join(workdir, topo_rel_path)
+        finally:
+            os.chdir(cwd)
+
     def renormalize_topo_fields(self, in_filename, out_filename):
         """
         Renormalize the topography fields (those that aren't fractions) by
@@ -114,6 +167,24 @@ class TopoBase:
             ds[field].attrs = attrs
 
         write_netcdf(ds, out_filename)
+        self._publish_topography(out_filename)
+
+    def _publish_topography(self, out_filename: str) -> None:
+        """Publish a final, user-facing topography file."""
+        if not os.path.exists(out_filename):
+            return
+        dataset = str(self.config.get('topo', 'dataset'))
+        version = get_output_version(self.config)
+        final_dir = build_topography_dir(
+            self.config, dataset=dataset, version=version
+        )
+        os.makedirs(final_dir, exist_ok=True)
+        final_name = build_topography_filename(
+            dataset=dataset, version=version
+        )
+        final_path = os.path.join(final_dir, final_name)
+        if not os.path.exists(final_path):
+            shutil.copyfile(out_filename, final_path)
 
     def check(self, ds):
         """

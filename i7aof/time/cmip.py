@@ -3,12 +3,12 @@ CMIP annual averaging driver for bias-corrected outputs.
 
 Discovers monthly CT/SA/TF files under:
 
-    workdir/biascorr/<model>/<scenario>/<clim_name>/Omon/ct_sa_tf0
+    workdir/<intermediate>/06_ct_sa_to_tf/<model>/<scenario>/<clim_name>/Omon/ct_sa_tf0
 
 Computes weighted annual means using i7aof.time.average.annual_average and
 writes results into a common directory:
 
-    workdir/biascorr/<model>/<scenario>/<clim_name>/Oyr/ct_sa_tf
+    workdir/<intermediate>/07_annual/<model>/<scenario>/<clim_name>/Oyr/ct_sa_tf
 
 Output filenames insert the suffix "_ann" before the extension.
 
@@ -27,6 +27,7 @@ from typing import List
 from i7aof.config import load_config
 from i7aof.coords import attach_grid_coords
 from i7aof.io import read_dataset, write_netcdf
+from i7aof.paths import get_stage_dir
 from i7aof.time.average import annual_average
 
 __all__ = [
@@ -77,14 +78,12 @@ def compute_cmip_annual_averages(
         workdir=workdir,
         user_config_filename=user_config_filename,
     )
-    workdir_base: str = config.get('workdir', 'base_dir')
 
     # Monthly input directories (bias-corrected)
     # Prefer the new consolidated directory produced by ct_sa_to_tf:
     #   Omon/ct_sa_tf0
     monthly_dir = os.path.join(
-        workdir_base,
-        'biascorr',
+        get_stage_dir(config, 'ct_sa_to_tf'),
         model,
         scenario,
         clim_name,
@@ -94,7 +93,12 @@ def compute_cmip_annual_averages(
 
     # Annual output directory (combined variables)
     out_dir = os.path.join(
-        workdir_base, 'biascorr', model, scenario, clim_name, 'Oyr', 'ct_sa_tf'
+        get_stage_dir(config, 'annual'),
+        model,
+        scenario,
+        clim_name,
+        'Oyr',
+        'ct_sa_tf',
     )
     os.makedirs(out_dir, exist_ok=True)
 
