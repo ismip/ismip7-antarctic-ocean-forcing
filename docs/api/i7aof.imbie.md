@@ -15,3 +15,10 @@ High-level API for IMBIE basin datasets and masks. See {doc}`../dev/packages/imb
    :undoc-members:
    :show-inheritance:
 ```
+
+```{eval-rst}
+.. automodule:: i7aof.imbie.extend
+   :members:
+   :undoc-members:
+   :show-inheritance:
+```

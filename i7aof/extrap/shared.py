@@ -522,9 +522,28 @@ def _vertically_resample_to_coarse_ismip_grid(
                 ds_res = ds_res.drop_vars(['z_extrap'])
             if z_bnds is not None:
                 ds_res['z_bnds'] = z_bnds
-            # Chunk this slice fully in time for contiguous appends
+            # Avoid Dataset.chunk() here.
+            #
+            # On some combinations of Python (notably 3.13) and xarray, we can
+            # hit a strict-zip failure inside xarray's rechunking machinery
+            # when *any* variable in the Dataset has inconsistent internal
+            # metadata (dims vs. underlying array shape). We only need
+            # chunking for the primary resampled variable, so keep this
+            # conservative and robust.
             if 'time' in ds_res.dims:
-                ds_res = ds_res.chunk({'time': max(i1 - i0, 1)})
+                desired = max(i1 - i0, 1)
+                try:
+                    da_main = ds_res[variable]
+                    if hasattr(getattr(da_main, 'data', None), 'chunks'):
+                        ds_res[variable] = da_main.chunk({'time': desired})
+                except Exception as e:  # pragma: no cover
+                    log.warning(
+                        'Skipping rechunk of %s for %s:%s due to: %s',
+                        variable,
+                        i0,
+                        i1,
+                        e,
+                    )
 
             # Write/append to Zarr using shared helper
             if first:
