@@ -129,7 +129,7 @@ Outputs:
 Final published climatology outputs (Obs) are written to:
 
 ```
-<workdir>/final/AIS/Obs/Ocean/climatology/<clim_name>/<variable>/<version>/<variable>_AIS_Obs_Ocean_climatology_<clim_name>_<version>_<YYYY-YYYY>.nc
+<workdir>/final/AIS/obs/ocean/climatology/<clim_name>/<variable>/<version>/<variable>_AIS_obs_ocean_climatology_<clim_name>_<version>_<YYYY-YYYY>.nc
 ```
 ```
 

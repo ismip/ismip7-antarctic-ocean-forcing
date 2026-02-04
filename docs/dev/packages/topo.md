@@ -79,7 +79,7 @@ Behavior and constraints:
 
 - Final published (user-facing) topography:
   - Path:
-    `final/AIS/Obs/Ocean/topography/{topography-dataset}/{version}/{topography-dataset}_AIS_Obs_Ocean_topography_{version}.nc`
+    `final/AIS/obs/ocean/topography/{topography-dataset}/{version}/{topography-dataset}_AIS_obs_ocean_topography_{version}.nc`
 
 - Intermediates (created or overwritten as needed):
   - Preprocessed source-grid file: `topo/intermediate/{name}_processed.nc`

@@ -15,7 +15,13 @@ from i7aof.coords import (
 from i7aof.grid.ismip import ensure_ismip_grid, get_res_string
 from i7aof.io import ensure_cf_time_encoding, read_dataset
 from i7aof.io_zarr import append_to_zarr, finalize_zarr_to_netcdf
-from i7aof.paths import get_stage_dir
+from i7aof.paths import (
+    build_obs_climatology_dir,
+    build_obs_climatology_filename,
+    get_output_version,
+    get_stage_dir,
+    parse_year_range,
+)
 
 __all__ = ['cmip_ct_sa_to_tf', 'main_cmip', 'clim_ct_sa_to_tf', 'main_clim']
 
@@ -237,6 +243,11 @@ def clim_ct_sa_to_tf(
         out_nc = _output_path_for_extrap_tf(ct_path)
         if os.path.exists(out_nc):
             print(f'TF exists, skipping: {out_nc}')
+            _publish_final_climatology_tf(
+                config=config,
+                clim_name=clim_name,
+                in_path=out_nc,
+            )
             continue
         print(f'Computing TF (clim): {os.path.basename(out_nc)}')
         _process_ct_sa_pair(
@@ -248,6 +259,11 @@ def clim_ct_sa_to_tf(
             time_chunk=None,
             use_poly=_parse_use_poly(config),
             progress=progress,
+        )
+        _publish_final_climatology_tf(
+            config=config,
+            clim_name=clim_name,
+            in_path=out_nc,
         )
 
 
@@ -301,6 +317,54 @@ def _parse_use_poly(config: MpasConfigParser) -> bool:
         return True
     raw = str(config.get('ct_sa_to_tf', 'use_poly')).strip().lower()
     return raw not in ('0', 'false', 'no', '')
+
+
+def _infer_climatology_year_range(
+    config: MpasConfigParser, in_path: str
+) -> str | None:
+    year_range = parse_year_range(os.path.basename(in_path))
+    if year_range is not None:
+        return year_range
+    if config.has_option('climatology', 'start_year') and config.has_option(
+        'climatology', 'end_year'
+    ):
+        start_year = config.getint('climatology', 'start_year')
+        end_year = config.getint('climatology', 'end_year')
+        return f'{start_year}-{end_year}'
+    return None
+
+
+def _publish_final_climatology_tf(
+    *,
+    config: MpasConfigParser,
+    clim_name: str,
+    in_path: str,
+) -> None:
+    year_range = _infer_climatology_year_range(config, in_path)
+    if year_range is None:
+        print(
+            'Warning: could not infer year range for final climatology '
+            f'output from {os.path.basename(in_path)}'
+        )
+        return
+    version = get_output_version(config)
+    final_dir = build_obs_climatology_dir(
+        config,
+        clim_name=clim_name,
+        variable='tf',
+        version=version,
+    )
+    os.makedirs(final_dir, exist_ok=True)
+    final_name = build_obs_climatology_filename(
+        variable='tf',
+        clim_name=clim_name,
+        version=version,
+        year_range=year_range,
+    )
+    final_path = os.path.join(final_dir, final_name)
+    if not os.path.exists(final_path):
+        shutil.copyfile(in_path, final_path)
+        print(f'Published final climatology: {final_path}')
 
 
 def _collect_biascorr_ct_sa_pairs(

@@ -90,14 +90,14 @@ def build_cmip_final_dir(
             'AIS',
             model,
             scenario,
-            'Ocean',
+            'ocean',
             'extras',
             extras,
             variable,
             version,
         )
     return os.path.join(
-        base, 'AIS', model, scenario, 'Ocean', variable, version
+        base, 'AIS', model, scenario, 'ocean', variable, version
     )
 
 
@@ -112,10 +112,10 @@ def build_cmip_final_filename(
 ) -> str:
     if extras:
         return (
-            f'{variable}_AIS_{model}_{scenario}_Ocean_extras_{extras}_'
+            f'{variable}_AIS_{model}_{scenario}_ocean_extras_{extras}_'
             f'{version}_{year_range}.nc'
         )
-    return f'{variable}_AIS_{model}_{scenario}_Ocean_{version}_{year_range}.nc'
+    return f'{variable}_AIS_{model}_{scenario}_ocean_{version}_{year_range}.nc'
 
 
 def build_obs_climatology_dir(
@@ -130,8 +130,8 @@ def build_obs_climatology_dir(
     return os.path.join(
         base,
         'AIS',
-        'Obs',
-        'Ocean',
+        'obs',
+        'ocean',
         'climatology',
         clim_name,
         variable,
@@ -147,7 +147,7 @@ def build_obs_climatology_filename(
     year_range: str,
 ) -> str:
     return (
-        f'{variable}_AIS_Obs_Ocean_climatology_{clim_name}_'
+        f'{variable}_AIS_obs_ocean_climatology_{clim_name}_'
         f'{version}_{year_range}.nc'
     )
 
@@ -155,11 +155,11 @@ def build_obs_climatology_filename(
 def build_imbie_basins_dir(config, *, version: Optional[str] = None) -> str:
     version = version or get_output_version(config)
     base = get_final_root(config)
-    return os.path.join(base, 'AIS', 'Obs', 'Ocean', 'IMBIE-basins', version)
+    return os.path.join(base, 'AIS', 'obs', 'ocean', 'IMBIE-basins', version)
 
 
 def build_imbie_basins_filename(*, version: str) -> str:
-    return f'IMBIE-basins_AIS_Obs_Ocean_{version}.nc'
+    return f'IMBIE-basins_AIS_obs_ocean_{version}.nc'
 
 
 def build_topography_dir(
@@ -168,12 +168,12 @@ def build_topography_dir(
     version = version or get_output_version(config)
     base = get_final_root(config)
     return os.path.join(
-        base, 'AIS', 'Obs', 'Ocean', 'topography', dataset, version
+        base, 'AIS', 'obs', 'ocean', 'topography', dataset, version
     )
 
 
 def build_topography_filename(*, dataset: str, version: str) -> str:
-    return f'{dataset}_AIS_Obs_Ocean_topography_{version}.nc'
+    return f'{dataset}_AIS_obs_ocean_topography_{version}.nc'
 
 
 def build_grid_dir(
@@ -182,9 +182,9 @@ def build_grid_dir(
     version = version or get_output_version(config)
     base = get_final_root(config)
     res = f'{hres}-{vres}'
-    return os.path.join(base, 'AIS', 'Grid', 'Ocean', 'ISMIP7', res, version)
+    return os.path.join(base, 'AIS', 'grid', 'ocean', 'ISMIP7', res, version)
 
 
 def build_grid_filename(*, hres: str, vres: str, version: str) -> str:
     res = f'{hres}-{vres}'
-    return f'ISMIP7_{res}_AIS_Grid_Ocean_{version}.nc'
+    return f'ISMIP7_{res}_AIS_grid_ocean_{version}.nc'
