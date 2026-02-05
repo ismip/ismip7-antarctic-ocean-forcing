@@ -476,17 +476,15 @@ def _publish_final_annual(
 
 def _infer_climatology_year_range(
     config: MpasConfigParser, in_path: str
-) -> str | None:
-    year_range = parse_year_range(os.path.basename(in_path))
-    if year_range is not None:
-        return year_range
-    if config.has_option('climatology', 'start_year') and config.has_option(
-        'climatology', 'end_year'
-    ):
-        start_year = config.getint('climatology', 'start_year')
-        end_year = config.getint('climatology', 'end_year')
-        return f'{start_year}-{end_year}'
-    return None
+) -> str:
+    start_year = config.getint('climatology', 'climatology_start_year')
+    end_year = config.getint('climatology', 'climatology_end_year')
+    if start_year is None or end_year is None:
+        raise ValueError(
+            'Config missing required climatology start/end year for file '
+            'naming.'
+        )
+    return f'{start_year}-{end_year}'
 
 
 def _publish_final_climatology(

@@ -20,7 +20,6 @@ from i7aof.paths import (
     build_obs_climatology_filename,
     get_output_version,
     get_stage_dir,
-    parse_year_range,
 )
 
 __all__ = ['cmip_ct_sa_to_tf', 'main_cmip', 'clim_ct_sa_to_tf', 'main_clim']
@@ -321,17 +320,15 @@ def _parse_use_poly(config: MpasConfigParser) -> bool:
 
 def _infer_climatology_year_range(
     config: MpasConfigParser, in_path: str
-) -> str | None:
-    year_range = parse_year_range(os.path.basename(in_path))
-    if year_range is not None:
-        return year_range
-    if config.has_option('climatology', 'start_year') and config.has_option(
-        'climatology', 'end_year'
-    ):
-        start_year = config.getint('climatology', 'start_year')
-        end_year = config.getint('climatology', 'end_year')
-        return f'{start_year}-{end_year}'
-    return None
+) -> str:
+    start_year = config.getint('climatology', 'climatology_start_year')
+    end_year = config.getint('climatology', 'climatology_end_year')
+    if start_year is None or end_year is None:
+        raise ValueError(
+            'Config missing required climatology start/end year for file '
+            'naming.'
+        )
+    return f'{start_year}-{end_year}'
 
 
 def _publish_final_climatology_tf(
