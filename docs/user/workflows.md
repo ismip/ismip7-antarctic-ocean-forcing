@@ -28,6 +28,30 @@ See `example_job_scripts/` for examples of this approach.
 
 ---
 
+## Final published outputs (for ice‑sheet modelers)
+
+All datasets intended for modeling use are written under the `final` tree
+inside the working directory (`[workdir] final_dir`). These are the
+user‑facing outputs; intermediate files are not required for modeling.
+
+**CMIP annual outputs** (per model + scenario):
+
+```
+<workdir>/final/AIS/<model>/<scenario>/ocean/<variable>/<version>/
+	<variable>_AIS_<model>_<scenario>_ocean_<version>_<YYYY-YYYY>.nc
+```
+
+**Observational climatology outputs** (thetao/so/tf, per climatology):
+
+```
+<workdir>/final/AIS/obs/ocean/climatology/<clim_name>/<variable>/<version>/
+	<variable>_AIS_obs_ocean_climatology_<clim_name>_v<version>_<YYYY-YYYY>.nc
+```
+
+These published files are the ones to hand off to ice‑sheet modeling teams.
+
+---
+
 ## Workflow overview (compact)
 
 - **Step 1** — Split CMIP files

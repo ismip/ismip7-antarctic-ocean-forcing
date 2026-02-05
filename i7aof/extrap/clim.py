@@ -44,11 +44,7 @@ from i7aof.extrap.shared import (
 from i7aof.grid.ismip import ensure_ismip_grid, get_res_string
 from i7aof.io import read_dataset
 from i7aof.paths import (
-    build_obs_climatology_dir,
-    build_obs_climatology_filename,
-    get_output_version,
     get_stage_dir,
-    parse_year_range,
 )
 
 __all__ = ['extrap_climatology', 'main']
@@ -174,30 +170,6 @@ def extrap_climatology(
                 zarr_store=zarr_store,
                 logger=logger,
             )
-
-            # Publish a final (user-facing) observational climatology copy
-            year_range = parse_year_range(os.path.basename(out_nc))
-            if year_range is None:
-                logger.warning(
-                    'Could not infer year range from climatology filename: '
-                    f'{os.path.basename(out_nc)}'
-                )
-            else:
-                version = get_output_version(config)
-                final_dir = build_obs_climatology_dir(
-                    config, clim_name=clim_name, variable=var, version=version
-                )
-                os.makedirs(final_dir, exist_ok=True)
-                final_name = build_obs_climatology_filename(
-                    variable=var,
-                    clim_name=clim_name,
-                    version=version,
-                    year_range=year_range,
-                )
-                final_path = os.path.join(final_dir, final_name)
-                if not os.path.exists(final_path):
-                    shutil.copyfile(out_nc, final_path)
-                    logger.info(f'Published climatology: {final_path}')
 
 
 def main():

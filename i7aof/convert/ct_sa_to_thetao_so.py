@@ -22,6 +22,8 @@ from i7aof.io_zarr import append_to_zarr
 from i7aof.paths import (
     build_cmip_final_dir,
     build_cmip_final_filename,
+    build_obs_climatology_dir,
+    build_obs_climatology_filename,
     get_output_version,
     get_stage_dir,
     parse_year_range,
@@ -324,6 +326,18 @@ def clim_ct_sa_to_thetao_so(
                 f'{os.path.basename(out_thetao)}, {os.path.basename(out_so)}'
             )
             outputs.extend([out_thetao, out_so])
+            _publish_final_climatology(
+                config=config,
+                clim_name=clim_name,
+                var='thetao',
+                in_path=out_thetao,
+            )
+            _publish_final_climatology(
+                config=config,
+                clim_name=clim_name,
+                var='so',
+                in_path=out_so,
+            )
             continue
         print(
             'Computing thetao/so (clim): '
@@ -350,6 +364,12 @@ def clim_ct_sa_to_thetao_so(
                 compression_opts=compression_opts,
             )
             outputs.append(out_thetao)
+        _publish_final_climatology(
+            config=config,
+            clim_name=clim_name,
+            var='thetao',
+            in_path=out_thetao,
+        )
         if not so_exists:
             ds_write = _dataset_for_output(ds_out, 'so')
             write_netcdf(
@@ -361,6 +381,12 @@ def clim_ct_sa_to_thetao_so(
                 compression_opts=compression_opts,
             )
             outputs.append(out_so)
+        _publish_final_climatology(
+            config=config,
+            clim_name=clim_name,
+            var='so',
+            in_path=out_so,
+        )
 
     return outputs
 
@@ -446,6 +472,53 @@ def _publish_final_annual(
     if not os.path.exists(final_path):
         shutil.copyfile(in_path, final_path)
         print(f'Published final output: {final_path}')
+
+
+def _infer_climatology_year_range(
+    config: MpasConfigParser, in_path: str
+) -> str:
+    start_year = config.getint('climatology', 'climatology_start_year')
+    end_year = config.getint('climatology', 'climatology_end_year')
+    if start_year is None or end_year is None:
+        raise ValueError(
+            'Config missing required climatology start/end year for file '
+            'naming.'
+        )
+    return f'{start_year}-{end_year}'
+
+
+def _publish_final_climatology(
+    *,
+    config: MpasConfigParser,
+    clim_name: str,
+    var: str,
+    in_path: str,
+) -> None:
+    year_range = _infer_climatology_year_range(config, in_path)
+    if year_range is None:
+        print(
+            'Warning: could not infer year range for final climatology '
+            f'output from {os.path.basename(in_path)}'
+        )
+        return
+    version = get_output_version(config)
+    final_dir = build_obs_climatology_dir(
+        config,
+        clim_name=clim_name,
+        variable=var,
+        version=version,
+    )
+    os.makedirs(final_dir, exist_ok=True)
+    final_name = build_obs_climatology_filename(
+        variable=var,
+        clim_name=clim_name,
+        version=version,
+        year_range=year_range,
+    )
+    final_path = os.path.join(final_dir, final_name)
+    if not os.path.exists(final_path):
+        shutil.copyfile(in_path, final_path)
+        print(f'Published final climatology: {final_path}')
 
 
 def _collect_annual_ct_sa_files(
