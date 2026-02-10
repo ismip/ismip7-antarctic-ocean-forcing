@@ -257,6 +257,7 @@ def calculate_objective_function(
     pd_ensemble,
     mathiot_cold_ensemble,
     mathiot_warm_ensemble,
+    w3_spec,
 ):
     """
     Input:
@@ -472,6 +473,10 @@ def calculate_objective_function(
         tmp = np.random.uniform(0, 1, size=int(len(t3_model.basins) / 2))
         tmp = np.tile(tmp, 2)
         tmp = tmp / tmp.sum()
+        if w3_spec == 'only_warm':
+            tmp[: len(tmp) // 2] = 0
+        if w3_spec == 'only_cold':
+            tmp[len(tmp) // 2 :] = 0
         t3_weights = t3_weights + [tmp]
 
     t3_weights = np.array(t3_weights)
@@ -526,8 +531,313 @@ def calculate_objective_function(
                 objective_function == min_val, drop=True
             ).p2.values[0]
         )
-        min_coords = objective_function.where(
-            objective_function == min_val, drop=True
-        )
+        # min_coords = objective_function.where(
+        #    objective_function == min_val, drop=True
+        # )
 
-    return min_p1, min_p2, min_coords
+    return min_p1, min_p2, a1, a2, a3, t3_weights
+
+
+def calculate_objective_function_v2(
+    optimise,
+    sample_size,
+    basins,
+    mask,
+    bfrn,
+    reso,
+    ice_density,
+    melt_obs,
+    MeltData,
+    data_path,
+    pd_ensemble,
+    mathiot_cold_ensemble,
+    mathiot_warm_ensemble,
+    w3_spec,
+):
+    """
+    Input:
+    -optimise: "all", "term1", "term2", "term3"
+    -sample_size: number of random samples
+    -basins: basin mask to use
+    -mask: mask that identified ice shelves (1) and otherwise (0)
+    -bfrn: dataset containg bfrn bins and values for J2
+    -reso: resolution in m
+    -ice_density: used for conversion to Gt/a, in kg/m3
+    -melt_obs: observational melt, in m i.e./a
+    -Melt_Data: basin-aggregated melt rates
+    -data_path: path to ocean modelling melt rates
+    -pd_ensemble: name of dataset containing present day melt rates for all
+                  p1, p2 combinations, with optimised deltaT
+    -mathiot_cold_ensemble: same, but ocean modelling data is the cold mathiot
+    -mathiot_warm_ensemble: same, but with warm dataset
+    Output:
+    -min_p1: list of p1 values that minimise randomly sampled objective
+             function, length of sample size
+    -min_p2: list of cooresponding p2 values
+    -min_coords: minimum values attained for the minimum p1,p2 values
+
+    This function finds the pair of p1,p2 for which the parameterised melt
+    optimises three terms:
+    -J1: basin-integrated melt for present-day
+    -J2: buttressing-bin integrated melt for present-day,
+         weighted by buttressing
+    -J3: basin-integrated melt for cold and warm cases of the
+         ocean modelling datasets
+    """
+
+    nBasins = int(basins.max())
+    cvt = reso**2 * ice_density / 1e12
+
+    ########
+    # TERM 1
+    # parameterisaition melt, aggregate to Gt/a per basin
+    t1_model = (
+        pd_ensemble['melt_rate']
+        .where(mask, np.nan)
+        .groupby(basins)
+        .sum(skipna=True)
+        * cvt
+    )  # convert to Gt/a
+    # make sure to remove regions that do not have optimal dT for any basin
+    t1_model = t1_model.where(t1_model != 0, np.nan)
+    # Observed melt in Gt/a per basin, observed melt is "sample_size"-times
+    # randomly sampled assuming normal distribution
+    t1_obs_mean = MeltData['BMR (Gt/yr)'].values
+    t1_obs_sigma = MeltData['BMR uncert (Gt/yr)'].values
+    t1_obs = []
+    for b in range(nBasins + 1):
+        t1_obs = t1_obs + [
+            np.random.normal(
+                loc=t1_obs_mean[b], scale=t1_obs_sigma[b], size=sample_size
+            )
+        ]
+    t1_obs = np.array(t1_obs)
+
+    ########
+    # TERM 2
+
+    # parameterisation melt averaged per buttressing bin, in m/a
+    t2_model = (
+        pd_ensemble['melt_rate']
+        .where(mask, np.nan)
+        .groupby(bfrn['BFRN_bins'])
+        .mean()
+        # * cvt
+    )
+    t2_model = t2_model.where(t2_model != 0, np.nan)
+
+    # Observed melt in Gt/a per buttressing bin, observed melt is
+    # "sample_size"-times randomly sampled assuming normal distribution
+    t2_obs_mean = (
+        melt_obs['melt_mean']
+        .where(mask, np.nan)
+        .groupby(bfrn['BFRN_bins'])
+        .mean()
+        # * cvt
+    )
+    t2_obs_sigma = (  # FIXME is this correct?
+        melt_obs['melt_mean_err']
+        .where(mask, np.nan)
+        .groupby(bfrn['BFRN_bins'])
+        .mean()
+        # * cvt
+    )
+    t2_obs = []
+    nBins = 10
+    for b in range(nBins):
+        t2_obs = t2_obs + [
+            np.random.normal(
+                loc=t2_obs_mean[b], scale=t2_obs_sigma[b], size=sample_size
+            )
+        ]
+    t2_obs = np.array(t2_obs)
+
+    # important to only use values, as dim name does not match
+    t2_weights = (bfrn['BFRN_medians'] / bfrn['BFRN_median']).values
+
+    ########
+    # TERM 3
+
+    # parameterisation melt, average to m/a per basin for cold ocean
+    t3_model_mat_c = (
+        (mathiot_cold_ensemble['melt_rate'].where(mask, np.nan))
+        .groupby(basins)
+        .mean()
+    )  # * cvt
+    t3_model_mat_c = t3_model_mat_c.where(t3_model_mat_c != 0, np.nan)
+
+    # PICO melt, aggregate to Gt/a per basin for warm ocean forcings
+    t3_model_mat_w = (
+        (mathiot_warm_ensemble['melt_rate'].where(mask, np.nan))
+        .groupby(basins)
+        .mean()
+        .where(t1_model != 0, np.nan)
+    )  # * cvt
+    t3_model_mat_w = t3_model_mat_w.where(t3_model_mat_w != 0, np.nan)
+
+    # Ocean modelling data that is target melt, aggregate to Gt/a per basin
+    tmp = xr.load_dataset(
+        os.path.join(
+            data_path,
+            'meltmip',
+            'Ocean_Modelling_Data',
+            'Mathiot23_cold_m.nc',
+        )
+    )
+    t3_obs_mat_mean_c = (
+        tmp['melt_rate'].where(mask, np.nan).groupby(basins).mean(skipna=True)
+        # * cvt
+    )
+    t3_obs_mat_sigma_c = (
+        tmp['melt_rate_std']
+        .where(mask, np.nan)
+        .groupby(basins)
+        .mean(skipna=True)
+        / np.sqrt(20)
+        # * cvt
+    )
+    tmp.close()
+
+    # warm case
+    tmp = xr.load_dataset(
+        os.path.join(
+            data_path,
+            'meltmip',
+            'Ocean_Modelling_Data',
+            'Mathiot23_warm_m.nc',
+        )
+    )
+    t3_obs_mat_mean_w = (
+        tmp['melt_rate'].where(mask, np.nan).groupby(basins).mean(skipna=True)
+        # * cvt
+    )
+    t3_obs_mat_sigma_w = (
+        tmp['melt_rate_std']
+        .where(mask, np.nan)
+        .groupby(basins)
+        .mean(skipna=True)
+        / np.sqrt(20)
+        # * cvt
+    )
+
+    # Combine datasets
+    """t3_model = xr.concat(
+        [
+            t3_model_mat_c.assign_coords(
+                {'basins': [str(i) + 'c' for i in range(nBasins + 1)]}
+            ),
+            t3_model_mat_w.assign_coords(
+                {'basins': [str(i) + 'w' for i in range(nBasins + 1)]}
+            ),
+        ],
+        dim='basins',
+    )"""
+    t3_model = t3_model_mat_w - t3_model_mat_c
+
+    """t3_obs_mean = xr.concat(
+        [
+            t3_obs_mat_mean_c.assign_coords(
+                {'basins': [str(i) + 'c' for i in range(nBasins + 1)]}
+            ),
+            t3_obs_mat_mean_w.assign_coords(
+                {'basins': [str(i) + 'w' for i in range(nBasins + 1)]}
+            ),
+        ],
+        dim='basins',
+    )"""
+    t3_obs_mean = t3_obs_mat_mean_w - t3_obs_mat_mean_c
+
+    """t3_obs_sigma = xr.concat(
+        [
+            t3_obs_mat_sigma_c.assign_coords(
+                {'basins': [str(i) + 'c' for i in range(nBasins + 1)]}
+            ),
+            t3_obs_mat_sigma_w.assign_coords(
+                {'basins': [str(i) + 'w' for i in range(nBasins + 1)]}
+            ),
+        ],
+        dim='basins',
+    )"""
+    t3_obs_sigma = t3_obs_mat_sigma_w - t3_obs_mat_sigma_c  # FIXME!!!
+
+    # For melt targets, randomly sample
+    t3_obs = []
+    for b in range(len(t3_obs_mean)):
+        t3_obs = t3_obs + [
+            np.random.normal(
+                loc=t3_obs_mean[b], scale=t3_obs_sigma[b], size=sample_size
+            )
+        ]
+    t3_obs = np.array(t3_obs)
+
+    t3_weights = []
+
+    for _s in range(sample_size):
+        ## sample all basins, make sure to give same weight to cold and warm
+        # tmp = np.random.uniform(0, 1, size=int(len(t3_model.basins) / 2))
+        # tmp = np.tile(tmp, 2)
+        # tmp = tmp / tmp.sum()
+        # if w3_spec=="only_warm":
+        #    tmp[:len(tmp)//2] = 0
+        # if w3_spec=="only_cold":
+        #    tmp[len(tmp)//2:] = 0
+        tmp = np.random.uniform(0, 1, size=int(len(t3_model.basins)))
+        t3_weights = t3_weights + [tmp]
+
+    t3_weights = np.array(t3_weights)
+
+    ################################################
+    # randomly sample the weights of the three terms
+    a1 = np.random.uniform(0, 1, size=sample_size)
+    a2 = np.random.uniform(0, 1, size=sample_size)
+    a3 = np.random.uniform(0, 1, size=sample_size)
+
+    # make sure they add up to 1
+    asum = a1 + a2 + a3
+    a1 = a1 / asum
+    a2 = a2 / asum
+    a3 = a3 / asum
+
+    #####################
+    # Find optimal p1,p2
+    min_p1 = []
+    min_p2 = []
+    print('Sampling, this might take a moment...')
+
+    for s in range(sample_size):
+        term1 = mae(t1_model, t1_obs[:, s], 1, 'basins')
+        term2 = mae(t2_model, t2_obs[:, s], t2_weights, ['BFRN_bins'])
+        term3 = mae(t3_model, t3_obs[:, s], t3_weights[s, :], ['basins'])
+
+        if optimise == 'all':
+            objective_function = (
+                a1[s] * term1 / term1.median()
+                + a2[s] * term2 / term2.median()
+                + a3[s] * term3 / term3.median()
+            )
+        elif optimise == 'term1':
+            objective_function = term1 / term1.median()
+        elif optimise == 'term2':
+            objective_function = term2 / term2.median()
+        elif optimise == 'term3':
+            objective_function = term3 / term3.median()
+        else:
+            print('Specify term to optimise')
+            return
+        # make sure to ignore nans as those are where no valide deltaT exists
+        min_val = np.nanmin(objective_function)
+        min_p1.append(
+            objective_function.where(
+                objective_function == min_val, drop=True
+            ).p1.values[0]
+        )
+        min_p2.append(
+            objective_function.where(
+                objective_function == min_val, drop=True
+            ).p2.values[0]
+        )
+        # min_coords = objective_function.where(
+        #    objective_function == min_val, drop=True
+        # )
+
+    return min_p1, min_p2, a1, a2, a3, t3_weights
