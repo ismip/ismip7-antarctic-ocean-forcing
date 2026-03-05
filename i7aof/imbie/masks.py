@@ -19,6 +19,25 @@ from i7aof.paths import (
     get_output_version,
 )
 
+BASIN_DEFINITIONS = {
+    'A-Ap': ['A-Ap'],
+    'Ap-B': ['Ap-B'],
+    'B-C': ['B-C'],
+    'C-Cp': ['C-Cp'],
+    'Cp-D': ['Cp-D'],
+    'D-Dp': ['D-Dp'],
+    'Dp-E': ['Dp-E'],
+    'E-F': ['E-Ep', 'Ep-F'],
+    'F-G': ['F-G'],
+    'G-H': ['G-H'],
+    'H-Hp': ['H-Hp'],
+    'Hp-I': ['Hp-I'],
+    'I-Ipp': ['I-Ipp'],
+    'Ipp-J': ['Ipp-J'],
+    'J-K': ['J-Jpp', 'Jpp-K'],
+    'K-A': ['K-A'],
+}
+
 
 def make_imbie_masks(config):
     """
@@ -73,24 +92,7 @@ def make_imbie_masks(config):
 
 def _get_basin_definitions():
     """Return a dictionary defining merged IMBIE basin groups."""
-    return {
-        'A-Ap': ['A-Ap'],
-        'Ap-B': ['Ap-B'],
-        'B-C': ['B-C'],
-        'C-Cp': ['C-Cp'],
-        'Cp-D': ['Cp-D'],
-        'D-Dp': ['D-Dp'],
-        'Dp-E': ['Dp-E'],
-        'E-F': ['E-Ep', 'Ep-F'],
-        'F-G': ['F-G'],
-        'G-H': ['G-H'],
-        'H-Hp': ['H-Hp'],
-        'Hp-I': ['Hp-I'],
-        'I-Ipp': ['I-Ipp'],
-        'Ipp-J': ['Ipp-J'],
-        'J-K': ['J-Jpp', 'Jpp-K'],
-        'K-A': ['K-A'],
-    }
+    return BASIN_DEFINITIONS.copy()
 
 
 def _load_ismip_grid(filename):
