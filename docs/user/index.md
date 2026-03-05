@@ -9,6 +9,7 @@ This guide covers configuration and common tasks for using `i7aof` to generate f
 install
 quickstart
 workflows
+imbie-polygons
 clim
 cmip
 convert
