@@ -103,6 +103,16 @@ def extend_imbie_basins(
 
     if debug:
         debug_dir = os.path.join(workdir, 'imbie2')
+        stage_lines = _format_component_report_lines(
+            stage='post_shelf_break_fill',
+            basin_number=basin_with_shelf,
+            num_basins=num_basins,
+        )
+        _append_component_report(
+            debug_dir=debug_dir,
+            lines=stage_lines,
+            reset=False,
+        )
         shelf_fill_mask = np.logical_and(
             basin_number < 0, basin_with_shelf >= 0
         )
@@ -126,6 +136,35 @@ def extend_imbie_basins(
         dx=dx,
         dy=dy,
     )
+    if debug:
+        debug_dir = os.path.join(workdir, 'imbie2')
+        stage_lines = _format_component_report_lines(
+            stage='post_nearest_ocean_fill',
+            basin_number=basin_final,
+            num_basins=num_basins,
+        )
+        _append_component_report(
+            debug_dir=debug_dir,
+            lines=stage_lines,
+            reset=False,
+        )
+
+    basin_final = enforce_basin_contiguity(
+        basin_number=basin_final,
+        num_basins=num_basins,
+    )
+    if debug:
+        debug_dir = os.path.join(workdir, 'imbie2')
+        stage_lines = _format_component_report_lines(
+            stage='post_contiguity_enforcement',
+            basin_number=basin_final,
+            num_basins=num_basins,
+        )
+        _append_component_report(
+            debug_dir=debug_dir,
+            lines=stage_lines,
+            reset=False,
+        )
 
     if debug:
         debug_dir = os.path.join(workdir, 'imbie2')
@@ -390,6 +429,180 @@ def extend_basins_to_ocean_nearest(
         min_distance[update_mask] = dist[update_mask]
 
     return final_basin.astype(int)
+
+
+def count_basin_components(
+    *, basin_number: np.ndarray, num_basins: int
+) -> dict:
+    """Count 4-neighbor connected components for each basin id."""
+
+    structure = ndimage.generate_binary_structure(2, 1)
+    counts = {}
+    for basin_id in range(num_basins):
+        labels, num = ndimage.label(
+            basin_number == basin_id, structure=structure
+        )
+        del labels
+        counts[basin_id] = int(num)
+    return counts
+
+
+def component_island_stats(
+    *, basin_number: np.ndarray, num_basins: int
+) -> dict:
+    """Return component and island-cell stats per basin (4-neighbor)."""
+
+    structure = ndimage.generate_binary_structure(2, 1)
+    stats = {}
+    for basin_id in range(num_basins):
+        labels, num = ndimage.label(
+            basin_number == basin_id, structure=structure
+        )
+        if num == 0:
+            stats[basin_id] = {
+                'components': 0,
+                'largest_component_cells': 0,
+                'island_cells': 0,
+            }
+            continue
+
+        counts = np.bincount(labels.ravel())
+        counts[0] = 0
+        largest = int(np.max(counts))
+        total = int(np.sum(counts))
+        stats[basin_id] = {
+            'components': int(num),
+            'largest_component_cells': largest,
+            'island_cells': int(total - largest),
+        }
+
+    return stats
+
+
+def _format_component_report_lines(
+    *, stage: str, basin_number: np.ndarray, num_basins: int
+) -> list[str]:
+    """
+    Format a compact human-readable report for disconnected basin islands.
+    """
+
+    stats = component_island_stats(
+        basin_number=basin_number,
+        num_basins=num_basins,
+    )
+    disconnected = []
+    for basin_id in range(num_basins):
+        item = stats[basin_id]
+        if item['components'] > 1:
+            disconnected.append(
+                '  - basin_id='
+                f'{basin_id}: components={item["components"]}, '
+                f'largest_cells={item["largest_component_cells"]}, '
+                f'island_cells={item["island_cells"]}'
+            )
+
+    lines = [f'[{stage}]']
+    if disconnected:
+        lines.append('disconnected basins:')
+        lines.extend(disconnected)
+    else:
+        lines.append('disconnected basins: none')
+    return lines
+
+
+def _append_component_report(
+    *, debug_dir: str, lines: list[str], reset: bool
+) -> None:
+    """Append component debug lines to imbie2/debug_component_report.txt."""
+
+    os.makedirs(debug_dir, exist_ok=True)
+    report_path = os.path.join(debug_dir, 'debug_component_report.txt')
+    mode = 'w' if reset else 'a'
+    with open(report_path, mode, encoding='utf-8') as handle:
+        for line in lines:
+            handle.write(line)
+            handle.write('\n')
+        handle.write('\n')
+
+
+def enforce_basin_contiguity(
+    *,
+    basin_number: np.ndarray,
+    num_basins: int,
+    max_iters: int = 8,
+) -> np.ndarray:
+    """Reassign disconnected basin islands to adjacent basins.
+
+    For each basin, only the largest 4-neighbor connected component is kept.
+    Any other component is reassigned to the dominant adjacent basin label on
+    its 4-neighbor boundary. This pass is repeated until no changes remain or
+    ``max_iters`` is reached.
+    """
+
+    structure = ndimage.generate_binary_structure(2, 1)
+    basin = basin_number.astype(int, copy=True)
+
+    for _ in range(max_iters):
+        changed = False
+
+        for basin_id in range(num_basins):
+            mask = basin == basin_id
+            labels, num = ndimage.label(mask, structure=structure)
+            if num <= 1:
+                continue
+
+            counts = np.bincount(labels.ravel())
+            counts[0] = 0
+            keep_label = int(np.argmax(counts))
+
+            for comp_label in range(1, num + 1):
+                if comp_label == keep_label:
+                    continue
+
+                comp_mask = labels == comp_label
+                ring = ndimage.binary_dilation(comp_mask, structure=structure)
+                ring = np.logical_and(ring, np.logical_not(comp_mask))
+                neighbor_labels = basin[ring]
+                neighbor_labels = neighbor_labels[
+                    np.logical_and(
+                        neighbor_labels >= 0, neighbor_labels != basin_id
+                    )
+                ]
+
+                if neighbor_labels.size == 0:
+                    continue
+
+                target_counts = np.bincount(
+                    neighbor_labels.astype(int), minlength=num_basins
+                )
+                target_counts[basin_id] = 0
+                target = int(np.argmax(target_counts))
+                if target == basin_id:
+                    continue
+
+                basin[comp_mask] = target
+                changed = True
+
+        if not changed:
+            break
+
+    component_counts = count_basin_components(
+        basin_number=basin,
+        num_basins=num_basins,
+    )
+    remaining = [
+        f'{basin_id}:{count}'
+        for basin_id, count in component_counts.items()
+        if count > 1
+    ]
+    if remaining:
+        summary = ', '.join(remaining)
+        raise ValueError(
+            'Unable to enforce contiguous raster basins; '
+            f'multiple components remain: {summary}'
+        )
+
+    return basin
 
 
 def _write_debug_snapshot(
