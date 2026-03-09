@@ -1,5 +1,7 @@
 import argparse
+import configparser
 import os
+from collections import deque
 
 import numpy as np
 import shapefile
@@ -27,8 +29,6 @@ def make_imbie_polygon_shapefile(
     remove_extension_holes=True,
     min_hole_area_m2=0.0,
     out_shapefile='imbie2/extended_basin_polygons.shp',
-    debug_raster_only_shapefile=None,
-    debug_raster_only_simplified_shapefile=None,
     validate=True,
 ):
     """Build polygon shapefiles for combined + extended IMBIE basins.
@@ -65,15 +65,6 @@ def make_imbie_polygon_shapefile(
     out_shapefile : str, optional
         Output shapefile path.
 
-    debug_raster_only_shapefile : str, optional
-        Optional path for a debug shapefile built directly from rasterized
-        extended basin labels only (no reference to original IMBIE polygons).
-
-    debug_raster_only_simplified_shapefile : str, optional
-        Optional path for a debug shapefile built directly from rasterized
-        extended basin labels, with simplification/hole-removal options
-        applied and no reference to original IMBIE polygons.
-
     validate : bool, optional
         Whether to run basic topology checks (no overlaps and valid geometry)
         on the final basin polygons.
@@ -90,13 +81,17 @@ def make_imbie_polygon_shapefile(
         os.chdir(workdir)
 
     try:
+        debug = _get_debug_enabled(config)
+
         basin_polygons, original_combined = _build_imbie_polygons(
             config=config,
             simplify_tolerance_m=float(simplify_tolerance_m),
             remove_extension_holes=remove_extension_holes,
             min_hole_area_m2=float(min_hole_area_m2),
+            debug=debug,
         )
-        if debug_raster_only_shapefile is not None:
+
+        if debug:
             raster_only_polygons = _build_raster_only_polygons(
                 config=config,
                 simplify_tolerance_m=0.0,
@@ -108,14 +103,17 @@ def make_imbie_polygon_shapefile(
                 raster_only_polygons,
                 target_domain=_target_domain_from_basins(raster_only_polygons),
             )
-            _write_shapefile(debug_raster_only_shapefile, raster_only_polygons)
+            _write_shapefile(
+                'imbie2/debug_raster_only_polygons.shp',
+                raster_only_polygons,
+            )
             _write_projection_file(
-                out_shapefile=debug_raster_only_shapefile,
+                out_shapefile='imbie2/debug_raster_only_polygons.shp',
                 source_prj=(
                     'imbie2/ANT_Basins_IMBIE2_v1.6/ANT_Basins_IMBIE2_v1.6.prj'
                 ),
             )
-        if debug_raster_only_simplified_shapefile is not None:
+
             raster_only_simplified_polygons = _build_raster_only_polygons(
                 config=config,
                 simplify_tolerance_m=float(simplify_tolerance_m),
@@ -124,11 +122,13 @@ def make_imbie_polygon_shapefile(
                 enforce_partition=True,
             )
             _write_shapefile(
-                debug_raster_only_simplified_shapefile,
+                'imbie2/debug_raster_only_simplified_polygons.shp',
                 raster_only_simplified_polygons,
             )
             _write_projection_file(
-                out_shapefile=debug_raster_only_simplified_shapefile,
+                out_shapefile=(
+                    'imbie2/debug_raster_only_simplified_polygons.shp',
+                ),
                 source_prj=(
                     'imbie2/ANT_Basins_IMBIE2_v1.6/ANT_Basins_IMBIE2_v1.6.prj'
                 ),
@@ -139,6 +139,10 @@ def make_imbie_polygon_shapefile(
         basin_polygons = _resolve_new_overlaps(
             basin_polygons,
             allowed_overlap_geom_by_pair=overlap_geom_by_pair,
+        )
+        _validate_single_polygon_basins(
+            basin_polygons,
+            stage='final basins after overlap resolution',
         )
         if validate:
             allowed_overlap_by_pair = _compute_pairwise_overlap_areas(
@@ -177,10 +181,6 @@ def main() -> None:
         remove_extension_holes=args.remove_extension_holes,
         min_hole_area_m2=args.min_hole_area_m2,
         out_shapefile=args.out_shapefile,
-        debug_raster_only_shapefile=args.debug_raster_only_shapefile,
-        debug_raster_only_simplified_shapefile=(
-            args.debug_raster_only_simplified_shapefile
-        ),
         validate=args.validate,
     )
 
@@ -191,6 +191,7 @@ def _build_imbie_polygons(
     simplify_tolerance_m,
     remove_extension_holes,
     min_hole_area_m2,
+    debug,
 ):
     """Build final basin geometries as exact-original plus extension.
 
@@ -203,7 +204,15 @@ def _build_imbie_polygons(
     download_imbie()
     shp_path = 'imbie2/ANT_Basins_IMBIE2_v1.6/ANT_Basins_IMBIE2_v1.6.shp'
     in_basin_data = _load_basin_shapes(shp_path)
+    _validate_single_polygon_basins(
+        in_basin_data,
+        stage='original IMBIE2 basins',
+    )
     original_combined = _get_combined_original_polygons(in_basin_data)
+    _validate_single_polygon_basins(
+        original_combined,
+        stage='combined original IMBIE2 basins',
+    )
     original_footprint = shapely.ops.unary_union(
         list(original_combined.values())
     )
@@ -215,16 +224,93 @@ def _build_imbie_polygons(
         min_hole_area_m2=min_hole_area_m2,
         enforce_partition=True,
     )
+    if debug:
+        _write_shapefile(
+            'imbie2/debug_raster_extension_used_in_final_build.shp',
+            raster_extension,
+        )
+        _write_projection_file(
+            out_shapefile='imbie2/debug_raster_extension_used_in_final_build.shp',
+            source_prj=(
+                'imbie2/ANT_Basins_IMBIE2_v1.6/ANT_Basins_IMBIE2_v1.6.prj'
+            ),
+        )
+    raster_extension_validation_error = None
+    try:
+        _validate_single_polygon_basins(
+            raster_extension,
+            stage='raster extension polygons used in final build',
+        )
+    except ValueError as err:
+        # In debug mode, continue long enough to emit downstream shapefiles so
+        # the failing geometries can be inspected. Re-raise below.
+        if not debug:
+            raise
+        raster_extension_validation_error = err
 
     final_polygons = {}
+    extension_outside_original = {}
     for basin_name in BASIN_DEFINITIONS.keys():
-        extension_geom = _make_valid(
-            raster_extension[basin_name].difference(original_footprint)
+        extension_geom = _normalize_polygonal_geometry(
+            _make_valid(
+                raster_extension[basin_name].difference(original_footprint)
+            )
         )
-        final_geom = _make_valid(
-            original_combined[basin_name].union(extension_geom)
+        extension_outside_original[basin_name] = extension_geom
+
+        final_geom = _normalize_polygonal_geometry(
+            _make_valid(original_combined[basin_name].union(extension_geom))
         )
-        final_polygons[basin_name] = _ensure_multipolygon(final_geom)
+        final_polygons[basin_name] = final_geom
+
+    final_polygons = _reassign_small_enclosed_slivers(final_polygons)
+
+    if debug:
+        _write_shapefile(
+            'imbie2/debug_extension_outside_original_footprint.shp',
+            extension_outside_original,
+        )
+        _write_projection_file(
+            out_shapefile='imbie2/debug_extension_outside_original_footprint.shp',
+            source_prj=(
+                'imbie2/ANT_Basins_IMBIE2_v1.6/ANT_Basins_IMBIE2_v1.6.prj'
+            ),
+        )
+
+    if raster_extension_validation_error is not None:
+        raise raster_extension_validation_error
+
+    # Do not enforce single-part extension geometries here. Complex grounding
+    # line topology can legitimately create island fragments in the extension
+    # outside the original IMBIE footprint, which may disappear after union.
+
+    if debug:
+        _write_shapefile(
+            'imbie2/debug_final_basins_before_overlap_resolution.shp',
+            final_polygons,
+        )
+        _write_projection_file(
+            out_shapefile='imbie2/debug_final_basins_before_overlap_resolution.shp',
+            source_prj=(
+                'imbie2/ANT_Basins_IMBIE2_v1.6/ANT_Basins_IMBIE2_v1.6.prj'
+            ),
+        )
+
+    try:
+        _validate_single_polygon_basins(
+            final_polygons,
+            stage='final basins before overlap resolution',
+        )
+    except ValueError:
+        _write_failure_debug_shapefile(
+            'imbie2/debug_failed_extension_outside_original_footprint.shp',
+            extension_outside_original,
+        )
+        _write_failure_debug_shapefile(
+            'imbie2/debug_failed_final_basins_before_overlap_resolution.shp',
+            final_polygons,
+        )
+        raise
 
     return final_polygons, original_combined
 
@@ -251,6 +337,10 @@ def _build_raster_only_polygons(
     x = np.asarray(ds['x'].values)
     y = np.asarray(ds['y'].values)
     basin_number = np.asarray(ds['basinNumber'].values, dtype=int)
+    _validate_raster_basin_connectivity(
+        basin_number,
+        stage='raster basin labels',
+    )
 
     basin_polygons = {}
     for basin_id, basin_name in enumerate(BASIN_DEFINITIONS.keys()):
@@ -271,7 +361,14 @@ def _build_raster_only_polygons(
                 _remove_holes(geom, min_hole_area_m2=min_hole_area_m2)
             )
 
-        basin_polygons[basin_name] = _ensure_multipolygon(_make_valid(geom))
+        basin_polygons[basin_name] = _normalize_polygonal_geometry(
+            _make_valid(geom)
+        )
+
+    _validate_single_polygon_basins(
+        basin_polygons,
+        stage='raster-only polygons before partition enforcement',
+    )
 
     if enforce_partition:
         reference_polygons = _build_raster_only_polygons(
@@ -289,8 +386,21 @@ def _build_raster_only_polygons(
             basin_polygons,
             target_domain=target_domain,
         )
+        _validate_single_polygon_basins(
+            basin_polygons,
+            stage='raster-only polygons after partition enforcement',
+        )
 
     return basin_polygons
+
+
+def _get_debug_enabled(config):
+    """Return whether IMBIE debug outputs are enabled in config."""
+
+    try:
+        return config.getboolean('imbie', 'debug')
+    except configparser.NoOptionError:
+        return False
 
 
 def _enforce_topological_partition(
@@ -303,7 +413,7 @@ def _enforce_topological_partition(
 
     source = {}
     for name, geom in basin_polygons.items():
-        source[name] = _ensure_multipolygon(_make_valid(geom))
+        source[name] = _normalize_polygonal_geometry(_make_valid(geom))
 
     if reference_polygons is None:
         reference = source
@@ -311,7 +421,7 @@ def _enforce_topological_partition(
         reference = {}
         for name in source:
             geom = reference_polygons.get(name, MultiPolygon([]))
-            reference[name] = _ensure_multipolygon(_make_valid(geom))
+            reference[name] = _normalize_polygonal_geometry(_make_valid(geom))
 
     # Use hole-free union boundary as the target domain so tiny interior holes
     # from simplification artifacts are filled during face assignment.
@@ -359,9 +469,9 @@ def _enforce_topological_partition(
     for name in names:
         pieces = assigned[name]
         if len(pieces) == 0:
-            repaired[name] = MultiPolygon([])
+            repaired[name] = Polygon()
             continue
-        repaired[name] = _ensure_multipolygon(
+        repaired[name] = _normalize_polygonal_geometry(
             _make_valid(shapely.ops.unary_union(pieces))
         )
 
@@ -495,6 +605,78 @@ def _uniform_spacing(coord):
     return spacing
 
 
+def _connected_component_sizes(mask):
+    """Return connected-component sizes (4-neighbor) for a boolean mask."""
+
+    if not np.any(mask):
+        return []
+
+    ny, nx = mask.shape
+    visited = np.zeros(mask.shape, dtype=bool)
+    component_sizes = []
+
+    for j0 in range(ny):
+        for i0 in range(nx):
+            if not mask[j0, i0] or visited[j0, i0]:
+                continue
+
+            queue = deque([(j0, i0)])
+            visited[j0, i0] = True
+            size = 0
+
+            while queue:
+                j, i = queue.popleft()
+                size += 1
+
+                for dj, di in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                    jj = j + dj
+                    ii = i + di
+                    if jj < 0 or jj >= ny or ii < 0 or ii >= nx:
+                        continue
+                    if visited[jj, ii] or not mask[jj, ii]:
+                        continue
+                    visited[jj, ii] = True
+                    queue.append((jj, ii))
+
+            component_sizes.append(size)
+
+    component_sizes.sort(reverse=True)
+    return component_sizes
+
+
+def _validate_raster_basin_connectivity(
+    basin_number,
+    *,
+    stage,
+):
+    """Validate each basin label is one contiguous region in raster space."""
+
+    disconnected = []
+    empty = []
+    for basin_id, basin_name in enumerate(BASIN_DEFINITIONS.keys()):
+        mask = basin_number == basin_id
+        sizes = _connected_component_sizes(mask)
+        if len(sizes) == 0:
+            empty.append(basin_name)
+            continue
+        if len(sizes) > 1:
+            top = ','.join(str(size) for size in sizes[:5])
+            disconnected.append((basin_name, len(sizes), top))
+
+    if empty:
+        names = ', '.join(sorted(empty))
+        raise ValueError(f'{stage}: basin labels missing from raster: {names}')
+
+    if disconnected:
+        summary = ', '.join(
+            f'{name}:{count} comps (top cell-counts={sizes})'
+            for name, count, sizes in disconnected
+        )
+        raise ValueError(
+            f'{stage}: disconnected basin labels found: {summary}'
+        )
+
+
 def _remove_holes(geom, *, min_hole_area_m2=0.0):
     """Remove holes from polygons, optionally keeping large holes."""
 
@@ -555,6 +737,259 @@ def _make_valid(geom):
     return geom.buffer(0)
 
 
+def _validate_single_polygon_basins(
+    basin_polygons,
+    *,
+    stage,
+    allow_empty=False,
+):
+    """Validate that each basin geometry is one Polygon (not MultiPolygon)."""
+
+    invalid = []
+    empty = []
+    for name, geom in basin_polygons.items():
+        if geom.is_empty:
+            empty.append(name)
+            continue
+        if not isinstance(geom, Polygon):
+            invalid.append((name, _geometry_type_detail_string(geom)))
+
+    if empty and not allow_empty:
+        names = ', '.join(sorted(empty))
+        raise ValueError(f'{stage}: empty basin geometries found: {names}')
+
+    if invalid:
+        summary = ', '.join(
+            f'{name}:{detail}' for name, detail in sorted(invalid)
+        )
+        raise ValueError(
+            f'{stage}: expected single Polygon per basin; found {summary}'
+        )
+
+
+def _geometry_type_detail_string(geom):
+    """Return geometry type string with useful component detail."""
+
+    geom_type = geom.geom_type
+    if isinstance(geom, MultiPolygon):
+        areas = sorted((poly.area for poly in geom.geoms), reverse=True)
+        top = ','.join(f'{area:.3f}' for area in areas[:5])
+        return f'MultiPolygon(parts={len(areas)}, top_areas_m2={top})'
+
+    return geom_type
+
+
+def _normalize_polygonal_geometry(geom):
+    """Normalize a geometry to Polygon/MultiPolygon while preserving parts."""
+
+    if geom.is_empty:
+        return Polygon()
+
+    if isinstance(geom, (Polygon, MultiPolygon)):
+        return geom
+
+    polys = []
+    if geom.geom_type == 'GeometryCollection':
+        for part in geom.geoms:
+            if isinstance(part, Polygon):
+                polys.append(part)
+            elif isinstance(part, MultiPolygon):
+                polys.extend(list(part.geoms))
+
+    if len(polys) == 0:
+        return Polygon()
+
+    return _make_valid(shapely.ops.unary_union(polys))
+
+
+def _reassign_small_enclosed_slivers(
+    basin_polygons,
+    *,
+    max_sliver_area_m2=1.0e8,
+    max_sliver_fraction=1.0e-4,
+    containment_buffer_m=2.0e3,
+    max_nearest_distance_m=5.0e4,
+):
+    """Move tiny detached parts to nearby surrounding basins.
+
+    Recipient selection prefers a basin that covers the part representative
+    point after a small buffer. If none is found, this falls back to the
+    nearest basin within ``max_nearest_distance_m``.
+    """
+
+    working = {
+        name: _normalize_polygonal_geometry(_make_valid(geom))
+        for name, geom in basin_polygons.items()
+    }
+
+    while True:
+        reassignment = _find_next_sliver_reassignment(
+            working=working,
+            max_sliver_area_m2=max_sliver_area_m2,
+            max_sliver_fraction=max_sliver_fraction,
+            containment_buffer_m=containment_buffer_m,
+            max_nearest_distance_m=max_nearest_distance_m,
+        )
+        if reassignment is None:
+            break
+
+        donor_name, part, recipient_name = reassignment
+        _apply_sliver_reassignment(
+            working=working,
+            donor_name=donor_name,
+            part=part,
+            recipient_name=recipient_name,
+        )
+
+    return working
+
+
+def _find_next_sliver_reassignment(
+    *,
+    working,
+    max_sliver_area_m2,
+    max_sliver_fraction,
+    containment_buffer_m,
+    max_nearest_distance_m,
+):
+    """Find one donor-part-recipient reassignment candidate."""
+
+    for donor_name in list(working.keys()):
+        donor_parts = _sorted_polygon_parts(working[donor_name])
+        if len(donor_parts) <= 1:
+            continue
+
+        main_area = donor_parts[0].area
+        for part in donor_parts[1:]:
+            if not _is_sliver_part(
+                part=part,
+                main_area=main_area,
+                max_sliver_area_m2=max_sliver_area_m2,
+                max_sliver_fraction=max_sliver_fraction,
+            ):
+                continue
+
+            recipient_name = _find_sliver_recipient(
+                working=working,
+                donor_name=donor_name,
+                part=part,
+                containment_buffer_m=containment_buffer_m,
+                max_nearest_distance_m=max_nearest_distance_m,
+            )
+            if recipient_name is None:
+                continue
+
+            return donor_name, part, recipient_name
+
+    return None
+
+
+def _sorted_polygon_parts(geom):
+    """Return polygon parts sorted by descending area."""
+
+    if geom.is_empty:
+        return []
+    if isinstance(geom, Polygon):
+        return [geom]
+    if not isinstance(geom, MultiPolygon):
+        return []
+
+    return sorted(geom.geoms, key=lambda part: part.area, reverse=True)
+
+
+def _is_sliver_part(
+    *, part, main_area, max_sliver_area_m2, max_sliver_fraction
+):
+    """Return whether a polygon part is small enough to reassign."""
+
+    if part.is_empty:
+        return False
+    if part.area > max_sliver_area_m2:
+        return False
+    if main_area > 0.0 and part.area / main_area > max_sliver_fraction:
+        return False
+    return True
+
+
+def _find_sliver_recipient(
+    *,
+    working,
+    donor_name,
+    part,
+    containment_buffer_m,
+    max_nearest_distance_m,
+):
+    """Find recipient basin for a detached sliver part."""
+
+    point = part.representative_point()
+
+    recipient = _find_covering_recipient(
+        working=working,
+        donor_name=donor_name,
+        point=point,
+        containment_buffer_m=containment_buffer_m,
+    )
+    if recipient is not None:
+        return recipient
+
+    return _find_nearest_recipient(
+        working=working,
+        donor_name=donor_name,
+        part=part,
+        max_nearest_distance_m=max_nearest_distance_m,
+    )
+
+
+def _find_covering_recipient(
+    *, working, donor_name, point, containment_buffer_m
+):
+    """Find first basin covering representative point after buffering."""
+
+    for candidate_name, candidate_geom in working.items():
+        if candidate_name == donor_name or candidate_geom.is_empty:
+            continue
+        if candidate_geom.buffer(containment_buffer_m).covers(point):
+            return candidate_name
+
+    return None
+
+
+def _find_nearest_recipient(
+    *, working, donor_name, part, max_nearest_distance_m
+):
+    """Find nearest basin within distance threshold."""
+
+    nearest_name = None
+    nearest_distance = None
+    for candidate_name, candidate_geom in working.items():
+        if candidate_name == donor_name or candidate_geom.is_empty:
+            continue
+        distance = candidate_geom.distance(part)
+        if nearest_distance is None or distance < nearest_distance:
+            nearest_distance = distance
+            nearest_name = candidate_name
+
+    if (
+        nearest_name is None
+        or nearest_distance is None
+        or nearest_distance > max_nearest_distance_m
+    ):
+        return None
+
+    return nearest_name
+
+
+def _apply_sliver_reassignment(*, working, donor_name, part, recipient_name):
+    """Move one sliver polygon from donor basin to recipient basin."""
+
+    working[donor_name] = _normalize_polygonal_geometry(
+        _make_valid(working[donor_name].difference(part))
+    )
+    working[recipient_name] = _normalize_polygonal_geometry(
+        _make_valid(working[recipient_name].union(part))
+    )
+
+
 def _ensure_multipolygon(geom):
     """Normalize polygonal geometry to MultiPolygon."""
 
@@ -594,12 +1029,32 @@ def _write_shapefile(path, basin_polygons):
         writer.field('name', 'C', size=16)
 
         for basin_id, (name, geom) in enumerate(basin_polygons.items()):
-            for poly in geom.geoms:
+            if isinstance(geom, Polygon):
+                polygons = [geom]
+            elif isinstance(geom, MultiPolygon):
+                polygons = list(geom.geoms)
+            else:
+                raise ValueError(
+                    f'Cannot write non-polygon basin geometry {name}: '
+                    f'{geom.geom_type}'
+                )
+
+            for poly in polygons:
                 parts = [list(poly.exterior.coords)]
                 for ring in poly.interiors:
                     parts.append(list(ring.coords))
                 writer.poly(parts)
                 writer.record(basin_id, name)
+
+
+def _write_failure_debug_shapefile(path, basin_polygons):
+    """Write failure-mode debug shapefile with projection sidecar."""
+
+    _write_shapefile(path, basin_polygons)
+    _write_projection_file(
+        out_shapefile=path,
+        source_prj='imbie2/ANT_Basins_IMBIE2_v1.6/ANT_Basins_IMBIE2_v1.6.prj',
+    )
 
 
 def _write_projection_file(*, out_shapefile, source_prj):
@@ -694,7 +1149,7 @@ def _resolve_new_overlaps(
             resolved[name_b] = _make_valid(geom_b.difference(excess))
 
     for name, geom in resolved.items():
-        resolved[name] = _ensure_multipolygon(_make_valid(geom))
+        resolved[name] = _normalize_polygonal_geometry(_make_valid(geom))
 
     return resolved
 
@@ -706,6 +1161,11 @@ def _validate_basin_polygons(
     overlap_tolerance_m2=1.0e-3,
 ):
     """Run basic geometry validity and overlap checks."""
+
+    _validate_single_polygon_basins(
+        basin_polygons,
+        stage='basin polygon validation',
+    )
 
     items = list(basin_polygons.items())
     for name, geom in items:
@@ -787,20 +1247,6 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         dest='out_shapefile',
         default='imbie2/extended_basin_polygons.shp',
         help='Output shapefile path.',
-    )
-    parser.add_argument(
-        '--debug-raster-only-shapefile',
-        dest='debug_raster_only_shapefile',
-        default=None,
-        help='Optional debug shapefile path for polygons built directly from '
-        'rasterized extended basin labels.',
-    )
-    parser.add_argument(
-        '--debug-raster-only-simplified-shapefile',
-        dest='debug_raster_only_simplified_shapefile',
-        default=None,
-        help='Optional debug shapefile path for simplified polygons built '
-        'directly from rasterized extended basin labels.',
     )
     parser.add_argument(
         '--validate',
