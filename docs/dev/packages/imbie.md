@@ -26,6 +26,12 @@ Import paths and brief descriptions by module:
     Nearest-distance fill used for the deep ocean and as a general-purpose
     basin extension utility.
 
+- Module: {py:mod}`i7aof.imbie.polygons`
+  - {py:func}`make_imbie_polygon_shapefile() <i7aof.imbie.polygons.make_imbie_polygon_shapefile>`:
+    Export combined + extended IMBIE basin polygons as a shapefile, preserving
+    exact original IMBIE polygons basin-by-basin while adding cleaned extension
+    geometry outside the original IMBIE footprint.
+
 ## Required config options
 
 Section: `[ismip_grid]` in your config (shared with grid package). Required keys:
@@ -63,6 +69,13 @@ Notes:
   - `imbie/ANT_Basins_IMBIE2_v1.6/` folder (unzipped shapefiles)
   - Source ZIP cached at `imbie/ANT_Basins_IMBIE2_v1.6.zip`
 
+Additional polygon output (from `i7aof.imbie.polygons`):
+
+- `imbie2/extended_basin_polygons.shp` (and `.shx/.dbf/.prj` sidecars)
+- Optional debug shapefiles:
+  - raster-only: `--debug-raster-only-shapefile`
+  - raster-only simplified: `--debug-raster-only-simplified-shapefile`
+
 ## Data model
 
 Variables written by {py:func}`i7aof.imbie.masks.make_imbie_masks`:
@@ -93,6 +106,17 @@ write_ismip_grid(config)      # ensure grid exists
 make_imbie_masks(config)      # writes imbie/basinNumbers_{hres}.nc
 ```
 
+CLI export for polygons:
+
+```bash
+ismip7-antarctic-imbie-polygons \
+  --simplify-tolerance-m 16e3 \
+  --min-hole-area-m2 0 \
+  --validate
+```
+
+Recommended flags above are robust defaults for simplified extended basins.
+
 ## Internals (for maintainers)
 
 Implementation details in `i7aof/imbie/masks.py` (private helpers):
@@ -109,6 +133,14 @@ Implementation details in `i7aof/imbie/masks.py` (private helpers):
   - Then, the deep ocean is filled by nearest distance (via `skfmm.distance`).
 - `_write_basin_mask(x, y, basin_number, filename)` — writes NetCDF via
   `i7aof.io.write_netcdf`.
+
+Polygon internals in `i7aof/imbie/polygons.py`:
+
+- `_build_raster_only_polygons(...)` — polygonize rasterized extended masks.
+- `_enforce_topological_partition(...)` — rebuild basin polygons from shared
+  linework to reduce topology artifacts.
+- `_validate_partition_topology(...)` — checks basin holes, overlaps, and
+  uncovered/excess domain areas.
 
 ## Edge cases / validations
 

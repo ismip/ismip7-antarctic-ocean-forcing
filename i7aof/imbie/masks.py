@@ -1,3 +1,4 @@
+import configparser
 import os
 import shutil
 
@@ -11,13 +12,36 @@ from tqdm import tqdm
 
 from i7aof.grid.ismip import ensure_ismip_grid, get_horiz_res_string
 from i7aof.imbie.download import download_imbie
-from i7aof.imbie.extend import extend_imbie_basins
+from i7aof.imbie.extend import (
+    _append_component_report,
+    _format_component_report_lines,
+    extend_imbie_basins,
+)
 from i7aof.io import read_dataset, write_netcdf
 from i7aof.paths import (
     build_imbie_basins_dir,
     build_imbie_basins_filename,
     get_output_version,
 )
+
+BASIN_DEFINITIONS = {
+    'A-Ap': ['A-Ap'],
+    'Ap-B': ['Ap-B'],
+    'B-C': ['B-C'],
+    'C-Cp': ['C-Cp'],
+    'Cp-D': ['Cp-D'],
+    'D-Dp': ['D-Dp'],
+    'Dp-E': ['Dp-E'],
+    'E-F': ['E-Ep', 'Ep-F'],
+    'F-G': ['F-G'],
+    'G-H': ['G-H'],
+    'H-Hp': ['H-Hp'],
+    'Hp-I': ['Hp-I'],
+    'I-Ipp': ['I-Ipp'],
+    'Ipp-J': ['Ipp-J'],
+    'J-K': ['J-Jpp', 'Jpp-K'],
+    'K-A': ['K-A'],
+}
 
 
 def make_imbie_masks(config):
@@ -54,9 +78,41 @@ def make_imbie_masks(config):
     in_basin_data = _load_basin_shapes(basin_file_name)
 
     basin_number = _rasterize_basins(points, nx, ny, basins, in_basin_data)
+
+    try:
+        debug = config.getboolean('imbie', 'debug')
+    except configparser.NoOptionError:
+        debug = False
+
+    if debug:
+        debug_dir = 'imbie2'
+        raw_lines = _format_component_report_lines(
+            stage='post_raw_rasterization',
+            basin_number=basin_number,
+            num_basins=len(basins),
+        )
+        _append_component_report(
+            debug_dir=debug_dir,
+            lines=raw_lines,
+            reset=True,
+        )
+
     basin_number = extend_imbie_basins(
         config=config, basin_number=basin_number, num_basins=len(basins)
     )
+
+    if debug:
+        debug_dir = 'imbie2'
+        final_lines = _format_component_report_lines(
+            stage='post_extend_imbie_basins',
+            basin_number=basin_number,
+            num_basins=len(basins),
+        )
+        _append_component_report(
+            debug_dir=debug_dir,
+            lines=final_lines,
+            reset=False,
+        )
 
     _write_basin_mask(x, y, basin_number, out_file_name)
 
@@ -73,24 +129,7 @@ def make_imbie_masks(config):
 
 def _get_basin_definitions():
     """Return a dictionary defining merged IMBIE basin groups."""
-    return {
-        'A-Ap': ['A-Ap'],
-        'Ap-B': ['Ap-B'],
-        'B-C': ['B-C'],
-        'C-Cp': ['C-Cp'],
-        'Cp-D': ['Cp-D'],
-        'D-Dp': ['D-Dp'],
-        'Dp-E': ['Dp-E'],
-        'E-F': ['E-Ep', 'Ep-F'],
-        'F-G': ['F-G'],
-        'G-H': ['G-H'],
-        'H-Hp': ['H-Hp'],
-        'Hp-I': ['Hp-I'],
-        'I-Ipp': ['I-Ipp'],
-        'Ipp-J': ['Ipp-J'],
-        'J-K': ['J-Jpp', 'Jpp-K'],
-        'K-A': ['K-A'],
-    }
+    return BASIN_DEFINITIONS.copy()
 
 
 def _load_ismip_grid(filename):

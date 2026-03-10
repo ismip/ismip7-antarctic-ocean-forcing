@@ -25,6 +25,9 @@ This page lists the primary command-line tools and the top-level Python APIs exp
 	- `ismip7-antarctic-cmip-annual-ct-sa-to-thetao-so` — convert annual ct/sa/tf back to thetao/so (CMIP path).
 	- `ismip7-antarctic-clim-ct-sa-to-thetao-so` — convert climatology ct/sa/tf to thetao/so (climatology path).
 
+- IMBIE polygons
+	- `ismip7-antarctic-imbie-polygons` — export combined + extended IMBIE basin polygons with optional simplification, hole filtering, and topology checks.
+
 Each command supports `--help` for usage details. See the User Guide for end-to-end examples.
 
 ## Python API (entry points)
@@ -49,6 +52,9 @@ Each command supports `--help` for usage details. See the User Guide for end-to-
 	- `i7aof.time.cmip.main` — `ismip7-antarctic-cmip-annual-averages`
 	- `i7aof.convert.ct_sa_to_thetao_so.main_cmip` — `ismip7-antarctic-cmip-annual-ct-sa-to-thetao-so`
 	- `i7aof.convert.ct_sa_to_thetao_so.main_clim` — `ismip7-antarctic-clim-ct-sa-to-thetao-so`
+
+- IMBIE polygons
+	- `i7aof.imbie.polygons.main` — `ismip7-antarctic-imbie-polygons`
 
 ### Non-public internals
 
