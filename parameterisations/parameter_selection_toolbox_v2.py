@@ -347,6 +347,8 @@ def calculate_term4(obs_ensemble, region_label_m, t4_obs, mask_m, cvt_m):
 
     t4_obs_mean = t4_obs.melt_rate
     t4_obs_sigma = t4_obs.melt_rate_uncert
+    # make to order region index to pig, dotson
+    t4_model = t4_model.reindex_like(t4_obs_mean)
 
     return t4_model, t4_obs_mean, t4_obs_sigma
 
