@@ -38,7 +38,7 @@ def calculate_objective_function(
     -w3_spec: "only_cold", "only_warm", "none" only works for term3_opt="both"
     with term3_opt="anomaly" use "timmermann" or "mathiot"
     -w3_only_basin: "false", or a basin number to be sampled
-    -average_as: "true", "false"
+    -average_as: "true", "false" DEPRECATED
     -sample_size: number of random samples
     -basins: basin mask to use for observational and ocean modelling data
     -basins: basin mask at modellers resolution
@@ -141,12 +141,12 @@ def calculate_objective_function(
     a2 = np.random.uniform(0, 1, size=sample_size)
     a3 = np.random.uniform(0, 1, size=sample_size)
 
-    if average_as == 'true':
-        # make sure they add up to 1
-        asum = a1 + a2 + a3
-        a1 = a1 / asum
-        a2 = a2 / asum
-        a3 = a3 / asum
+    # if average_as == 'true':
+    #    # make sure they add up to 1
+    #    asum = a1 + a2 + a3
+    #    a1 = a1 / asum
+    #    a2 = a2 / asum
+    #    a3 = a3 / asum
 
     #####################
     # Find optimal p1,p2
@@ -354,6 +354,7 @@ def calculate_term3(
     # prep data
 
     basin_fris = 13
+    # basin_ase = 9
 
     if term3_spec == 'aggregate':
         print('Warning, this terms does not use timmermann data')
@@ -448,6 +449,11 @@ def calculate_term3(
             .where(basins_m == basin_fris)
             .mean()
         )
+
+        ## parameterisation melt, aggregate to Gt/a per basin for warm ocean
+        # t3_model_07 = (
+        #    obs_2007_ensemble['melt_rate'].where(mask_m, np.nan)
+        # ).where(basins_m==basin_ase).mean()
 
         # Ocean modelling data that is target melt, average kg/m2/a per basin
         tmp = xr.load_dataset(
@@ -706,7 +712,7 @@ def optimise_deltaT(dT_ensemble, basins, reso, MeltDataImbie):
 
         # only use deltaT between -2 and 2
         bmr = bmr.where(
-            np.logical_and(bmr['deltaT'] <= 2, bmr['deltaT'] >= -2), np.nan
+            np.logical_and(bmr['deltaT'] <= 2.0, bmr['deltaT'] >= -2.0), np.nan
         )
 
         optimal_deltaT_per_basin.append(
@@ -773,13 +779,11 @@ def optimise_deltaT(dT_ensemble, basins, reso, MeltDataImbie):
     return result_ds
 
 
-'''
-Deprecated
-
 def select_optimal_deltaT(
     ds, basins, boxes, obs_data, param_type, outname, reso, ice_density
 ):
     """
+    Only used for PICO
     Input:
     - ds: xarray dataset containing melt rates (m.i.e/a), with a dimension
       deltaT that will be optimised over, on a regular grid
@@ -826,9 +830,9 @@ def select_optimal_deltaT(
                 np.logical_and(bmrBox1 > 0, bmrBox1 > bmrBox2), np.nan
             )
 
-        # only use deltaT between -2 and 2
+        # only use deltaT between -0.5 and 0.5
         bmr = bmr.where(
-            np.logical_and(bmr['deltaT'] <= 2, bmr['deltaT'] >= -2), np.nan
+            np.logical_and(bmr['deltaT'] <= 0.5, bmr['deltaT'] >= -0.5), np.nan
         )
 
         optimal_deltaT_per_basin.append(
@@ -901,9 +905,8 @@ def select_optimal_deltaT(
     ds.close()
     result_ds.close()
     return result_ds.drop_vars('melt_rate')
-'''
 
-''' Deprecated
+
 def select_subensemble_using_optimal_deltaT(
     ds, basins, opt_ensemble, outname, p1, p2
 ):
@@ -948,9 +951,8 @@ def select_subensemble_using_optimal_deltaT(
     )
 
     result_ds.to_netcdf(outname)
-'''
 
-"""
+
 def load_melt_rates_into_dataset(
     ensemble_name, ensemble_table, ensemble_path, p1_name, p2_name
 ):
@@ -1004,4 +1006,3 @@ def load_melt_rates_into_dataset(
         .unstack('ehash')
     )
     return ensemble
-    """
