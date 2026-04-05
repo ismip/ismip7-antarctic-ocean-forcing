@@ -440,6 +440,61 @@ def _normalize_lon(lon: xr.DataArray) -> xr.DataArray:
     return lon_out
 
 
+def _get_and_validate_positive(
+    coord: xr.DataArray, coord_name: str, positive: str | None = None
+) -> str | None:
+    """Resolve and validate the effective ``positive`` direction."""
+    if positive is None:
+        positive = coord.attrs.get('positive')
+    if positive is not None:
+        positive = positive.lower()
+
+    values = np.asarray(coord.values)
+    finite = values[np.isfinite(values)]
+    if finite.size == 0:
+        return positive
+
+    finite = finite.reshape(-1)
+    inferred = None
+    if finite.size > 1:
+        inferred = 'down' if finite[-1] > finite[0] else 'up'
+    elif finite[0] > 0:
+        inferred = 'down'
+    elif finite[0] < 0:
+        inferred = 'up'
+
+    if positive is None:
+        return inferred
+
+    if positive not in ('up', 'down'):
+        return positive
+
+    if finite.size == 1:
+        if positive == 'up' and finite[0] > 0:
+            raise ValueError(
+                f"{coord_name} has positive='up' but value {finite[0]} is "
+                'positive.'
+            )
+        if positive == 'down' and finite[0] < 0:
+            raise ValueError(
+                f"{coord_name} has positive='down' but value {finite[0]} is "
+                'negative.'
+            )
+        return positive
+
+    if positive == 'up' and finite[-1] > finite[0]:
+        raise ValueError(
+            f"{coord_name} has positive='up' but increases with index: "
+            f'first={finite[0]}, last={finite[-1]}.'
+        )
+    if positive == 'down' and finite[-1] < finite[0]:
+        raise ValueError(
+            f"{coord_name} has positive='down' but decreases with index: "
+            f'first={finite[0]}, last={finite[-1]}.'
+        )
+    return positive
+
+
 def _depth_to_z(
     depth: xr.DataArray, positive: str | None = None
 ) -> xr.DataArray:
@@ -459,12 +514,7 @@ def _depth_to_z(
         TEOS-10 z coordinate (m, negative downward) with units and
         long_name attributes set.
     """
-    if positive is None:
-        positive = depth.attrs.get('positive')
-        if positive is not None:
-            positive = positive.lower()
-        elif depth.size > 1:
-            positive = 'down' if depth.values[-1] > depth.values[0] else 'up'
+    positive = _get_and_validate_positive(depth, 'depth', positive=positive)
     units = depth.attrs.get('units', '').lower()
     # Handle units and convert to meters if necessary (assume meters if
     # unit-less)
@@ -507,7 +557,7 @@ def _pressure_from_z(z_or_p: xr.DataArray, lat: xr.DataArray) -> np.ndarray:
     """
     # Ensure z uses the TEOS-10 convention: negative below sea level.
     z = z_or_p
-    positive_attr = z.attrs.get('positive', '').lower()
+    positive_attr = _get_and_validate_positive(z, 'z')
     z_min = z.min(skipna=True)
     z_max = z.max(skipna=True)
     z_is_nonnegative = bool(z_min.item() >= 0) if z_min.size == 1 else False
