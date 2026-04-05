@@ -598,10 +598,17 @@ def _pressure_from_z(z_or_p: xr.DataArray, lat: xr.DataArray) -> np.ndarray:
     # Prefer the numeric sign over metadata because some inputs carry
     # depth-style attrs even after being converted to negative TEOS-10 z.
     # Mixed-sign arrays can legitimately span sea level in TEOS-10
-    # convention, so only flip numerically depth-like inputs.
+    # convention, so only flip numerically depth-like inputs. However,
+    # reject metadata that claims TEOS-10 "positive=up" when the values are
+    # clearly depth-like, because passing positive depths into p_from_z
+    # would silently produce incorrect pressures.
     should_flip = z_is_nonnegative and not z_is_nonpositive
-    if positive_attr == 'up':
-        should_flip = False
+    if positive_attr == 'up' and should_flip:
+        raise ValueError(
+            "vertical coordinate values disagree with positive='up': finite "
+            'values are depth-like (nonnegative) but TEOS-10 z must be '
+            'nonpositive below sea level.'
+        )
     if should_flip:
         attrs = z.attrs.copy()
         z = -z
