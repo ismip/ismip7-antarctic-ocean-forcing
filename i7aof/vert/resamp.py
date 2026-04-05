@@ -104,7 +104,7 @@ class VerticalResampler:
         data_valid = da.notnull()
         valid = base_valid & data_valid
         valid_weight = valid.astype(da.dtype)
-        da_masked = da.where(valid, other=0.0)
+        da_masked = da.where(valid, other=xr.zeros_like(da))
 
         # Numerator and denominator via weighted sums over src vertical dim.
         weights = self.weights
