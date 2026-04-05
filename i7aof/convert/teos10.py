@@ -463,6 +463,8 @@ def _depth_to_z(
         positive = depth.attrs.get('positive')
         if positive is not None:
             positive = positive.lower()
+        elif depth.size > 1:
+            positive = 'down' if depth.values[-1] > depth.values[0] else 'up'
     units = depth.attrs.get('units', '').lower()
     # Handle units and convert to meters if necessary (assume meters if
     # unit-less)
@@ -488,7 +490,10 @@ def _depth_to_z(
 
     z = z.assign_attrs(
         units='m',
+        positive='up',
+        standard_name='height',
         long_name='height above mean sea level',
+        axis='Z',
     )
     return z
 
@@ -500,11 +505,19 @@ def _pressure_from_z(z_or_p: xr.DataArray, lat: xr.DataArray) -> np.ndarray:
     NumPy array of pressure suitable for passing to gsw functions. Handles
     broadcasting to (Z,Y,X) for common input shapes.
     """
-    # Ensure z is TEOS-10 z (negative downward)
+    # Ensure z uses the TEOS-10 convention: negative below sea level.
     z = z_or_p
-    if (z.min() >= 0).item() or (
-        z.attrs.get('positive', '').lower() == 'down'
-    ):
+    positive_attr = z.attrs.get('positive', '').lower()
+    z_min = z.min(skipna=True)
+    z_max = z.max(skipna=True)
+    z_is_nonnegative = bool(z_min.item() >= 0) if z_min.size == 1 else False
+    z_is_nonpositive = bool(z_max.item() <= 0) if z_max.size == 1 else False
+    # Prefer the numeric sign over metadata because some inputs carry
+    # depth-style attrs even after being converted to negative TEOS-10 z.
+    should_flip = z_is_nonnegative
+    if positive_attr == 'down' and not z_is_nonpositive:
+        should_flip = True
+    if should_flip:
         attrs = z.attrs.copy()
         z = -z
         attrs['positive'] = 'up'
