@@ -440,8 +440,19 @@ def _normalize_lon(lon: xr.DataArray) -> xr.DataArray:
     return lon_out
 
 
+def _scalar_reduction(value: xr.DataArray):
+    """Convert a scalar xarray reduction result into a Python scalar."""
+    value_np = np.asarray(value.values)
+    if value_np.size != 1:
+        raise ValueError('Expected a scalar reduction result.')
+    return value_np.item()
+
+
 def _get_and_validate_positive(
-    coord: xr.DataArray, coord_name: str, positive: str | None = None
+    coord: xr.DataArray,
+    coord_name: str,
+    positive: str | None = None,
+    validation_dim: str | None = None,
 ) -> str | None:
     """Resolve and validate the effective ``positive`` direction."""
     if positive is None:
@@ -449,19 +460,37 @@ def _get_and_validate_positive(
     if positive is not None:
         positive = positive.lower()
 
-    values = np.asarray(coord.values)
-    finite = values[np.isfinite(values)]
-    if finite.size == 0:
-        return positive
-
-    finite = finite.reshape(-1)
     inferred = None
-    if finite.size > 1:
-        inferred = 'down' if finite[-1] > finite[0] else 'up'
-    elif finite[0] > 0:
-        inferred = 'down'
-    elif finite[0] < 0:
-        inferred = 'up'
+    if validation_dim is None and coord.ndim == 1:
+        validation_dim = coord.dims[0]
+    if validation_dim is not None and validation_dim not in coord.dims:
+        raise ValueError(
+            f"{coord_name} validation dimension '{validation_dim}' is not "
+            'present in the coordinate.'
+        )
+
+    has_increase = False
+    has_decrease = False
+    if validation_dim is not None and coord.sizes[validation_dim] > 1:
+        first = coord.isel({validation_dim: 0})
+        last = coord.isel({validation_dim: -1})
+        delta = (last - first).where(np.isfinite(first) & np.isfinite(last))
+        has_increase = bool(_scalar_reduction((delta > 0).any()))
+        has_decrease = bool(_scalar_reduction((delta < 0).any()))
+        if has_increase and not has_decrease:
+            inferred = 'down'
+        elif has_decrease and not has_increase:
+            inferred = 'up'
+
+    coord_min = _scalar_reduction(coord.min(skipna=True))
+    coord_max = _scalar_reduction(coord.max(skipna=True))
+    if np.isfinite(coord_min) and np.isfinite(coord_max):
+        if inferred is None and coord_min > 0:
+            inferred = 'down'
+        elif inferred is None and coord_max < 0:
+            inferred = 'up'
+    else:
+        return positive
 
     if positive is None:
         return inferred
@@ -469,28 +498,25 @@ def _get_and_validate_positive(
     if positive not in ('up', 'down'):
         return positive
 
-    if finite.size == 1:
-        if positive == 'up' and finite[0] > 0:
-            raise ValueError(
-                f"{coord_name} has positive='up' but value {finite[0]} is "
-                'positive.'
-            )
-        if positive == 'down' and finite[0] < 0:
-            raise ValueError(
-                f"{coord_name} has positive='down' but value {finite[0]} is "
-                'negative.'
-            )
-        return positive
-
-    if positive == 'up' and finite[-1] > finite[0]:
+    if positive == 'up' and has_increase:
         raise ValueError(
-            f"{coord_name} has positive='up' but increases with index: "
-            f'first={finite[0]}, last={finite[-1]}.'
+            f"{coord_name} has positive='up' but increases along "
+            f'{validation_dim or "its vertical dimension"}.'
         )
-    if positive == 'down' and finite[-1] < finite[0]:
+    if positive == 'down' and has_decrease:
         raise ValueError(
-            f"{coord_name} has positive='down' but decreases with index: "
-            f'first={finite[0]}, last={finite[-1]}.'
+            f"{coord_name} has positive='down' but decreases along "
+            f'{validation_dim or "its vertical dimension"}.'
+        )
+    if positive == 'up' and coord_min > 0:
+        raise ValueError(
+            f"{coord_name} has positive='up' but all finite values are "
+            'positive.'
+        )
+    if positive == 'down' and coord_max < 0:
+        raise ValueError(
+            f"{coord_name} has positive='down' but all finite values are "
+            'negative.'
         )
     return positive
 
@@ -514,7 +540,12 @@ def _depth_to_z(
         TEOS-10 z coordinate (m, negative downward) with units and
         long_name attributes set.
     """
-    positive = _get_and_validate_positive(depth, 'depth', positive=positive)
+    positive = _get_and_validate_positive(
+        depth,
+        'depth',
+        positive=positive,
+        validation_dim=depth.dims[0] if depth.dims else None,
+    )
     units = depth.attrs.get('units', '').lower()
     # Handle units and convert to meters if necessary (assume meters if
     # unit-less)
@@ -557,16 +588,20 @@ def _pressure_from_z(z_or_p: xr.DataArray, lat: xr.DataArray) -> np.ndarray:
     """
     # Ensure z uses the TEOS-10 convention: negative below sea level.
     z = z_or_p
-    positive_attr = _get_and_validate_positive(z, 'z')
-    z_min = z.min(skipna=True)
-    z_max = z.max(skipna=True)
-    z_is_nonnegative = bool(z_min.item() >= 0) if z_min.size == 1 else False
-    z_is_nonpositive = bool(z_max.item() <= 0) if z_max.size == 1 else False
+    positive_attr = z.attrs.get('positive')
+    if positive_attr is not None:
+        positive_attr = positive_attr.lower()
+    z_min = _scalar_reduction(z.min(skipna=True))
+    z_max = _scalar_reduction(z.max(skipna=True))
+    z_is_nonnegative = np.isfinite(z_min) and z_min >= 0
+    z_is_nonpositive = np.isfinite(z_max) and z_max <= 0
     # Prefer the numeric sign over metadata because some inputs carry
     # depth-style attrs even after being converted to negative TEOS-10 z.
-    should_flip = z_is_nonnegative
-    if positive_attr == 'down' and not z_is_nonpositive:
-        should_flip = True
+    # Mixed-sign arrays can legitimately span sea level in TEOS-10
+    # convention, so only flip numerically depth-like inputs.
+    should_flip = z_is_nonnegative and not z_is_nonpositive
+    if positive_attr == 'up':
+        should_flip = False
     if should_flip:
         attrs = z.attrs.copy()
         z = -z
