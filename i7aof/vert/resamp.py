@@ -96,19 +96,22 @@ class VerticalResampler:
                 f"'{src}'. Dims: {da.dims}"
             )
 
-        # Build a validity mask aligned to da (broadcast src_valid if needed)
-        valid = self.src_valid
-        # If valid has no time dim but da does, xarray will broadcast
-        valid = valid.astype(da.dtype)
+        # Build a validity mask aligned to da (broadcast src_valid if needed).
+        # Missing source values need to be excluded from both numerator and
+        # denominator; otherwise a single NaN in any overlapping fine layer
+        # contaminates the whole coarse layer.
+        base_valid = self.src_valid.astype(bool)
+        data_valid = da.notnull()
+        valid = base_valid & data_valid
+        valid_weight = valid.astype(da.dtype)
+        da_masked = da.where(valid, other=xr.zeros_like(da))
 
-        # Numerator and denominator via weighted sums over src vertical dim
-        # weights dims: (src, dst). Use xr.dot over the shared 'src' dim.
-        # Align weight dims for dot: ensure name matches
+        # Numerator and denominator via weighted sums over src vertical dim.
         weights = self.weights
 
         # Sum over source layers: (other_dims, dst)
-        num = xr.dot(da * valid, weights, dims=src)
-        denom = xr.dot(valid, weights, dims=src)
+        num = xr.dot(da_masked, weights, dims=src)
+        denom = xr.dot(valid_weight, weights, dims=src)
 
         # Coverage fraction relative to destination thickness
         frac = denom / self.dz_dst

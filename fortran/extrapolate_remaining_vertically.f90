@@ -194,7 +194,9 @@ DO kt=1,mtime
   enddo
   enddo
 
-  DO kz=3,mz
+  ! Start at kz=2 so a valid surface layer can seed the first subsurface
+  ! layer; otherwise a profile with only k=1 populated never propagates.
+  DO kz=2,mz
     do ki=1,mx
     do kj=1,my
       if ( var_in(ki,kj,kz) == miss .and. var_in(ki,kj,kz-1) /= miss ) then
