@@ -4,10 +4,786 @@ import numpy as np
 import xarray as xr
 
 
+def calculate_objective_function(
+    optimise,
+    term2_spec,
+    term3_spec,
+    term3_opt,
+    w3_spec,
+    w3_only_basin,
+    sample_size,
+    average_as,
+    basins,
+    basins_m,
+    mask,
+    mask_m,
+    bfrn,
+    bfrn_m,
+    reso,
+    melt_obs,
+    MeltData,
+    data_path,
+    pd_ensemble,
+    mathiot_cold_ensemble,
+    mathiot_warm_ensemble,
+    timmermann_cold_ensemble,
+    timmermann_warm_ensemble,
+):
+    """
+    Input:
+    -optimise: "all", "term1", "term2", "term3"
+    -term2_spec: "aggregated", "average"
+    -term3_spec:  "aggregated", "average"
+    -term3_opt: "anomaly" "both"
+    -w3_spec: "only_cold", "only_warm", "none" only works for term3_opt="both"
+    with term3_opt="anomaly" use "timmermann" or "mathiot"
+    -w3_only_basin: "false", or a basin number to be sampled
+    -average_as: "true", "false" DEPRECATED
+    -sample_size: number of random samples
+    -basins: basin mask to use for observational and ocean modelling data
+    -basins: basin mask at modellers resolution
+    -mask: mask that identified ice shelves (1) and otherwise (0)
+    -mask_m: like mask but at ice sheet model resolution
+    -bfrn: dataset containg bfrn bins and values for J2
+    -bfrn_m: dataset containg bfrn bins at model resolution
+    -reso: resolution in m
+    -melt_obs: observational melt, in kg/m2/a
+    -Melt_Data: basin-aggregated melt rates
+    -data_path: path to ocean modelling melt rates
+    -pd_ensemble: name of dataset containing present day melt rates for all
+                  p1, p2 combinations, in kg/m2/a
+    -mathiot_cold_ensemble: ocean modelling data is the cold mathiot
+    -mathiot_warm_ensemble: similar, with warm dataset
+    -timmermann_cold_ensemble: similar, with cold timmermann
+    -timmermann_warm_ensemble: cimilar, with warm dataset
+    Output:
+    -min_p1: list of p1 values that minimise randomly sampled objective
+             function, length of sample size
+    -min_p2: list of cooresponding p2 values
+    -min_coords: minimum values attained for the minimum p1,p2 values
+
+    This function finds the pair of p1,p2 for which the parameterised melt
+    optimises three terms:
+    -J1: basin-integrated melt for present-day
+    -J2: buttressing-bin integrated melt for present-day,
+         weighted by buttressing
+    -J3: basin-integrated melt for cold and warm cases of the
+         ocean modelling datasets
+    """
+
+    nBasins = int(basins.max())
+    cvt = 8000**2 / 1e12  # conversion factor kg/m2/a to Gt/a for obs data
+    cvt_m = reso**2 / 1e12  # for model data
+
+    ########
+    # TERM 1
+    if optimise == 'term1' or optimise == 'all':
+        print('Calculate Term 1')
+        t1_model, t1_obs, t1_obs_mean, t1_obs_sigma = calculate_term1(
+            pd_ensemble,
+            mask_m,
+            basins_m,
+            nBasins,
+            cvt_m,
+            MeltData,
+            sample_size,
+        )
+
+    ########
+    # TERM 2
+    if optimise == 'term2' or optimise == 'all':
+        print('Calculate Term 2')
+        t2_model, t2_obs, t2_weights, t2_obs_mean, t2_obs_sigma = (
+            calculate_term2(
+                pd_ensemble,
+                mask,
+                mask_m,
+                bfrn,
+                bfrn_m,
+                cvt,
+                cvt_m,
+                sample_size,
+                term2_spec,
+                melt_obs,
+            )
+        )
+
+    ########
+    # TERM 3
+    if optimise == 'term3' or optimise == 'all':
+        print('Calculate Term 3')
+        t3_model, t3_obs, t3_weights, t3_obs_mean, t3_obs_sigma = (
+            calculate_term3(
+                pd_ensemble,
+                mathiot_cold_ensemble,
+                mathiot_warm_ensemble,
+                timmermann_cold_ensemble,
+                timmermann_warm_ensemble,
+                mask,
+                mask_m,
+                basins,
+                basins_m,
+                cvt,
+                cvt_m,
+                sample_size,
+                term3_spec,
+                term3_opt,
+                w3_spec,
+                data_path,
+                nBasins,
+                w3_only_basin,
+            )
+        )
+
+    ################################################
+    # randomly sample the weights of the three terms
+    a1 = np.random.uniform(0, 1, size=sample_size)
+    a2 = np.random.uniform(0, 1, size=sample_size)
+    a3 = np.random.uniform(0, 1, size=sample_size)
+
+    # if average_as == 'true':
+    #    # make sure they add up to 1
+    #    asum = a1 + a2 + a3
+    #    a1 = a1 / asum
+    #    a2 = a2 / asum
+    #    a3 = a3 / asum
+
+    #####################
+    # Find optimal p1,p2
+    min_p1 = []
+    min_p2 = []
+    print('Sampling, this might take a moment...')
+
+    for s in range(sample_size):
+        if optimise == 'all':
+            term1 = mae(t1_model, t1_obs[:, s], 1, 'basins')
+            term2 = mae(t2_model, t2_obs[:, s], t2_weights, ['BFRN_bins'])
+            term3 = mae(t3_model, t3_obs[:, s], t3_weights[s, :], ['basins'])
+            objective_function = (
+                a1[s] * term1 / term1.median()
+                + a2[s] * term2 / term2.median()
+                + a3[s] * term3 / term3.median()
+            )
+        elif optimise == 'term1':
+            term1 = mae(t1_model, t1_obs[:, s], 1, 'basins')
+            objective_function = term1 / term1.median()
+        elif optimise == 'term2':
+            term2 = mae(t2_model, t2_obs[:, s], t2_weights, ['BFRN_bins'])
+            objective_function = term2 / term2.median()
+        elif optimise == 'term3':
+            term3 = mae(t3_model, t3_obs[:, s], t3_weights[s, :], ['basins'])
+            objective_function = term3 / term3.median()
+        else:
+            print('Specify term to optimise')
+            return
+
+        min_val = np.nanmin(objective_function)
+        min_p1.append(
+            objective_function.where(
+                objective_function == min_val, drop=True
+            ).p1.values[0]
+        )
+        min_p2.append(
+            objective_function.where(
+                objective_function == min_val, drop=True
+            ).p2.values[0]
+        )
+
+    return min_p1, min_p2, a1, a2, a3  # , t3_weights
+
+
+def mae(predicted=None, observed=None, weights=1, dims='basins'):
+    """
+    Calculates mean absolute error
+    """
+    return (
+        abs(weights * (predicted - observed))
+        .mean(dims, skipna=False)
+        .rename('result')
+    )
+
+
+def calculate_term1(
+    pd_ensemble, mask_m, basins_m, nBasins, cvt_m, MeltData, sample_size
+):
+    ########
+    # TERM 1
+    # parameterisaition melt, aggregate to Gt/a per basin
+    t1_model = (
+        pd_ensemble['melt_rate']
+        .where(mask_m, np.nan)
+        .groupby(basins_m)
+        .sum(skipna=True)
+        * cvt_m
+    )  # convert to Gt/a
+    # make sure to remove regions that do not have optimal dT for any basin
+    t1_model = t1_model.where(t1_model != 0, np.nan)
+
+    # Observed melt in Gt/a per basin, observed melt is "sample_size"-times
+    # randomly sampled assuming normal distribution
+    t1_obs_mean = MeltData['BMR (Gt/yr)'].values
+    t1_obs_sigma = MeltData['BMR uncert (Gt/yr)'].values
+    t1_obs = []
+    for b in range(nBasins + 1):
+        t1_obs = t1_obs + [
+            np.random.normal(
+                loc=t1_obs_mean[b], scale=t1_obs_sigma[b], size=sample_size
+            )
+        ]
+    t1_obs = np.array(t1_obs)
+
+    return t1_model, t1_obs, t1_obs_mean, t1_obs_sigma
+
+
+def calculate_term2(
+    pd_ensemble,
+    mask,
+    mask_m,
+    bfrn,
+    bfrn_m,
+    cvt,
+    cvt_m,
+    sample_size,
+    term2_spec,
+    melt_obs,
+):
+    ########
+    # TERM 2
+    if term2_spec == 'aggregate':
+        # parameterisation melt aggregated per buttressing bin, in Gt/a
+        t2_model = (
+            pd_ensemble['melt_rate']
+            .where(mask_m, np.nan)
+            .groupby(bfrn_m['BFRN_bins'])
+            .sum(skipna=True)
+            * cvt_m
+        )
+        t2_model = t2_model.where(t2_model != 0, np.nan)
+
+        # Observed melt in Gt/a per buttressing bin, observed melt is
+        # "sample_size"-times randomly sampled assuming normal distribution
+        t2_obs_mean = (
+            melt_obs['melt_mean']
+            .where(mask, np.nan)
+            .groupby(bfrn['BFRN_bins'])
+            .sum()
+            * cvt
+        )
+        t2_obs_sigma = (
+            melt_obs['melt_mean_err']
+            .where(mask, np.nan)
+            .groupby(bfrn['BFRN_bins'])
+            .sum()
+            * cvt
+        )
+        t2_obs = []
+        nBins = 10
+        for b in range(nBins):
+            t2_obs = t2_obs + [
+                np.random.normal(
+                    loc=t2_obs_mean[b], scale=t2_obs_sigma[b], size=sample_size
+                )
+            ]
+        t2_obs = np.array(t2_obs)
+
+    elif term2_spec == 'average':
+        # parameterisation melt averaged per buttressing bin
+        t2_model = (
+            pd_ensemble['melt_rate']
+            .where(mask_m, np.nan)
+            .groupby(bfrn_m['BFRN_bins'])
+            .mean()
+        )
+        t2_model = t2_model.where(t2_model != 0, np.nan)
+
+        # Observed melt in kg/m2/a per buttressing bin, observed melt is
+        # "sample_size"-times randomly sampled assuming normal distribution
+        t2_obs_mean = (
+            melt_obs['melt_mean']
+            .where(mask, np.nan)
+            .groupby(bfrn['BFRN_bins'])
+            .mean()
+        )
+        # Note that to calculate uncertainty, we calculate for each bin
+        # sqrt(uncert1**2 + uncert2**2 +...) / number of terms
+        t2_obs_sigma = np.sqrt(
+            ((melt_obs['melt_mean_err'].where(mask, np.nan)) ** 2)
+            .groupby(bfrn['BFRN_bins'])
+            .mean()
+        )
+        t2_obs = []
+        nBins = 10
+        for b in range(nBins):
+            t2_obs = t2_obs + [
+                np.random.normal(
+                    loc=t2_obs_mean[b], scale=t2_obs_sigma[b], size=sample_size
+                )
+            ]
+        t2_obs = np.array(t2_obs)
+    else:
+        print('Please specify term2_spec correctly')
+
+    # important to only use values, as dim name does not match
+    t2_weights = (bfrn['BFRN_medians'] / bfrn['BFRN_median']).values
+
+    return t2_model, t2_obs, t2_weights, t2_obs_mean, t2_obs_sigma
+
+
+def calculate_term3(
+    pd_ensemble,
+    mathiot_cold_ensemble,
+    mathiot_warm_ensemble,
+    timmermann_cold_ensemble,
+    timmermann_warm_ensemble,
+    mask,
+    mask_m,
+    basins,
+    basins_m,
+    cvt,
+    cvt_m,
+    sample_size,
+    term3_spec,
+    term3_opt,
+    w3_spec,
+    data_path,
+    nBasins,
+    w3_only_basin,
+):
+    ########
+    # TERM 3
+    # prep data
+
+    basin_fris = 13
+    # basin_ase = 9
+
+    if term3_spec == 'aggregate':
+        print('Warning, this terms does not use timmermann data')
+        # parameterisation melt, aggregate to Gt/a per basin for cold ocean
+        t3_model_mat_c = (
+            mathiot_cold_ensemble['melt_rate'].where(mask_m, np.nan)
+        ).groupby(basins_m).sum() * cvt_m
+        t3_model_mat_c = t3_model_mat_c.where(t3_model_mat_c != 0, np.nan)
+
+        # parameterisation melt, aggregate to Gt/a per basin for warm ocean
+        t3_model_mat_w = (
+            mathiot_warm_ensemble['melt_rate'].where(mask_m, np.nan)
+        ).groupby(basins_m).sum() * cvt_m  # .where(t1_model != 0, np.nan)
+        t3_model_mat_w = t3_model_mat_w.where(t3_model_mat_w != 0, np.nan)
+
+        # Ocean modelling data that is target melt, aggregate to Gt/a per basin
+        tmp = xr.load_dataset(
+            os.path.join(
+                data_path,
+                'parameterisations',
+                'Ocean_Modelling_Data',
+                'Mathiot23_cold_m.nc',
+            )
+        )
+        t3_obs_mat_mean_c = (
+            tmp['melt_rate']
+            .where(mask, np.nan)
+            .groupby(basins)
+            .sum(skipna=True)
+            * cvt
+        )
+        t3_obs_mat_sigma_c = (
+            tmp['melt_rate_uncert']
+            .where(mask, np.nan)
+            .groupby(basins)
+            .sum(skipna=True)
+            * cvt
+        )
+        tmp.close()
+
+        # warm case
+        tmp = xr.load_dataset(
+            os.path.join(
+                data_path,
+                'parameterisations',
+                'Ocean_Modelling_Data',
+                'Mathiot23_warm_m.nc',
+            )
+        )
+        t3_obs_mat_mean_w = (
+            tmp['melt_rate']
+            .where(mask, np.nan)
+            .groupby(basins)
+            .sum(skipna=True)
+            * cvt
+        )
+        t3_obs_mat_sigma_w = (
+            tmp['melt_rate_uncert']
+            .where(mask, np.nan)
+            .groupby(basins)
+            .sum(skipna=True)
+            * cvt
+        )
+
+    elif term3_spec == 'average':
+        # parameterisation melt, average in kg/m2/a per basin for cold ocean
+        t3_model_mat_c = (
+            (mathiot_cold_ensemble['melt_rate'].where(mask_m, np.nan))
+            .groupby(basins_m)
+            .mean()
+        )
+        t3_model_mat_c = t3_model_mat_c.where(t3_model_mat_c != 0, np.nan)
+
+        # parameterisation melt, aggregate to Gt/a per basin for warm ocean
+        t3_model_mat_w = (
+            (mathiot_warm_ensemble['melt_rate'].where(mask_m, np.nan))
+            .groupby(basins_m)
+            .mean()
+        )  # where(t1_model != 0, np.nan)
+        t3_model_mat_w = t3_model_mat_w.where(t3_model_mat_w != 0, np.nan)
+
+        # parameterisation melt, average to kg/m2/a per basin for cold ocean
+        t3_model_tim_c = (
+            (timmermann_cold_ensemble['melt_rate'].where(mask_m, np.nan))
+            .where(basins_m == basin_fris)
+            .mean()
+        )
+
+        # parameterisation melt, aggregate to Gt/a per basin for warm ocean
+        t3_model_tim_w = (
+            (timmermann_warm_ensemble['melt_rate'].where(mask_m, np.nan))
+            .where(basins_m == basin_fris)
+            .mean()
+        )
+
+        ## parameterisation melt, aggregate to Gt/a per basin for warm ocean
+        # t3_model_07 = (
+        #    obs_2007_ensemble['melt_rate'].where(mask_m, np.nan)
+        # ).where(basins_m==basin_ase).mean()
+
+        # Ocean modelling data that is target melt, average kg/m2/a per basin
+        tmp = xr.load_dataset(
+            os.path.join(
+                data_path,
+                'parameterisations',
+                'Ocean_Modelling_Data',
+                'Mathiot23_cold_m.nc',
+            )
+        )
+        t3_obs_mat_mean_c = (
+            tmp['melt_rate']
+            .where(mask, np.nan)
+            .groupby(basins)
+            .mean(skipna=True)
+            # as unit is kg/m2/a
+        )
+        t3_obs_mat_sigma_c = np.sqrt(
+            (tmp['melt_rate_uncert'].where(mask, np.nan) ** 2)
+            .groupby(basins)
+            .mean(skipna=True)
+        )
+        tmp.close()
+
+        # warm case
+        tmp = xr.load_dataset(
+            os.path.join(
+                data_path,
+                'parameterisations',
+                'Ocean_Modelling_Data',
+                'Mathiot23_warm_m.nc',
+            )
+        )
+        t3_obs_mat_mean_w = (
+            tmp['melt_rate']
+            .where(mask, np.nan)
+            .groupby(basins)
+            .mean(skipna=True)
+        )
+        t3_obs_mat_sigma_w = np.sqrt(
+            (tmp['melt_rate_uncert'].where(mask, np.nan) ** 2)
+            .groupby(basins)
+            .mean(skipna=True)
+        )
+
+        tmp = xr.load_dataset(
+            os.path.join(
+                data_path,
+                'parameterisations',
+                'Ocean_Modelling_Data',
+                'TimmermannUndGoeller2017_cold_m.nc',
+            )
+        )
+        t3_obs_tim_mean_c = (
+            tmp['melt_rate']
+            .where(mask, np.nan)
+            .where(basins == basin_fris)
+            .mean(skipna=True)
+            # as unit is kg/m2/a
+        )
+        t3_obs_tim_sigma_c = np.sqrt(
+            (tmp['melt_rate_uncert'].where(mask, np.nan) ** 2)
+            .where(basins == basin_fris)
+            .mean(skipna=True)
+        )
+        tmp.close()
+
+        tmp = xr.load_dataset(
+            os.path.join(
+                data_path,
+                'parameterisations',
+                'Ocean_Modelling_Data',
+                'TimmermannUndGoeller2017_warm_m.nc',
+            )
+        )
+        t3_obs_tim_mean_w = (
+            tmp['melt_rate']
+            .where(mask, np.nan)
+            .where(basins == basin_fris)
+            .mean(skipna=True)
+            # as unit is kg/m2/a
+        )
+        t3_obs_tim_sigma_w = np.sqrt(
+            (tmp['melt_rate_uncert'].where(mask, np.nan) ** 2)
+            .where(basins == basin_fris)
+            .mean(skipna=True)
+        )
+        tmp.close()
+    else:
+        print('Make sure to specify correct term3_spec')
+
+    #####################
+    # Combine datasets
+
+    if term3_opt == 'both':
+        print('Note that timmermann data is not included here')
+        t3_model = xr.concat(
+            [
+                t3_model_mat_c.assign_coords(
+                    {'basins': [str(i) + 'c' for i in range(nBasins + 1)]}
+                ),
+                t3_model_mat_w.assign_coords(
+                    {'basins': [str(i) + 'w' for i in range(nBasins + 1)]}
+                ),
+            ],
+            dim='basins',
+        )
+        t3_obs_mean = xr.concat(
+            [
+                t3_obs_mat_mean_c.assign_coords(
+                    {'basins': [str(i) + 'c' for i in range(nBasins + 1)]}
+                ),
+                t3_obs_mat_mean_w.assign_coords(
+                    {'basins': [str(i) + 'w' for i in range(nBasins + 1)]}
+                ),
+            ],
+            dim='basins',
+        )
+
+        t3_obs_sigma = xr.concat(
+            [
+                t3_obs_mat_sigma_c.assign_coords(
+                    {'basins': [str(i) + 'c' for i in range(nBasins + 1)]}
+                ),
+                t3_obs_mat_sigma_w.assign_coords(
+                    {'basins': [str(i) + 'w' for i in range(nBasins + 1)]}
+                ),
+            ],
+            dim='basins',
+        )
+
+        # For melt targets, randomly sample
+        t3_obs = []
+        for b in range(len(t3_obs_mean)):
+            t3_obs = t3_obs + [
+                np.random.normal(
+                    loc=t3_obs_mean[b], scale=t3_obs_sigma[b], size=sample_size
+                )
+            ]
+        t3_obs = np.array(t3_obs)
+
+        t3_weights = []
+
+        for _s in range(sample_size):
+            # sample all basins, make sure to give same weight to cold and warm
+            tmp = np.random.uniform(0, 1, size=int(len(t3_model.basins) / 2))
+            tmp = np.tile(tmp, 2)
+            tmp = tmp / tmp.sum()
+            if w3_spec == 'only_warm':
+                tmp[: len(tmp) // 2] = 0
+            if w3_spec == 'only_cold':
+                tmp[len(tmp) // 2 :] = 0
+            if w3_spec == 'timmermann':
+                tmp[:-2] = 0
+            if w3_spec == 'mathiot':
+                tmp[-1] = 0
+            t3_weights = t3_weights + [tmp]
+
+        t3_weights = np.array(t3_weights)
+
+    elif term3_opt == 'anomaly':
+        t3_model = xr.concat(
+            [
+                (t3_model_mat_w - t3_model_mat_c).assign_coords(
+                    {
+                        'basins': [
+                            str(i + 1) + ' mat' for i in range(nBasins + 1)
+                        ]
+                    }
+                ),
+                (t3_model_tim_w - t3_model_tim_c).assign_coords(
+                    {'basins': str(basin_fris + 1) + ' tim'}
+                ),
+            ],
+            dim='basins',
+        )
+        t3_obs_mean = xr.concat(
+            [
+                (t3_obs_mat_mean_w - t3_obs_mat_mean_c).assign_coords(
+                    {
+                        'basins': [
+                            str(i + 1) + ' mat' for i in range(nBasins + 1)
+                        ]
+                    }
+                ),
+                (t3_obs_tim_mean_w - t3_obs_tim_mean_c).assign_coords(
+                    {'basins': str(basin_fris + 1) + ' tim'}
+                ),
+            ],
+            dim='basins',
+        )
+
+        # Note that this assumes errors to be uncorrelated
+        # which is the most conservative approach
+        t3_obs_sigma = xr.concat(
+            [
+                np.sqrt(
+                    t3_obs_mat_sigma_w**2 + t3_obs_mat_sigma_c**2
+                ).assign_coords(
+                    {
+                        'basins': [
+                            str(i + 1) + 'mat' for i in range(nBasins + 1)
+                        ]
+                    }
+                ),
+                np.sqrt(
+                    t3_obs_tim_sigma_w**2 + t3_obs_tim_sigma_c**2
+                ).assign_coords({'basins': str(basin_fris + 1) + 'tim'}),
+            ],
+            dim='basins',
+        )
+
+        # For melt targets, randomly sample
+        t3_obs = []
+        for b in range(len(t3_obs_mean)):
+            t3_obs = t3_obs + [
+                np.random.normal(
+                    loc=t3_obs_mean[b], scale=t3_obs_sigma[b], size=sample_size
+                )
+            ]
+        t3_obs = np.array(t3_obs)
+
+        t3_weights = []
+
+        for _s in range(sample_size):
+            tmp = np.random.uniform(0, 1, size=int(len(t3_model.basins)))
+            if w3_only_basin != 'false':
+                tmp = np.zeros(len(t3_model.basins))
+                tmp[w3_only_basin] = 1
+            t3_weights = t3_weights + [tmp]
+
+        t3_weights = np.array(t3_weights)
+
+    else:
+        print('Please specify correct term3_opt')
+
+    return t3_model, t3_obs, t3_weights, t3_obs_mean, t3_obs_sigma
+
+
+def optimise_deltaT(dT_ensemble, basins, reso, MeltDataImbie):
+    """
+    Calculate optimal deltaT for basin-wide present-day melt.
+    """
+
+    number_of_basins = int(basins.max().values)
+    cvt = reso**2 / 1e12  # to convert to Gt/a
+
+    optimal_deltaT_per_basin = []
+    residual_per_basin = []
+    sensitivity_per_basin = []
+
+    param_melt_rate = dT_ensemble.sel(deltaT=0).copy(deep=True) * np.nan
+
+    for basin_i in range(number_of_basins + 1):
+        bmr = dT_ensemble.where(basins == basin_i, 0.0).sum(['x', 'y']) * cvt
+
+        # only use deltaT between -2 and 2
+        bmr = bmr.where(
+            np.logical_and(bmr['deltaT'] <= 2.0, bmr['deltaT'] >= -2.0), np.nan
+        )
+
+        optimal_deltaT_per_basin.append(
+            np.round(
+                (abs(bmr - MeltDataImbie.loc[basin_i, 'BMR (Gt/yr)']))
+                .idxmin()
+                .item(),
+                3,
+            )
+        )
+        residual_per_basin.append(
+            (abs(bmr - MeltDataImbie.loc[basin_i, 'BMR (Gt/yr)'])).min().item()
+        )
+
+        # if an optimal delatT exists, save melt and calc melt sensitivity
+        if not np.isnan(optimal_deltaT_per_basin[-1]):
+            param_melt_rate = param_melt_rate.where(
+                basins != basin_i,
+                dT_ensemble.sel(
+                    deltaT=optimal_deltaT_per_basin[-1], method='nearest'
+                ),
+            )
+            # Calc approx melt sensitivity.
+            # otherwise approximate with higher values, ideally +1deg C
+            # Note that this is only approximate
+            sensitivity_per_basin.append(
+                np.round(
+                    (
+                        (
+                            dT_ensemble.sel(
+                                deltaT=optimal_deltaT_per_basin[-1] + 1,
+                                method='nearest',
+                            )
+                            .where(basins == basin_i, np.nan)
+                            .mean()
+                            - param_melt_rate.where(
+                                basins == basin_i, np.nan
+                            ).mean()
+                        ).item()
+                        / 1
+                    ),
+                    2,
+                )
+            )
+        else:
+            sensitivity_per_basin.append(np.nan)
+    result_ds = xr.Dataset(
+        data_vars=dict(
+            melt_rate=(['y', 'x'], param_melt_rate.values),
+            optimal_deltaT_per_basin=(
+                ['basin'],
+                np.array(optimal_deltaT_per_basin),
+            ),
+            sensitivity_per_basin=(['basin'], np.array(sensitivity_per_basin)),
+            residual_per_basin=(['basin'], np.array(residual_per_basin)),
+        ),
+        coords=dict(
+            x=(['x'], dT_ensemble['x'].values),
+            y=(['y'], dT_ensemble['y'].values),
+            basin=(['basin'], np.arange(0, number_of_basins + 1)),
+        ),
+    )
+
+    return result_ds
+
+
 def select_optimal_deltaT(
     ds, basins, boxes, obs_data, param_type, outname, reso, ice_density
 ):
     """
+    Only used for PICO
     Input:
     - ds: xarray dataset containing melt rates (m.i.e/a), with a dimension
       deltaT that will be optimised over, on a regular grid
@@ -54,9 +830,9 @@ def select_optimal_deltaT(
                 np.logical_and(bmrBox1 > 0, bmrBox1 > bmrBox2), np.nan
             )
 
-        # only use deltaT between -2 and 2
+        # only use deltaT between -0.5 and 0.5
         bmr = bmr.where(
-            np.logical_and(bmr['deltaT'] <= 2, bmr['deltaT'] >= -2), np.nan
+            np.logical_and(bmr['deltaT'] <= 0.5, bmr['deltaT'] >= -0.5), np.nan
         )
 
         optimal_deltaT_per_basin.append(
@@ -230,304 +1006,3 @@ def load_melt_rates_into_dataset(
         .unstack('ehash')
     )
     return ensemble
-
-
-def mae(predicted=None, observed=None, weights=1, dims='basins'):
-    """
-    Calculates mean absolute error
-    """
-    return (
-        abs(weights * (predicted - observed))
-        .mean(dims, skipna=False)
-        .rename('result')
-    )
-
-
-def calculate_objective_function(
-    optimise,
-    sample_size,
-    basins,
-    mask,
-    bfrn,
-    reso,
-    ice_density,
-    melt_obs,
-    MeltData,
-    data_path,
-    pd_ensemble,
-    mathiot_cold_ensemble,
-    mathiot_warm_ensemble,
-):
-    """
-    Input:
-    -optimise: "all", "term1", "term2", "term3"
-    -sample_size: number of random samples
-    -basins: basin mask to use
-    -mask: mask that identified ice shelves (1) and otherwise (0)
-    -bfrn: dataset containg bfrn bins and values for J2
-    -reso: resolution in m
-    -ice_density: used for conversion to Gt/a, in kg/m3
-    -melt_obs: observational melt, in m i.e./a
-    -Melt_Data: basin-aggregated melt rates
-    -data_path: path to ocean modelling melt rates
-    -pd_ensemble: name of dataset containing present day melt rates for all
-                  p1, p2 combinations, with optimised deltaT
-    -mathiot_cold_ensemble: same, but ocean modelling data is the cold mathiot
-    -mathiot_warm_ensemble: same, but with warm dataset
-    Output:
-    -min_p1: list of p1 values that minimise randomly sampled objective
-             function, length of sample size
-    -min_p2: list of cooresponding p2 values
-    -min_coords: minimum values attained for the minimum p1,p2 values
-
-    This function finds the pair of p1,p2 for which the parameterised melt
-    optimises three terms:
-    -J1: basin-integrated melt for present-day
-    -J2: buttressing-bin integrated melt for present-day,
-         weighted by buttressing
-    -J3: basin-integrated melt for cold and warm cases of the
-         ocean modelling datasets
-    """
-
-    nBasins = int(basins.max())
-    cvt = reso**2 * ice_density / 1e12
-
-    ########
-    # TERM 1
-    # parameterisaition melt, aggregate to Gt/a per basin
-    t1_model = (
-        pd_ensemble['melt_rate']
-        .where(mask, np.nan)
-        .groupby(basins)
-        .sum(skipna=True)
-        * cvt
-    )  # convert to Gt/a
-    # make sure to remove regions that do not have optimal dT for any basin
-    t1_model = t1_model.where(t1_model != 0, np.nan)
-    # Observed melt in Gt/a per basin, observed melt is "sample_size"-times
-    # randomly sampled assuming normal distribution
-    t1_obs_mean = MeltData['BMR (Gt/yr)'].values
-    t1_obs_sigma = MeltData['BMR uncert (Gt/yr)'].values
-    t1_obs = []
-    for b in range(nBasins + 1):
-        t1_obs = t1_obs + [
-            np.random.normal(
-                loc=t1_obs_mean[b], scale=t1_obs_sigma[b], size=sample_size
-            )
-        ]
-    t1_obs = np.array(t1_obs)
-
-    ########
-    # TERM 2
-
-    # parameterisation melt aggregated per buttressing bin, in Gt/a
-    t2_model = (
-        pd_ensemble['melt_rate']
-        .where(mask, np.nan)
-        .groupby(bfrn['BFRN_bins'])
-        .sum()
-        * cvt
-    )
-    t2_model = t2_model.where(t2_model != 0, np.nan)
-
-    # Observed melt in Gt/a per buttressing bin, observed melt is
-    # "sample_size"-times randomly sampled assuming normal distribution
-    t2_obs_mean = (
-        melt_obs['melt_mean']
-        .where(mask, np.nan)
-        .groupby(bfrn['BFRN_bins'])
-        .sum()
-        * cvt
-    )
-    t2_obs_sigma = (
-        melt_obs['melt_mean_err']
-        .where(mask, np.nan)
-        .groupby(bfrn['BFRN_bins'])
-        .sum()
-        * cvt
-    )
-    t2_obs = []
-    nBins = 10
-    for b in range(nBins):
-        t2_obs = t2_obs + [
-            np.random.normal(
-                loc=t2_obs_mean[b], scale=t2_obs_sigma[b], size=sample_size
-            )
-        ]
-    t2_obs = np.array(t2_obs)
-
-    # important to only use values, as dim name does not match
-    t2_weights = (bfrn['BFRN_medians'] / bfrn['BFRN_median']).values
-
-    ########
-    # TERM 3
-
-    # parameterisation melt, aggregate to Gt/a per basin for cold ocean
-    t3_model_mat_c = (
-        mathiot_cold_ensemble['melt_rate'].where(mask, np.nan)
-    ).groupby(basins).sum() * cvt
-    t3_model_mat_c = t3_model_mat_c.where(t3_model_mat_c != 0, np.nan)
-
-    # PICO melt, aggregate to Gt/a per basin for warm ocean forcings
-    t3_model_mat_w = (
-        mathiot_warm_ensemble['melt_rate'].where(mask, np.nan)
-    ).groupby(basins).sum().where(t1_model != 0, np.nan) * cvt
-    t3_model_mat_w = t3_model_mat_w.where(t3_model_mat_w != 0, np.nan)
-
-    # Ocean modelling data that is target melt, aggregate to Gt/a per basin
-    tmp = xr.load_dataset(
-        os.path.join(
-            data_path,
-            'meltmip',
-            'Ocean_Modelling_Data',
-            'Mathiot23_cold_m.nc',
-        )
-    )
-    t3_obs_mat_mean_c = (
-        tmp['melt_rate'].where(mask, np.nan).groupby(basins).sum(skipna=True)
-        * cvt
-    )
-    t3_obs_mat_sigma_c = (
-        tmp['melt_rate_std']
-        .where(mask, np.nan)
-        .groupby(basins)
-        .sum(skipna=True)
-        / np.sqrt(20)
-        * cvt
-    )
-    tmp.close()
-
-    # warm case
-    tmp = xr.load_dataset(
-        os.path.join(
-            data_path,
-            'meltmip',
-            'Ocean_Modelling_Data',
-            'Mathiot23_warm_m.nc',
-        )
-    )
-    t3_obs_mat_mean_w = (
-        tmp['melt_rate'].where(mask, np.nan).groupby(basins).sum(skipna=True)
-        * cvt
-    )
-    t3_obs_mat_sigma_w = (
-        tmp['melt_rate_std']
-        .where(mask, np.nan)
-        .groupby(basins)
-        .sum(skipna=True)
-        / np.sqrt(20)
-        * cvt
-    )
-
-    # Combine datasets
-    t3_model = xr.concat(
-        [
-            t3_model_mat_c.assign_coords(
-                {'basins': [str(i) + 'c' for i in range(nBasins + 1)]}
-            ),
-            t3_model_mat_w.assign_coords(
-                {'basins': [str(i) + 'w' for i in range(nBasins + 1)]}
-            ),
-        ],
-        dim='basins',
-    )
-    t3_obs_mean = xr.concat(
-        [
-            t3_obs_mat_mean_c.assign_coords(
-                {'basins': [str(i) + 'c' for i in range(nBasins + 1)]}
-            ),
-            t3_obs_mat_mean_w.assign_coords(
-                {'basins': [str(i) + 'w' for i in range(nBasins + 1)]}
-            ),
-        ],
-        dim='basins',
-    )
-
-    t3_obs_sigma = xr.concat(
-        [
-            t3_obs_mat_sigma_c.assign_coords(
-                {'basins': [str(i) + 'c' for i in range(nBasins + 1)]}
-            ),
-            t3_obs_mat_sigma_w.assign_coords(
-                {'basins': [str(i) + 'w' for i in range(nBasins + 1)]}
-            ),
-        ],
-        dim='basins',
-    )
-
-    # For melt targets, randomly sample
-    t3_obs = []
-    for b in range(len(t3_obs_mean)):
-        t3_obs = t3_obs + [
-            np.random.normal(
-                loc=t3_obs_mean[b], scale=t3_obs_sigma[b], size=sample_size
-            )
-        ]
-    t3_obs = np.array(t3_obs)
-
-    t3_weights = []
-
-    for _s in range(sample_size):
-        # sample all basins, make sure to give same weight to cold and warm
-        tmp = np.random.uniform(0, 1, size=int(len(t3_model.basins) / 2))
-        tmp = np.tile(tmp, 2)
-        tmp = tmp / tmp.sum()
-        t3_weights = t3_weights + [tmp]
-
-    t3_weights = np.array(t3_weights)
-
-    ################################################
-    # randomly sample the weights of the three terms
-    a1 = np.random.uniform(0, 1, size=sample_size)
-    a2 = np.random.uniform(0, 1, size=sample_size)
-    a3 = np.random.uniform(0, 1, size=sample_size)
-
-    # make sure they add up to 1
-    asum = a1 + a2 + a3
-    a1 = a1 / asum
-    a2 = a2 / asum
-    a3 = a3 / asum
-
-    #####################
-    # Find optimal p1,p2
-    min_p1 = []
-    min_p2 = []
-    print('Sampling, this might take a moment...')
-
-    for s in range(sample_size):
-        term1 = mae(t1_model, t1_obs[:, s], 1, 'basins')
-        term2 = mae(t2_model, t2_obs[:, s], t2_weights, ['BFRN_bins'])
-        term3 = mae(t3_model, t3_obs[:, s], t3_weights[s, :], ['basins'])
-
-        if optimise == 'all':
-            objective_function = (
-                a1[s] * term1 / term1.median()
-                + a2[s] * term2 / term2.median()
-                + a3[s] * term3 / term3.median()
-            )
-        elif optimise == 'term1':
-            objective_function = term1 / term1.median()
-        elif optimise == 'term2':
-            objective_function = term2 / term2.median()
-        elif optimise == 'term3':
-            objective_function = term3 / term3.median()
-        else:
-            print('Specify term to optimise')
-            return
-        # make sure to ignore nans as those are where no valide deltaT exists
-        min_val = np.nanmin(objective_function)
-        min_p1.append(
-            objective_function.where(
-                objective_function == min_val, drop=True
-            ).p1.values[0]
-        )
-        min_p2.append(
-            objective_function.where(
-                objective_function == min_val, drop=True
-            ).p2.values[0]
-        )
-        min_coords = objective_function.where(
-            objective_function == min_val, drop=True
-        )
-
-    return min_p1, min_p2, min_coords
