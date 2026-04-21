@@ -56,7 +56,7 @@ Since doing all would be a considerable amount of work, we suggest using 2 circu
 - 2019 pig
 - 2020 pig
 
-Again, we suggest using only a subset of the datasets. As Dotson data is more complicated to interpret due to the connection between Dotson and Crosson ice shelves, we suggest using 2 years for Pine Island. Suggested years still need to be determined.
+Again, we suggest using only a subset of the datasets. As Dotson data is more complicated to interpret due to the connection between Dotson and Crosson ice shelves, we suggest using the years 2009 and 2012 for Pine Island.
 
 4)
 Furthermore, you will need a
