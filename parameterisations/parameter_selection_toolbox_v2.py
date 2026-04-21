@@ -440,7 +440,7 @@ def optimise_deltaT(dT_ensemble, basins, reso, MeltDataImbie):
 
 
 def select_optimal_deltaT(
-    ds, basins, boxes, obs_data, param_type, outname, reso, ice_density
+    ds, basins, boxes, obs_data, param_type, outname, reso, ice_density, dT
 ):
     """
     Only used for PICO
@@ -451,6 +451,8 @@ def select_optimal_deltaT(
     - obs_data: data frame containing basin-aggregated melt rates in Gt/a
     - param_type: pico, quadratic, ...
     - outname: output file to save to
+    - reso: resolution of model output
+    - dT: allowed adjustment range
     Output:
     - saves a netcdf file to "outname" containing the melt rates for each
     basin based on optimal deltaT, and arrays of optimal_deltaT, residuals
@@ -490,9 +492,10 @@ def select_optimal_deltaT(
                 np.logical_and(bmrBox1 > 0, bmrBox1 > bmrBox2), np.nan
             )
 
-        # only use deltaT between -0.5 and 0.5
+        # only use deltaT between +-dT
         bmr = bmr.where(
-            np.logical_and(bmr['deltaT'] <= 1.0, bmr['deltaT'] >= -1.0), np.nan
+            np.logical_and(bmr['deltaT'] <= dT, bmr['deltaT'] >= -1 * dT),
+            np.nan,
         )
 
         optimal_deltaT_per_basin.append(
