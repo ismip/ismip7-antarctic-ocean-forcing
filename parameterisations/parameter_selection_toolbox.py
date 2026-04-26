@@ -267,23 +267,6 @@ def calculate_term2(pd_ensemble, mask_m, bfrn_m, cvt_m, buttressing_target):
     )
     t2_model = t2_model.where(t2_model != 0, np.nan)
 
-    # FIXME
-    ## Observed melt in Gt/a per buttressing bin, observed melt is
-    ## "sample_size"-times randomly sampled assuming normal distribution
-    # t2_obs_mean = (
-    #    melt_obs['melt_mean']
-    #    .where(mask, np.nan)
-    #    .groupby(bfrn['BFRN_bins'])
-    #    .sum()
-    #    * cvt
-    # )
-    # t2_obs_sigma = (
-    #    melt_obs['melt_mean_err']
-    #    .where(mask, np.nan)
-    #    .groupby(bfrn['BFRN_bins'])
-    #    .sum()
-    #    * cvt
-    # )
     t2_obs_mean = buttressing_target['melt_mean']
     t2_obs_sigma = buttressing_target['melt_mean_err']
 
