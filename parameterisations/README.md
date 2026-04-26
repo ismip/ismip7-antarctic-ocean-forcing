@@ -5,9 +5,9 @@ the [ISMIP7]() activity
 
 ## Documentation
 
-Parameter selection is specified in the [draft protocol](https://docs.google.com/document/d/17oYdWFC61RbDxzK2xMnnnUv4WrjgxoJz/edit?usp=sharing&ouid=106669563949845798274&rtpof=true&sd=true).
+Parameter selection is specified in the documents provided on the [website of the focus group](https://www.ismip.org/participants/focus-groups/ais-basal-melt).
 
-This directory contains the toolbox `parameter_selection_toolbox_v2.py`, which includes functions to help with parameter selection, and two examples. Note that `parameter_selection_toolbox.py` is deprecated.
+This directory contains the toolbox `parameter_selection_toolbox.py`, which includes functions to help with parameter selection, and two examples.
 
 First example is the quadratic parameterisation (quadratic local with mean Antarctic slope as defined in Burgard et al., 2022). Note that here we calculate melt rates independently. In ISMIP7/meltMIP, the melt rate should be calculated through the ice-sheet model code and grid instead.
 
@@ -16,7 +16,7 @@ Second example is PICO, based on simulations done with PISM-PICO. If you would l
 Toolbox:
 - `calculate_term1`, `calculate_term2`, `calculate_term3`, `calculate_term4`: calculate the different terms
 - `calculate_objective_function`: calculates the optimal parameters specified for a number of samples, with freely chosen weights (see below)
-- `optimise_deltaT`: identifies optimal `deltaT` for a given fixed parameter value
+- `optimise_deltaT`: identifies optimal `deltaT` for a given fixed parameter value, used only for PICO
 
 Weights: You are free to adjust the weights of the different terms in the parameterisation, as these are simply inputs into the `objective_function` calculation. Please see the examples on how to do this.
 
