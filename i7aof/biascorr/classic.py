@@ -295,7 +295,7 @@ def _compute_biases(
         clim_dir = build_cmip_final_dir(
             config,
             model=model,
-            scenario='historical',
+            scenario=future_scenario,
             variable=var,
             version=version,
             extras='climatology',
@@ -303,7 +303,7 @@ def _compute_biases(
         bias_dir = build_cmip_final_dir(
             config,
             model=model,
-            scenario='historical',
+            scenario=future_scenario,
             variable=var,
             version=version,
             extras='bias',
@@ -316,7 +316,7 @@ def _compute_biases(
             build_cmip_final_filename(
                 variable=var,
                 model=model,
-                scenario='historical',
+                scenario=future_scenario,
                 version=version,
                 year_range=year_range,
                 extras='climatology',
@@ -327,7 +327,7 @@ def _compute_biases(
             build_cmip_final_filename(
                 variable=var,
                 model=model,
-                scenario='historical',
+                scenario=future_scenario,
                 version=version,
                 year_range=year_range,
                 extras='bias',
