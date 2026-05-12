@@ -77,3 +77,19 @@ def _get_or_config_path(
         f'Missing configuration option: [{section}] base_dir. '
         'Please supply a user config file that defines this option.'
     )
+
+
+def _get_required_config_option(
+    config: MpasConfigParser,
+    section: str,
+    option: str,
+    *,
+    hint: str | None = None,
+) -> str:
+    if config.has_option(section, option):
+        return config.get(section, option)
+
+    message = f'Missing configuration option: [{section}] {option}.'
+    if hint is not None:
+        message = f'{message} {hint}'
+    raise ValueError(message)

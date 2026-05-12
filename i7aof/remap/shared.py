@@ -5,6 +5,7 @@ import tempfile
 import numpy as np
 import xarray as xr
 
+from i7aof.config import _get_required_config_option
 from i7aof.coords import (
     attach_grid_coords,
 )
@@ -302,7 +303,7 @@ def _remap_horiz(
     has_fill_values,
     lat_var=None,
     lon_var=None,
-    lon_dim=None,
+    x_dim=None,
     *,
     time_source: xr.Dataset | None = None,
 ):
@@ -320,15 +321,27 @@ def _remap_horiz(
         if config.has_option('cmip_dataset', 'lon_var')
         else 'lon'
     )
-    lon_dim = lon_dim or (
-        config.get('cmip_dataset', 'lon_dim')
-        if config.has_option('cmip_dataset', 'lon_dim')
-        else 'lon'
-    )
+    if x_dim is None:
+        dim_hint = (
+            'Rename old horizontal dimension keys from '
+            '`lat_dim`/`lon_dim` to `y_dim`/`x_dim` in your config.'
+        )
+        _get_required_config_option(
+            config,
+            'cmip_dataset',
+            'y_dim',
+            hint=dim_hint,
+        )
+        x_dim = _get_required_config_option(
+            config,
+            'cmip_dataset',
+            'x_dim',
+            hint=dim_hint,
+        )
     in_grid_name = model_prefix
     ds = read_dataset(in_filename, chunks={'time': 1})
     if method == 'bilinear':
-        ds = add_periodic_lon(ds, lon_var=lon_var, periodic_dim=lon_dim)
+        ds = add_periodic_lon(ds, lon_var=lon_var, periodic_dim=x_dim)
     ds_mask = _build_and_remap_mask(
         ds=ds,
         tmpdir=tmpdir,
