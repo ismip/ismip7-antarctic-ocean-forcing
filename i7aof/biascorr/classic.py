@@ -356,6 +356,7 @@ def _compute_biases(
             files_to_open,
             combine='by_coords',
             decode_times=CFDatetimeCoder(use_cftime=True),
+            data_vars='all',
         )
 
         # Extract climatology period (only full annual for now)

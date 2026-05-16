@@ -480,7 +480,9 @@ def _concat_chunks(remapped_chunks: list[xr.Dataset]) -> xr.Dataset:
     """Concatenate chunks along time dimension when present."""
     if len(remapped_chunks) == 1 and 'time' not in remapped_chunks[0].dims:
         return remapped_chunks[0]
-    return xr.concat(remapped_chunks, dim='time', join='exact')
+    return xr.concat(
+        remapped_chunks, dim='time', join='exact', data_vars='all'
+    )
 
 
 def _finalize_and_write(
