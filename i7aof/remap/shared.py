@@ -310,17 +310,10 @@ def _remap_horiz(
     """High-level orchestration for horizontal remapping."""
     method = config.get('remap', 'method')
     renorm_threshold = config.getfloat('remap', 'threshold')
-    # Resolve coordinate variable names if not provided
-    lat_var = lat_var or (
-        config.get('cmip_dataset', 'lat_var')
-        if config.has_option('cmip_dataset', 'lat_var')
-        else 'lat'
-    )
-    lon_var = lon_var or (
-        config.get('cmip_dataset', 'lon_var')
-        if config.has_option('cmip_dataset', 'lon_var')
-        else 'lon'
-    )
+    # CT/SA conversion standardizes all lat/lon names to 'lat'/'lon', so
+    # there is no need to read model-specific names from config here.
+    lat_var = lat_var or 'lat'
+    lon_var = lon_var or 'lon'
     if x_dim is None:
         dim_hint = (
             'Rename old horizontal dimension keys from '
