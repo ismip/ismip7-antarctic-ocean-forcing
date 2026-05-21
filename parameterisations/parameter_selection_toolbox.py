@@ -84,33 +84,87 @@ def calculate_objective_function(
     # Sample uncertainties in terms
 
     # Sample uncertainty in term 1
-    t1_target_s = []
+
+    t1_target_sp = []
+    t1_target_sd = []
     for b in range(nBasins + 1):
-        t1_target_s = t1_target_s + [
+        # t1_sample = np.random.normal(loc=0, scale=1, size=sample_size)
+        # t1_target_sp = t1_target_sp + [
+        #    t1_sample * t1_obs_sigma.sel(source='paolo').values[b] +
+        # t1_obs_mean.sel(source='paolo').values[b]
+        # ]
+        # t1_target_sd = t1_target_sd + [
+        #    t1_sample * t1_obs_sigma.sel(source='davison').values[b] +
+        # t1_obs_mean.sel(source='davison').values[b]
+        # ]
+        t1_target_sp = t1_target_sp + [
             np.random.normal(
-                loc=t1_obs_mean[b], scale=t1_obs_sigma[b], size=sample_size
+                loc=t1_obs_mean.sel(source='paolo').values[b],
+                scale=t1_obs_sigma.sel(source='paolo').values[b],
+                size=sample_size,
             )
         ]
-    t1_target_s = xr.DataArray(
-        t1_target_s,
+        t1_target_sd = t1_target_sd + [
+            np.random.normal(
+                loc=t1_obs_mean.sel(source='davison').values[b],
+                scale=t1_obs_sigma.sel(source='davison').values[b],
+                size=sample_size,
+            )
+        ]
+    t1_target_sp = xr.DataArray(
+        t1_target_sp,
         dims=['basins', 'sample'],
         coords={
             'basins': t1_model.basins.values,
             'sample': np.arange(sample_size),
         },
     )
-
+    t1_target_sd = xr.DataArray(
+        t1_target_sd,
+        dims=['basins', 'sample'],
+        coords={
+            'basins': t1_model.basins.values,
+            'sample': np.arange(sample_size),
+        },
+    )
     # Sample uncertainty in term 2
-    t2_target_s = []
+    t2_target_sp = []
+    t2_target_sd = []
     nBins = 10
     for b in range(nBins):
-        t2_target_s = t2_target_s + [
+        # t2_sample = np.random.normal(loc=0, scale=1, size=sample_size)
+        # t2_target_sp = t2_target_sp + [
+        #    t2_sample * t2_obs_sigma.sel(source='paolo').values[b]
+        # + t2_obs_mean.sel(source='paolo').values[b]
+        # ]
+        # t2_target_sd = t2_target_sd + [
+        #    t2_sample * t2_obs_sigma.sel(source='davison').values[b]
+        # + t2_obs_mean.sel(source='davison').values[b]
+        # ]
+        t2_target_sp = t2_target_sp + [
             np.random.normal(
-                loc=t2_obs_mean[b], scale=t2_obs_sigma[b], size=sample_size
+                loc=t2_obs_mean.sel(source='paolo')[b],
+                scale=t2_obs_sigma.sel(source='paolo')[b],
+                size=sample_size,
             )
         ]
-    t2_target_s = xr.DataArray(
-        t2_target_s,
+        t2_target_sd = t2_target_sd + [
+            np.random.normal(
+                loc=t2_obs_mean.sel(source='davison')[b],
+                scale=t2_obs_sigma.sel(source='davison')[b],
+                size=sample_size,
+            )
+        ]
+    t2_target_sd = xr.DataArray(
+        t2_target_sd,
+        dims=['BFRN_bins', 'sample'],
+        coords={
+            'BFRN_bins': t2_model.BFRN_bins.values,
+            'sample': np.arange(sample_size),
+        },
+    )
+    t2_target_sp = xr.DataArray(
+        t2_target_sp,
         dims=['BFRN_bins', 'sample'],
         coords={
             'BFRN_bins': t2_model.BFRN_bins.values,
@@ -180,8 +234,18 @@ def calculate_objective_function(
     ###################
     # Calculate objective function
 
-    term1 = mae(t1_model, t1_target_s, t1_weights, 'basins')
-    term2 = mae(t2_model, t2_target_s, t2_weights, ['BFRN_bins'])
+    # term11 = mae(t1_model, t1_target_sp, t1_weights, 'basins')
+    # term12 = mae(t1_model, t1_target_sd, t1_weights, 'basins')
+    # NOTE: change here if you want to change the weighting between
+    # paolo and davison data
+    term1 = 0.5 * mae(
+        t1_model, t1_target_sd, t1_weights, 'basins'
+    ) + 0.5 * mae(t1_model, t1_target_sp, t1_weights, 'basins')
+    term2 = 0.5 * mae(
+        t2_model, t2_target_sp, t2_weights, ['BFRN_bins']
+    ) + 0.5 * mae(t2_model, t2_target_sd, t2_weights, ['BFRN_bins'])
+    # term2 = mae(t2_model, t2_target_sd, t2_weights, ['BFRN_bins'])
+
     # important to use skipna here
     term3 = mae(
         t3_model,
@@ -190,7 +254,7 @@ def calculate_objective_function(
         ['basins', 'model'],
         True,
     )
-    # term3 = mae(t3_model, t3_target_s, t3_weights, ['basins','model'])
+
     # important to use skipna here
     term4 = mae(
         t4_model,
@@ -199,11 +263,12 @@ def calculate_objective_function(
         ['region', 'year'],
         True,
     )
-    # term4 = mae(t4_model, t4_target_s, t4_weights, ['region', 'year'])
 
     # Sample the objective function
     eps = 0.000001  # to avoid divison by 0
     objective_function = (
+        # a1 * 0.5* (term11 / (term11.median(dim=['p1', 'p2']) + eps) +
+        # term12 / (term12.median(dim=['p1', 'p2']) + eps))
         a1 * term1 / (term1.median(dim=['p1', 'p2']) + eps)
         + a2 * term2 / (term2.median(dim=['p1', 'p2']) + eps)
         + a3 * term3 / (term3.median(dim=['p1', 'p2']) + eps)
@@ -231,7 +296,9 @@ def mae(predicted=None, observed=None, weights=1, dims='basins', skipna=False):
     )
 
 
-def calculate_term1(pd_ensemble, mask_m, basins_m, nBasins, cvt_m, MeltData):
+def calculate_term1(
+    pd_ensemble, mask_m, basins_m, nBasins, cvt_m, MeltData1, MeltData2
+):
     ########
     # TERM 1
     # parameterisaition melt, aggregate to Gt/a per basin
@@ -247,9 +314,29 @@ def calculate_term1(pd_ensemble, mask_m, basins_m, nBasins, cvt_m, MeltData):
 
     # Observed melt in Gt/a per basin, observed melt is "sample_size"-times
     # randomly sampled assuming normal distribution
-    t1_obs_mean = MeltData['BMR (Gt/yr)'].values
-    t1_obs_sigma = MeltData['BMR uncert (Gt/yr)'].values
+    t1_obs_mean1 = MeltData1['BMR (Gt/yr)'].values
+    t1_obs_mean1 = xr.DataArray(
+        data=t1_obs_mean1,
+        name='melt_Gt_per_y',
+        dims=['basin'],
+        coords={'basin': MeltData2.basin},
+    )
+    t1_obs_mean1 = t1_obs_mean1.assign_coords(source='paolo')
+    t1_obs_mean2 = MeltData2.melt_Gt_per_y
+    t1_obs_mean2 = t1_obs_mean2.assign_coords(source='davison')
+    t1_obs_mean = xr.concat([t1_obs_mean1, t1_obs_mean2], dim='source')
 
+    t1_obs_sigma1 = MeltData1['BMR uncert (Gt/yr)'].values
+    t1_obs_sigma1 = xr.DataArray(
+        data=t1_obs_sigma1,
+        dims=['basin'],
+        coords={'basin': MeltData2.basin},
+        name='melt_unc_Gt_per_y',
+    )
+    t1_obs_sigma1 = t1_obs_sigma1.assign_coords(source='paolo')
+    t1_obs_sigma2 = MeltData2.melt_unc_Gt_per_y
+    t1_obs_sigma2 = t1_obs_sigma2.assign_coords(source='davison')
+    t1_obs_sigma = xr.concat([t1_obs_sigma1, t1_obs_sigma2], dim='source')
     return t1_model, t1_obs_mean, t1_obs_sigma
 
 
