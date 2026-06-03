@@ -319,10 +319,17 @@ def calculate_term1(
         data=t1_obs_mean1,
         name='melt_Gt_per_y',
         dims=['basin'],
-        coords={'basin': MeltData2.basin},
+        coords={'basin': range(len(MeltData1))},
     )
     t1_obs_mean1 = t1_obs_mean1.assign_coords(source='paolo')
-    t1_obs_mean2 = MeltData2.melt_Gt_per_y
+
+    t1_obs_mean2 = MeltData2['BMR (Gt/yr)'].values
+    t1_obs_mean2 = xr.DataArray(
+        data=t1_obs_mean2,
+        name='melt_Gt_per_y',
+        dims=['basin'],
+        coords={'basin': range(len(MeltData1))},
+    )
     t1_obs_mean2 = t1_obs_mean2.assign_coords(source='davison')
     t1_obs_mean = xr.concat([t1_obs_mean1, t1_obs_mean2], dim='source')
 
@@ -330,11 +337,18 @@ def calculate_term1(
     t1_obs_sigma1 = xr.DataArray(
         data=t1_obs_sigma1,
         dims=['basin'],
-        coords={'basin': MeltData2.basin},
+        coords={'basin': range(len(MeltData1))},
         name='melt_unc_Gt_per_y',
     )
     t1_obs_sigma1 = t1_obs_sigma1.assign_coords(source='paolo')
-    t1_obs_sigma2 = MeltData2.melt_unc_Gt_per_y
+
+    t1_obs_sigma2 = MeltData2['BMR uncert (Gt/yr)'].values
+    t1_obs_sigma2 = xr.DataArray(
+        data=t1_obs_sigma2,
+        dims=['basin'],
+        coords={'basin': range(len(MeltData2))},
+        name='melt_unc_Gt_per_y',
+    )
     t1_obs_sigma2 = t1_obs_sigma2.assign_coords(source='davison')
     t1_obs_sigma = xr.concat([t1_obs_sigma1, t1_obs_sigma2], dim='source')
     return t1_model, t1_obs_mean, t1_obs_sigma
