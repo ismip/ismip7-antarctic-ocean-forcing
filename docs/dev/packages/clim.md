@@ -34,7 +34,7 @@ Common options across the packaged files:
 
 - Variable and dimension names:
   - `lat_var`, `lon_var`, `lev_var`
-  - `lat_dim`, `lon_dim`, `lev_dim`
+  - `y_dim`, `x_dim`, `lev_dim`
 - Data arrays:
   - `ct_var` (Conservative Temperature)
   - `sa_var` (Absolute Salinity)
@@ -52,8 +52,8 @@ Example (`zhou_annual_06_nov.cfg`):
 [climatology]
 lat_var = latitude
 lon_var = longitude
-lat_dim = ny
-lon_dim = nx
+y_dim = ny
+x_dim = nx
 lev_var = pressure
 lev_dim = nz
 filename = Updated_TS_Climatology/OI_Climatology_v2/OI_Climatology.nc

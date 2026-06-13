@@ -259,6 +259,13 @@ def _process_file_pair(
         # Restore spatial bounds/coords for depth/lat/lon
         _inject_bounds(ds_z, ds_thetao, bounds_records)
 
+        # Rename model-specific lat/lon coordinate names to the internal
+        # standard ('lat', 'lon') so all downstream phases see consistent
+        # names regardless of what the source CMIP dataset used.
+        ds_z = _standardize_lat_lon_names(
+            ds_z, lat_var, lon_var, bounds_records
+        )
+
         # Ensure time coordinate (values + attrs) and time_bnds come
         # directly from the standardized thetao dataset so any attribute
         # manipulations in intermediate chunks don't erase the bounds
@@ -419,3 +426,26 @@ def _inject_bounds(
                 {coord_name: ds_thetao[coord_name]}
             )
         ds_final[coord_name].attrs['bounds'] = bname
+
+
+def _standardize_lat_lon_names(
+    ds: xr.Dataset,
+    lat_var: str,
+    lon_var: str,
+    bounds_records: list[tuple[str, str, xr.DataArray]],
+) -> xr.Dataset:
+    """Rename model-specific lat/lon coord names to the internal standard."""
+    if lat_var == 'lat' and lon_var == 'lon':
+        return ds
+    rename_map: dict[str, str] = {}
+    for model_var, std_var in ((lat_var, 'lat'), (lon_var, 'lon')):
+        if model_var == std_var:
+            continue
+        rename_map[model_var] = std_var
+        std_bnds = f'{std_var}_bnds'
+        for coord_name, bname, _ in bounds_records:
+            if coord_name == model_var and bname in ds:
+                rename_map[bname] = std_bnds
+                ds[model_var].attrs['bounds'] = std_bnds
+                break
+    return ds.rename(rename_map)

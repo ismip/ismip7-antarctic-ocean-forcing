@@ -20,7 +20,7 @@ Purpose: Model-specific CMIP configuration and light utilities used to drive the
 ## Packaged model configs
 
 - Example: `i7aof/cmip/cesm2_waccm.cfg` with sections:
-  - `[cmip_dataset]`: dataset variable and dimension names (`lat_var`, `lon_var`, `lat_dim`, `lon_dim`).
+  - `[cmip_dataset]`: dataset variable names plus source horizontal dimension names (`lat_var`, `lon_var`, `y_dim`, `x_dim`).
   - `[convert_cmip]`: conversion settings (e.g., `depth_var = lev`, `time_chunk`).
   - `[remap_cmip]`: vertical/horizontal chunk sizes (`vert_time_chunk`, `horiz_time_chunk`).
   - `[extrap_cmip]`: extrapolation chunking and parallelism (`time_chunk`, `num_workers`).
@@ -61,7 +61,8 @@ Programmatic config load:
 from i7aof.config import load_config
 
 config = load_config(model="CESM2-WACCM", workdir="/work", inputdir="/inputs")
-lat_dim = config.get('cmip_dataset', 'lat_dim')
+y_dim = config.get('cmip_dataset', 'y_dim')
+x_dim = config.get('cmip_dataset', 'x_dim')
 ```
 
 Downstream CLIs (examples using the loaded model context):

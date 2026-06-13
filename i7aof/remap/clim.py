@@ -7,7 +7,7 @@ import numpy as np
 import xarray as xr
 from mpas_tools.logging import LoggingContext
 
-from i7aof.config import load_config
+from i7aof.config import _get_required_config_option, load_config
 from i7aof.grid.ismip import get_res_string, write_ismip_grid
 from i7aof.io import read_dataset, write_netcdf
 from i7aof.paths import get_stage_dir
@@ -138,7 +138,7 @@ def remap_climatology(
             has_fill_values=['ct', 'sa'],
             lat_var='lat',
             lon_var='lon',
-            lon_dim='lon',
+            x_dim='lon',
         )
 
     # Post-process dimension ordering so climatology fields follow
@@ -238,8 +238,16 @@ def _preprocess_climatology_input(config, in_filename, tmpdir):
     lat_var = config.get('climatology', 'lat_var')
     lon_var = config.get('climatology', 'lon_var')
     lev_var = config.get('climatology', 'lev_var')
-    lat_dim = config.get('climatology', 'lat_dim')
-    lon_dim = config.get('climatology', 'lon_dim')
+    dim_hint = (
+        'Rename old horizontal dimension keys from '
+        '`lat_dim`/`lon_dim` to `y_dim`/`x_dim` in your config.'
+    )
+    y_dim = _get_required_config_option(
+        config, 'climatology', 'y_dim', hint=dim_hint
+    )
+    x_dim = _get_required_config_option(
+        config, 'climatology', 'x_dim', hint=dim_hint
+    )
     lev_dim = config.get('climatology', 'lev_dim')
 
     ct_var = config.get('climatology', 'ct_var')
@@ -255,7 +263,7 @@ def _preprocess_climatology_input(config, in_filename, tmpdir):
         ds = ds.isel(SCALAR=0, drop=True)
 
     # Rename dims if present
-    rename_dims = {lat_dim: 'lat', lon_dim: 'lon', lev_dim: 'lev'}
+    rename_dims = {y_dim: 'lat', x_dim: 'lon', lev_dim: 'lev'}
     ds = ds.rename(rename_dims)
 
     # some climatologies have an incorrect "unit" attribute instead of "units"

@@ -5,6 +5,7 @@ import tempfile
 import numpy as np
 import xarray as xr
 
+from i7aof.config import _get_required_config_option
 from i7aof.coords import (
     attach_grid_coords,
 )
@@ -302,33 +303,38 @@ def _remap_horiz(
     has_fill_values,
     lat_var=None,
     lon_var=None,
-    lon_dim=None,
+    x_dim=None,
     *,
     time_source: xr.Dataset | None = None,
 ):
     """High-level orchestration for horizontal remapping."""
     method = config.get('remap', 'method')
     renorm_threshold = config.getfloat('remap', 'threshold')
-    # Resolve coordinate variable names if not provided
-    lat_var = lat_var or (
-        config.get('cmip_dataset', 'lat_var')
-        if config.has_option('cmip_dataset', 'lat_var')
-        else 'lat'
-    )
-    lon_var = lon_var or (
-        config.get('cmip_dataset', 'lon_var')
-        if config.has_option('cmip_dataset', 'lon_var')
-        else 'lon'
-    )
-    lon_dim = lon_dim or (
-        config.get('cmip_dataset', 'lon_dim')
-        if config.has_option('cmip_dataset', 'lon_dim')
-        else 'lon'
-    )
+    # CT/SA conversion standardizes all lat/lon names to 'lat'/'lon', so
+    # there is no need to read model-specific names from config here.
+    lat_var = lat_var or 'lat'
+    lon_var = lon_var or 'lon'
+    if x_dim is None:
+        dim_hint = (
+            'Rename old horizontal dimension keys from '
+            '`lat_dim`/`lon_dim` to `y_dim`/`x_dim` in your config.'
+        )
+        _get_required_config_option(
+            config,
+            'cmip_dataset',
+            'y_dim',
+            hint=dim_hint,
+        )
+        x_dim = _get_required_config_option(
+            config,
+            'cmip_dataset',
+            'x_dim',
+            hint=dim_hint,
+        )
     in_grid_name = model_prefix
     ds = read_dataset(in_filename, chunks={'time': 1})
     if method == 'bilinear':
-        ds = add_periodic_lon(ds, lon_var=lon_var, periodic_dim=lon_dim)
+        ds = add_periodic_lon(ds, lon_var=lon_var, periodic_dim=x_dim)
     ds_mask = _build_and_remap_mask(
         ds=ds,
         tmpdir=tmpdir,
@@ -474,7 +480,9 @@ def _concat_chunks(remapped_chunks: list[xr.Dataset]) -> xr.Dataset:
     """Concatenate chunks along time dimension when present."""
     if len(remapped_chunks) == 1 and 'time' not in remapped_chunks[0].dims:
         return remapped_chunks[0]
-    return xr.concat(remapped_chunks, dim='time', join='exact')
+    return xr.concat(
+        remapped_chunks, dim='time', join='exact', data_vars='all'
+    )
 
 
 def _finalize_and_write(

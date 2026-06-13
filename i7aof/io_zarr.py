@@ -20,6 +20,7 @@ from contextlib import contextmanager
 
 import numpy as np
 import xarray as xr
+from xarray.coders import CFDatetimeCoder
 from xarray.coding.common import SerializationWarning
 
 from i7aof.io import ensure_cf_time_encoding, write_netcdf
@@ -90,7 +91,11 @@ def finalize_zarr_to_netcdf(
     # Avoid format-3 consolidated metadata warning and disable consolidated
     # metadata usage since we immediately convert to NetCDF
     with _suppress_zarr_warnings():
-        ds = xr.open_zarr(zarr_store, consolidated=False)
+        ds = xr.open_zarr(
+            zarr_store,
+            consolidated=False,
+            decode_times=CFDatetimeCoder(use_cftime=True),
+        )
     try:
         # Mark Zarr as ready as soon as we can successfully open it. If the
         # subsequent NetCDF write fails, this allows reruns to skip the Zarr
@@ -200,7 +205,11 @@ def _segment_already_present(
 ) -> bool:
     """Return True if all values in new_coords already exist in the store."""
     with _suppress_zarr_warnings():
-        ds = xr.open_zarr(zarr_store, consolidated=False)
+        ds = xr.open_zarr(
+            zarr_store,
+            consolidated=False,
+            decode_times=CFDatetimeCoder(use_cftime=True),
+        )
     try:
         if append_dim not in ds:
             return False

@@ -36,7 +36,7 @@ overrides are typical:
   - `esmf_path`, `moab_path`, `parallel_exec`: paths/exec or 'None'
   - `threshold`: float; horizontal renormalization threshold
 - `[cmip_dataset]`
-  - `lon_var`, `lat_var`, `lon_dim`: variable/dimension names on input
+  - `lon_var`, `lat_var`, `y_dim`, `x_dim`: input lon/lat variable names and source horizontal dimension names
 - `[remap_cmip]`
   - `vert_time_chunk`: int; time chunk for vertical steps
   - `horiz_time_chunk`: int; time chunk for horizontal remap

@@ -139,11 +139,15 @@ Each `i7aof/clim/zhou_*.cfg` file defines, for its source:
 
 ```
 [climatology]
-lat_var, lon_var, lat_dim, lon_dim
+lat_var, lon_var, y_dim, x_dim
 lev_var, lev_dim (pressure) -> converted to lev (meters)
 filename (relative path under input base dir)
 ct_var, sa_var (and optionally ct_mse_var, sa_mse_var)
 ```
+
+`y_dim` and `x_dim` are the source dataset's horizontal dimension names.
+They do not imply that the source grid is a true latitude/longitude tensor
+grid.
 
 You can override paths and settings via a user config passed with `--config`.
 
@@ -174,4 +178,3 @@ clim_ct_sa_to_thetao_so(clim, user_config_filename=cfg)
 
 See also {doc}`workflows` for how the climatology ties into the full CMIP
 pipeline.
-

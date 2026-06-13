@@ -9,6 +9,7 @@ import numpy as np
 import xarray as xr
 from mpas_tools.config import MpasConfigParser
 from tqdm import tqdm
+from xarray.coders import CFDatetimeCoder
 
 from i7aof.config import load_config
 from i7aof.convert.teos10 import _pressure_from_z, _sanitize_lat
@@ -811,7 +812,11 @@ def _process_ct_sa_annual_pair(
             ),
             category=UserWarning,
         )
-        ds_final = xr.open_zarr(zarr_store, consolidated=False)
+        ds_final = xr.open_zarr(
+            zarr_store,
+            consolidated=False,
+            decode_times=CFDatetimeCoder(use_cftime=True),
+        )
     try:
         ds_final = _post(ds_final)
 

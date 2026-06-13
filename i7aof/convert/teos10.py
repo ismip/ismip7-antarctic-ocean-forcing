@@ -401,6 +401,10 @@ def convert_dataset_to_ct_sa(
         c for c in [depth_var, lat_var, lon_var, 'time'] if c in pt.coords
     ):
         ds_out = ds_out.assign_coords({coord: pt[coord]})
+    # assign_coords does not propagate encoding; restore it for time so that
+    # the CF calendar/units metadata survives the subsequent zarr write.
+    if 'time' in ds_out.coords and pt.coords['time'].encoding:
+        ds_out['time'].encoding = dict(pt.coords['time'].encoding)
 
     # Basic provenance
     ds_out['ct'].attrs['comment'] = (
