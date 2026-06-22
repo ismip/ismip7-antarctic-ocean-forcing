@@ -41,7 +41,7 @@ def test_pressure_from_z_ignores_stale_positive_down_metadata() -> None:
 
 def test_pressure_from_z_does_not_flip_mixed_sign_teos10_z() -> None:
     z = xr.DataArray(
-        np.array([10.0, -10.0]),
+        np.array([0.0, -10.0]),
         dims=('lev',),
         attrs={'positive': 'down'},
     )
