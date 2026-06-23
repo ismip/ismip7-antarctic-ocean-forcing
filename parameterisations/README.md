@@ -7,11 +7,13 @@ the [ISMIP7]() activity
 
 Parameter selection is specified in the documents provided on the [website of the focus group](https://www.ismip.org/participants/focus-groups/ais-basal-melt).
 
-This directory contains the toolbox `parameter_selection_toolbox.py`, which includes functions to help with parameter selection, and two examples.
+This directory contains the toolbox `parameter_selection_toolbox.py`, which includes functions to help with parameter selection, and examples.
 
-First example is the quadratic parameterisation (quadratic local with mean Antarctic slope as defined in Burgard et al., 2022). Note that here we calculate melt rates independently. In ISMIP7/meltMIP, the melt rate should be calculated through the ice-sheet model code and grid instead.
+First example is the quadratic parameterisation (quadratic local with mean Antarctic slope as defined in Burgard et al., 2022). Note that here we calculate melt rates independently. In ISMIP7/meltMIP, the melt rate should be calculated through the ice-sheet model code and grid instead. To run this example, please install the multimelt python package (https://pypi.org/project/multimelt/).
 
 Second example is PICO, based on simulations done with PISM-PICO. If you would like access to those, please contact Ronja.
+
+Third example is LADDIE. If you would like access to the data required to run the examples, please contact Erwin.
 
 Toolbox:
 - `calculate_term1`, `calculate_term2`, `calculate_term3`, `calculate_term4`: calculate the different terms
@@ -22,8 +24,10 @@ Weights: You are free to adjust the weights of the different terms in the parame
 
 ## Data input requirements
 
+Data is available on globus, mainly in:/ISMIP7/AIS/parameterisations/ocean except for datasets used in other components (climatology, topography) which can be found in /ISMIP7/AIS/obs/ocean/.
+
 ### 1. Ensemble using present-day observed ocean climatology
-The toolbox requires ensemble of modelled melt rates for a range of parameter values. These are given in xarray dataset called pd_ensemble, with parameter values indexing the melt rate field. Parameters are called "p1" and "p2" (if only one parameter set is used, just set p2=1). Melt rates are saved in variable called "melt_rate" given in kg/m2/a. This should contains polar stereographic x and y coordinates.
+The toolbox requires ensemble of modelled melt rates for a range of parameter values. These are given in xarray dataset called pd_ensemble, with parameter values indexing the melt rate field. Parameters are called "p1" and "p2" (if only one parameter set is used, just set p2=1). For example, for PICO p1=C and p2=gammaT; while for the quadratic p1=K, p2=1 (constant). Melt rates are saved in variable called "melt_rate" given in kg/m2/a. This should contains polar stereographic x and y coordinates.
 
 ### 2. "Cold" and "warm" ensembles
 Equally, you will need to create a cold and warm ensemble (cold_ensemble, warm_ensemble) for each tuning dataset which are also indexed by p1 and p2 and the model ('mathiot', 'naughten_ais_1',..). They contain corresponding melt rates modelled with your melt module (variable called "melt_rates").

@@ -1,7 +1,7 @@
 # ismip7-antarctic-ocean-forcing
 
 A package for generating Antarctic ocean forcing for the
-[ISMIP7]() activity
+[ISMIP7]() activity including the toolbox for parameter selection (in parameterisations folder)
 
 ## Documentation
 
