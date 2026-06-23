@@ -85,8 +85,8 @@ def calculate_objective_function(
 
     # Sample uncertainty in term 1
 
-    t1_target_sp = []
-    t1_target_sd = []
+    t1_target_s = []
+    # t1_target_sd = []
     for b in range(nBasins + 1):
         # t1_sample = np.random.normal(loc=0, scale=1, size=sample_size)
         # t1_target_sp = t1_target_sp + [
@@ -97,39 +97,39 @@ def calculate_objective_function(
         #    t1_sample * t1_obs_sigma.sel(source='davison').values[b] +
         # t1_obs_mean.sel(source='davison').values[b]
         # ]
-        t1_target_sp = t1_target_sp + [
+        t1_target_s = t1_target_s + [
             np.random.normal(
-                loc=t1_obs_mean.sel(source='paolo').values[b],
-                scale=t1_obs_sigma.sel(source='paolo').values[b],
+                loc=t1_obs_mean.values[b],
+                scale=t1_obs_sigma.values[b],
                 size=sample_size,
             )
         ]
-        t1_target_sd = t1_target_sd + [
-            np.random.normal(
-                loc=t1_obs_mean.sel(source='davison').values[b],
-                scale=t1_obs_sigma.sel(source='davison').values[b],
-                size=sample_size,
-            )
-        ]
-    t1_target_sp = xr.DataArray(
-        t1_target_sp,
+        # t1_target_sd = t1_target_sd + [
+        #    np.random.normal(
+        #        loc=t1_obs_mean.sel(source='davison').values[b],
+        #        scale=t1_obs_sigma.sel(source='davison').values[b],
+        #        size=sample_size,
+        #    )
+        # ]
+    t1_target_s = xr.DataArray(
+        t1_target_s,
         dims=['basins', 'sample'],
         coords={
             'basins': t1_model.basins.values,
             'sample': np.arange(sample_size),
         },
     )
-    t1_target_sd = xr.DataArray(
-        t1_target_sd,
-        dims=['basins', 'sample'],
-        coords={
-            'basins': t1_model.basins.values,
-            'sample': np.arange(sample_size),
-        },
-    )
+    # t1_target_sd = xr.DataArray(
+    #    t1_target_sd,
+    #    dims=['basins', 'sample'],
+    #    coords={
+    #        'basins': t1_model.basins.values,
+    #        'sample': np.arange(sample_size),
+    #    },
+    # )
     # Sample uncertainty in term 2
-    t2_target_sp = []
-    t2_target_sd = []
+    t2_target_s = []
+    # t2_target_sd = []
     nBins = 10
     for b in range(nBins):
         # t2_sample = np.random.normal(loc=0, scale=1, size=sample_size)
@@ -141,36 +141,36 @@ def calculate_objective_function(
         #    t2_sample * t2_obs_sigma.sel(source='davison').values[b]
         # + t2_obs_mean.sel(source='davison').values[b]
         # ]
-        t2_target_sp = t2_target_sp + [
+        t2_target_s = t2_target_s + [
             np.random.normal(
-                loc=t2_obs_mean.sel(source='paolo')[b],
-                scale=t2_obs_sigma.sel(source='paolo')[b],
+                loc=t2_obs_mean[b],
+                scale=t2_obs_sigma[b],
                 size=sample_size,
             )
         ]
-        t2_target_sd = t2_target_sd + [
-            np.random.normal(
-                loc=t2_obs_mean.sel(source='davison')[b],
-                scale=t2_obs_sigma.sel(source='davison')[b],
-                size=sample_size,
-            )
-        ]
-    t2_target_sd = xr.DataArray(
-        t2_target_sd,
+        # t2_target_sd = t2_target_sd + [
+        #    np.random.normal(
+        #        loc=t2_obs_mean.sel(source='davison')[b],
+        #        scale=t2_obs_sigma.sel(source='davison')[b],
+        #        size=sample_size,
+        #    )
+        # ]
+    t2_target_s = xr.DataArray(
+        t2_target_s,
         dims=['BFRN_bins', 'sample'],
         coords={
             'BFRN_bins': t2_model.BFRN_bins.values,
             'sample': np.arange(sample_size),
         },
     )
-    t2_target_sp = xr.DataArray(
-        t2_target_sp,
-        dims=['BFRN_bins', 'sample'],
-        coords={
-            'BFRN_bins': t2_model.BFRN_bins.values,
-            'sample': np.arange(sample_size),
-        },
-    )
+    # t2_target_sp = xr.DataArray(
+    #    t2_target_sp,
+    #    dims=['BFRN_bins', 'sample'],
+    #    coords={
+    #        'BFRN_bins': t2_model.BFRN_bins.values,
+    #        'sample': np.arange(sample_size),
+    #    },
+    # )
 
     # Term 3 targets
     samples = np.random.normal(
@@ -238,13 +238,14 @@ def calculate_objective_function(
     # term12 = mae(t1_model, t1_target_sd, t1_weights, 'basins')
     # NOTE: change here if you want to change the weighting between
     # paolo and davison data
-    term1 = 0.5 * mae(
-        t1_model, t1_target_sd, t1_weights, 'basins'
-    ) + 0.5 * mae(t1_model, t1_target_sp, t1_weights, 'basins')
-    term2 = 0.5 * mae(
-        t2_model, t2_target_sp, t2_weights, ['BFRN_bins']
-    ) + 0.5 * mae(t2_model, t2_target_sd, t2_weights, ['BFRN_bins'])
-    # term2 = mae(t2_model, t2_target_sd, t2_weights, ['BFRN_bins'])
+    # term1 = 0.5 * mae(
+    #    t1_model, t1_target_sd, t1_weights, 'basins'
+    # ) + 0.5 * mae(t1_model, t1_target_sp, t1_weights, 'basins')
+    term1 = mae(t1_model, t1_target_s, t1_weights, 'basins')
+    # term2 = 0.5 * mae(
+    #    t2_model, t2_target_sp, t2_weights, ['BFRN_bins']
+    # ) + 0.5 * mae(t2_model, t2_target_sd, t2_weights, ['BFRN_bins'])
+    term2 = mae(t2_model, t2_target_s, t2_weights, ['BFRN_bins'])
 
     # important to use skipna here
     term3 = mae(
@@ -296,9 +297,7 @@ def mae(predicted=None, observed=None, weights=1, dims='basins', skipna=False):
     )
 
 
-def calculate_term1(
-    pd_ensemble, mask_m, basins_m, nBasins, cvt_m, MeltData1, MeltData2
-):
+def calculate_term1(pd_ensemble, mask_m, basins_m, nBasins, cvt_m, MeltData):
     ########
     # TERM 1
     # parameterisaition melt, aggregate to Gt/a per basin
@@ -314,43 +313,43 @@ def calculate_term1(
 
     # Observed melt in Gt/a per basin, observed melt is "sample_size"-times
     # randomly sampled assuming normal distribution
-    t1_obs_mean1 = MeltData1['BMR (Gt/yr)'].values
-    t1_obs_mean1 = xr.DataArray(
-        data=t1_obs_mean1,
+    t1_obs_mean = MeltData['BMR (Gt/yr)'].values
+    t1_obs_mean = xr.DataArray(
+        data=t1_obs_mean,
         name='melt_Gt_per_y',
         dims=['basin'],
-        coords={'basin': range(len(MeltData1))},
+        coords={'basin': range(len(MeltData))},
     )
-    t1_obs_mean1 = t1_obs_mean1.assign_coords(source='paolo')
+    # t1_obs_mean1 = t1_obs_mean1.assign_coords(source='paolo')
 
-    t1_obs_mean2 = MeltData2['BMR (Gt/yr)'].values
-    t1_obs_mean2 = xr.DataArray(
-        data=t1_obs_mean2,
-        name='melt_Gt_per_y',
-        dims=['basin'],
-        coords={'basin': range(len(MeltData1))},
-    )
-    t1_obs_mean2 = t1_obs_mean2.assign_coords(source='davison')
-    t1_obs_mean = xr.concat([t1_obs_mean1, t1_obs_mean2], dim='source')
+    # t1_obs_mean2 = MeltData2['BMR (Gt/yr)'].values
+    # t1_obs_mean2 = xr.DataArray(
+    #    data=t1_obs_mean2,
+    #    name='melt_Gt_per_y',
+    #    dims=['basin'],
+    #    coords={'basin': range(len(MeltData1))},
+    # )
+    # t1_obs_mean2 = t1_obs_mean2.assign_coords(source='davison')
+    # t1_obs_mean = xr.concat([t1_obs_mean1, t1_obs_mean2], dim='source')
 
-    t1_obs_sigma1 = MeltData1['BMR uncert (Gt/yr)'].values
-    t1_obs_sigma1 = xr.DataArray(
-        data=t1_obs_sigma1,
+    t1_obs_sigma = MeltData['BMR uncert (Gt/yr)'].values
+    t1_obs_sigma = xr.DataArray(
+        data=t1_obs_sigma,
         dims=['basin'],
-        coords={'basin': range(len(MeltData1))},
+        coords={'basin': range(len(MeltData))},
         name='melt_unc_Gt_per_y',
     )
-    t1_obs_sigma1 = t1_obs_sigma1.assign_coords(source='paolo')
+    # t1_obs_sigma1 = t1_obs_sigma1.assign_coords(source='paolo')
 
-    t1_obs_sigma2 = MeltData2['BMR uncert (Gt/yr)'].values
-    t1_obs_sigma2 = xr.DataArray(
-        data=t1_obs_sigma2,
-        dims=['basin'],
-        coords={'basin': range(len(MeltData2))},
-        name='melt_unc_Gt_per_y',
-    )
-    t1_obs_sigma2 = t1_obs_sigma2.assign_coords(source='davison')
-    t1_obs_sigma = xr.concat([t1_obs_sigma1, t1_obs_sigma2], dim='source')
+    # t1_obs_sigma2 = MeltData2['BMR uncert (Gt/yr)'].values
+    # t1_obs_sigma2 = xr.DataArray(
+    #    data=t1_obs_sigma2,
+    #    dims=['basin'],
+    #    coords={'basin': range(len(MeltData2))},
+    #    name='melt_unc_Gt_per_y',
+    # )
+    # t1_obs_sigma2 = t1_obs_sigma2.assign_coords(source='davison')
+    # t1_obs_sigma = xr.concat([t1_obs_sigma1, t1_obs_sigma2], dim='source')
     return t1_model, t1_obs_mean, t1_obs_sigma
 
 
@@ -701,7 +700,7 @@ def select_subensemble_using_optimal_deltaT(
 
 
 def load_melt_rates_into_dataset(
-    ensemble_name, ensemble_table, ensemble_path, p1_name, p2_name
+    ensemble_name, ensemble_table, ensemble_path, p1_name, p2_name, identifier
 ):
     print('Loading ' + ensemble_name + ' into one dataset...')
     members = []
@@ -714,28 +713,60 @@ def load_melt_rates_into_dataset(
         p1s.append(p1)
         p2s.append(p2)
 
+        print(
+            os.path.join(
+                ensemble_path,
+                ensemble_name
+                + '_'
+                + str(ehash)
+                + '/optimised'
+                + identifier
+                + '.nc',
+            )
+        )
+
         if os.path.isfile(
             os.path.join(
                 ensemble_path,
-                ensemble_name + '_' + str(ehash) + '/optimised.nc',
+                ensemble_name
+                + '_'
+                + str(ehash)
+                + '/optimised'
+                + identifier
+                + '.nc',
             )
         ):
             ds = xr.load_dataset(
                 os.path.join(
                     ensemble_path,
-                    ensemble_name + '_' + str(ehash) + '/optimised.nc',
+                    ensemble_name
+                    + '_'
+                    + str(ehash)
+                    + '/optimised'
+                    + identifier
+                    + '.nc',
                 )
             )
         elif os.path.isfile(
             os.path.join(
                 ensemble_path,
-                ensemble_name + '_' + str(ehash) + '_optimised.nc',
+                ensemble_name
+                + '_'
+                + str(ehash)
+                + '_optimised'
+                + identifier
+                + '.nc',
             )
         ):
             ds = xr.load_dataset(
                 os.path.join(
                     ensemble_path,
-                    ensemble_name + '_' + str(ehash) + '_optimised.nc',
+                    ensemble_name
+                    + '_'
+                    + str(ehash)
+                    + '_optimised'
+                    + identifier
+                    + '.nc',
                 )
             )
         else:
