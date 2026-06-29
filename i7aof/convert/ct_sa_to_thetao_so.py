@@ -317,6 +317,14 @@ def clim_ct_sa_to_thetao_so(
     grid_path = ensure_ismip_grid(config)
     outputs: List[str] = []
     for ct_path, sa_path in pairs:
+        # Stage the source ct/sa as final outputs alongside thetao/so/tf so
+        # all five climatology fields are published.
+        _publish_final_climatology(
+            config=config, clim_name=clim_name, var='ct', in_path=ct_path
+        )
+        _publish_final_climatology(
+            config=config, clim_name=clim_name, var='sa', in_path=sa_path
+        )
         out_thetao = _output_path_for_extrap_thetao(ct_path)
         out_so = _output_path_for_extrap_so(ct_path)
         thetao_exists = os.path.exists(out_thetao)
