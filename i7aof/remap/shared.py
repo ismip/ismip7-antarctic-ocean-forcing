@@ -11,7 +11,11 @@ from i7aof.coords import (
 )
 from i7aof.grid.ismip import get_ismip_grid_filename
 from i7aof.io import ensure_cf_time_encoding, read_dataset, write_netcdf
-from i7aof.remap import add_periodic_lon, remap_lat_lon_to_ismip
+from i7aof.remap import (
+    add_periodic_lon,
+    drop_duplicate_lon,
+    remap_lat_lon_to_ismip,
+)
 from i7aof.vert.interp import VerticalInterpolator, fix_src_z_coord
 
 
@@ -251,6 +255,7 @@ def _run_remap_with_temp_cwd(
     lon_var,
     lat_var,
     renormalize=None,
+    regional=None,
 ):
     """Run remap_lat_lon_to_ismip inside a temporary working directory.
 
@@ -279,6 +284,8 @@ def _run_remap_with_temp_cwd(
         )
         if renormalize is not None:
             kwargs['renormalize'] = renormalize
+        if regional is not None:
+            kwargs['regional'] = regional
         remap_lat_lon_to_ismip(**kwargs)
         success = True
     finally:
@@ -333,8 +340,21 @@ def _remap_horiz(
         )
     in_grid_name = model_prefix
     ds = read_dataset(in_filename, chunks={'time': 1})
-    if method == 'bilinear':
-        ds = add_periodic_lon(ds, lon_var=lon_var, periodic_dim=x_dim)
+    # Longitude dimensionality determines how we treat the periodic seam:
+    # - 1D grids (e.g. observational climatologies spanning the full range of
+    #   longitude) are global. pyremap (>=2.2.0) treats them as periodic, so
+    #   we just drop a duplicate seam column (e.g. both -180 and +180 present)
+    #   to keep the global grid well-formed for ESMF.
+    # - 2D grids (e.g. the CESM POP tripole grid) are treated as regional, so
+    #   for bilinear remapping we instead close the seam by appending a
+    #   periodic column.
+    if len(ds[lon_var].dims) == 1:
+        regional = False
+        ds = drop_duplicate_lon(ds, lon_var=lon_var)
+    else:
+        regional = True
+        if method == 'bilinear':
+            ds = add_periodic_lon(ds, lon_var=lon_var, periodic_dim=x_dim)
     ds_mask = _build_and_remap_mask(
         ds=ds,
         tmpdir=tmpdir,
@@ -344,6 +364,7 @@ def _remap_horiz(
         logger=logger,
         lon_var=lon_var,
         lat_var=lat_var,
+        regional=regional,
     )
     remapped_chunks = _remap_data_variables(
         ds=ds,
@@ -356,6 +377,7 @@ def _remap_horiz(
         lat_var=lat_var,
         renorm_threshold=renorm_threshold,
         has_fill_values=has_fill_values,
+        regional=regional,
     )
     _validate_z_extrap(remapped_chunks)
     ds_final = _concat_chunks(remapped_chunks)
@@ -380,6 +402,7 @@ def _build_and_remap_mask(
     logger,
     lon_var: str,
     lat_var: str,
+    regional: bool | None = None,
 ) -> xr.Dataset:
     """Create and horizontally remap the src_frac_interp mask dataset."""
     input_mask_path = os.path.join(tmpdir, 'input_mask.nc')
@@ -411,6 +434,7 @@ def _build_and_remap_mask(
         lon_var=lon_var,
         lat_var=lat_var,
         renormalize=None,
+        regional=regional,
     )
     if not os.path.exists(output_mask_tmp):
         raise FileNotFoundError(
@@ -432,6 +456,7 @@ def _remap_data_variables(
     lat_var: str,
     renorm_threshold: float,
     has_fill_values: list[str],
+    regional: bool | None = None,
 ) -> list[xr.Dataset]:
     """Remap data variables in ds either single-pass or chunked in time."""
     if 'time' not in ds.dims:
@@ -446,6 +471,7 @@ def _remap_data_variables(
             lat_var,
             renorm_threshold,
             has_fill_values,
+            regional,
         )
     return _remap_with_time(
         ds,
@@ -458,6 +484,7 @@ def _remap_data_variables(
         lat_var,
         renorm_threshold,
         has_fill_values,
+        regional,
     )
 
 
@@ -534,6 +561,7 @@ def _remap_no_time(
     lat_var,
     renorm_threshold,
     has_fill_values,
+    regional=None,
 ):
     input_chunk_path = os.path.join(tmpdir, 'input_single.nc')
     output_chunk_path = os.path.join(tmpdir, 'output_single.nc')
@@ -566,6 +594,7 @@ def _remap_no_time(
         lon_var=lon_var,
         lat_var=lat_var,
         renormalize=renorm_threshold,
+        regional=regional,
     )
     if not os.path.exists(output_chunk_tmp):
         raise FileNotFoundError(
@@ -587,6 +616,7 @@ def _remap_with_time(
     lat_var,
     renorm_threshold,
     has_fill_values,
+    regional=None,
 ):
     chunk_size = config.getint('remap_cmip', 'horiz_time_chunk')
     n_time = ds.sizes['time']
@@ -647,6 +677,7 @@ def _remap_with_time(
             lon_var=lon_var,
             lat_var=lat_var,
             renormalize=renorm_threshold,
+            regional=regional,
         )
         if not os.path.exists(output_chunk_tmp):
             raise FileNotFoundError(
