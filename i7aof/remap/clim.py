@@ -119,9 +119,16 @@ def remap_climatology(
         config, in_filename, vert_tmpdir
     )
 
-    # 1) Vertical pipeline: masking -> vertical interpolation -> normalize
+    # 1) Vertical pipeline: masking -> vertical interpolation -> normalize.
+    # Mask whole columns wherever the climatology has no surface data so
+    # spurious ice-shelf-cavity columns are excluded from the remapping.
     vert_interp_filenames = _vert_mask_interp_norm_multi(
-        config, preprocessed, outdir, ['ct', 'sa'], vert_tmpdir
+        config,
+        preprocessed,
+        outdir,
+        ['ct', 'sa'],
+        vert_tmpdir,
+        mask_from_surface=True,
     )
 
     with LoggingContext(__name__) as logger:

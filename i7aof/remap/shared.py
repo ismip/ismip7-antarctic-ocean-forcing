@@ -20,7 +20,7 @@ from i7aof.vert.interp import VerticalInterpolator, fix_src_z_coord
 
 
 def _vert_mask_interp_norm_multi(
-    config, in_filename, outdir, variables, tmpdir
+    config, in_filename, outdir, variables, tmpdir, mask_from_surface=False
 ):
     """
     Mask, vertically interpolate, and normalize variables to the ISMIP
@@ -45,6 +45,12 @@ def _vert_mask_interp_norm_multi(
     Time handling
     - Works with or without a ``time`` dimension. If time is present,
         stages are chunked by ``[remap_cmip] vert_time_chunk`` from config.
+
+    Surface masking
+    - When ``mask_from_surface`` is True, any column whose shallowest
+        (surface) layer is a fill value is treated as fully invalid. This
+        is used for observational climatologies whose ice-shelf-cavity
+        columns have data at depth but none at the surface.
 
     Returns
     - Absolute path to the final normalized file to feed the horizontal
@@ -74,7 +80,7 @@ def _vert_mask_interp_norm_multi(
     ds_ismip = read_dataset(get_ismip_grid_filename(config))
 
     lev, lev_bnds, src_valid = _prepare_vert_coords_and_mask(
-        in_filename, variables
+        in_filename, variables, mask_from_surface=mask_from_surface
     )
 
     time_chunk = config.getint('remap_cmip', 'vert_time_chunk')
@@ -121,7 +127,9 @@ def _vert_mask_interp_norm_multi(
     return normalized_filename
 
 
-def _prepare_vert_coords_and_mask(in_filename, variables):
+def _prepare_vert_coords_and_mask(
+    in_filename, variables, mask_from_surface=False
+):
     with read_dataset(in_filename) as ds:
         lev, lev_bnds = fix_src_z_coord(ds, 'lev', 'lev_bnds')
         ds = ds.assign_coords({'lev': ('lev', lev.data)})
@@ -135,6 +143,17 @@ def _prepare_vert_coords_and_mask(in_filename, variables):
             else:
                 valid = da.notnull()
             src_valid = valid if src_valid is None else (src_valid & valid)
+        if mask_from_surface:
+            # Wherever the surface (shallowest) layer is a fill value, treat
+            # the entire vertical column as invalid. This removes spurious
+            # ice-shelf-cavity columns that some climatologies represent with
+            # valid data at depth but no data at the surface. The surface is
+            # the level with the largest z (closest to the sea surface);
+            # fix_src_z_coord makes lev positive-up but does not sort it, so
+            # we locate the surface with argmax rather than assuming an order.
+            surface_idx = int(np.asarray(lev.values).argmax())
+            surface_valid = src_valid.isel(lev=surface_idx)
+            src_valid = src_valid & surface_valid
     return lev, lev_bnds, src_valid
 
 
