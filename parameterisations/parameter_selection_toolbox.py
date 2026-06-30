@@ -88,7 +88,9 @@ def calculate_objective_function(
     for b in range(nBasins + 1):
         t1_target_s = t1_target_s + [
             np.random.normal(
-                loc=t1_obs_mean[b], scale=t1_obs_sigma[b], size=sample_size
+                loc=t1_obs_mean.values[b],
+                scale=t1_obs_sigma.values[b],
+                size=sample_size,
             )
         ]
     t1_target_s = xr.DataArray(
@@ -106,7 +108,9 @@ def calculate_objective_function(
     for b in range(nBins):
         t2_target_s = t2_target_s + [
             np.random.normal(
-                loc=t2_obs_mean[b], scale=t2_obs_sigma[b], size=sample_size
+                loc=t2_obs_mean[b],
+                scale=t2_obs_sigma[b],
+                size=sample_size,
             )
         ]
     t2_target_s = xr.DataArray(
@@ -129,7 +133,7 @@ def calculate_objective_function(
         dims=[*t3_obs_mean.dims, 'sample'],
         coords={**t3_obs_mean.coords, 'sample': np.arange(sample_size)},
     )
-    # FIXME: DO we want to do this? Sample uniform or only integers?
+
     t3_weights_samples = xr.DataArray(
         np.random.uniform(
             0,
@@ -190,7 +194,6 @@ def calculate_objective_function(
         ['basins', 'model'],
         True,
     )
-    # term3 = mae(t3_model, t3_target_s, t3_weights, ['basins','model'])
     # important to use skipna here
     term4 = mae(
         t4_model,
@@ -199,7 +202,6 @@ def calculate_objective_function(
         ['region', 'year'],
         True,
     )
-    # term4 = mae(t4_model, t4_target_s, t4_weights, ['region', 'year'])
 
     # Sample the objective function
     eps = 0.000001  # to avoid divison by 0
@@ -248,7 +250,20 @@ def calculate_term1(pd_ensemble, mask_m, basins_m, nBasins, cvt_m, MeltData):
     # Observed melt in Gt/a per basin, observed melt is "sample_size"-times
     # randomly sampled assuming normal distribution
     t1_obs_mean = MeltData['BMR (Gt/yr)'].values
+    t1_obs_mean = xr.DataArray(
+        data=t1_obs_mean,
+        name='melt_Gt_per_y',
+        dims=['basin'],
+        coords={'basin': range(len(MeltData))},
+    )
+
     t1_obs_sigma = MeltData['BMR uncert (Gt/yr)'].values
+    t1_obs_sigma = xr.DataArray(
+        data=t1_obs_sigma,
+        dims=['basin'],
+        coords={'basin': range(len(MeltData))},
+        name='melt_unc_Gt_per_y',
+    )
 
     return t1_model, t1_obs_mean, t1_obs_sigma
 
@@ -600,7 +615,7 @@ def select_subensemble_using_optimal_deltaT(
 
 
 def load_melt_rates_into_dataset(
-    ensemble_name, ensemble_table, ensemble_path, p1_name, p2_name
+    ensemble_name, ensemble_table, ensemble_path, p1_name, p2_name, identifier
 ):
     print('Loading ' + ensemble_name + ' into one dataset...')
     members = []
@@ -613,28 +628,60 @@ def load_melt_rates_into_dataset(
         p1s.append(p1)
         p2s.append(p2)
 
+        print(
+            os.path.join(
+                ensemble_path,
+                ensemble_name
+                + '_'
+                + str(ehash)
+                + '/optimised'
+                + identifier
+                + '.nc',
+            )
+        )
+
         if os.path.isfile(
             os.path.join(
                 ensemble_path,
-                ensemble_name + '_' + str(ehash) + '/optimised.nc',
+                ensemble_name
+                + '_'
+                + str(ehash)
+                + '/optimised'
+                + identifier
+                + '.nc',
             )
         ):
             ds = xr.load_dataset(
                 os.path.join(
                     ensemble_path,
-                    ensemble_name + '_' + str(ehash) + '/optimised.nc',
+                    ensemble_name
+                    + '_'
+                    + str(ehash)
+                    + '/optimised'
+                    + identifier
+                    + '.nc',
                 )
             )
         elif os.path.isfile(
             os.path.join(
                 ensemble_path,
-                ensemble_name + '_' + str(ehash) + '_optimised.nc',
+                ensemble_name
+                + '_'
+                + str(ehash)
+                + '_optimised'
+                + identifier
+                + '.nc',
             )
         ):
             ds = xr.load_dataset(
                 os.path.join(
                     ensemble_path,
-                    ensemble_name + '_' + str(ehash) + '_optimised.nc',
+                    ensemble_name
+                    + '_'
+                    + str(ehash)
+                    + '_optimised'
+                    + identifier
+                    + '.nc',
                 )
             )
         else:
