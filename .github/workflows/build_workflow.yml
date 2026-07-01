@@ -82,15 +82,12 @@ jobs:
       - name: Install rattler-build
         run: |
           set -e -o pipefail
-          conda activate base
-          conda update -y --all
-          conda install -y -c conda-forge rattler-build
-          rattler-build --version
+          conda create -y -n rattler-build -c conda-forge rattler-build
+          conda run -n rattler-build rattler-build --version
 
       - name: Build conda package with rattler-build
         run: |
           set -e -o pipefail
-          conda activate base
           export ART_DIR="$(mktemp -d)"
           echo "ART_DIR=$ART_DIR" >> "$GITHUB_ENV"
           # Pick the correct variant file for this Python version
@@ -106,7 +103,7 @@ jobs:
           echo "Using variant: $VARIANT"
 
           # Build the package; produce a .conda artifact under a temp dir
-          rattler-build build -r conda/recipe.yaml -m "$VARIANT" --output-dir "$ART_DIR"
+          conda run -n rattler-build rattler-build build -r conda/recipe.yaml -m "$VARIANT" --output-dir "$ART_DIR"
           if compgen -G "$ART_DIR/linux-64/*.conda" > /dev/null; then
             ARTIFACT_PATH=$(ls -1 "$ART_DIR"/linux-64/*.conda | head -n 1)
           else
