@@ -27,7 +27,7 @@ Weights: You are free to adjust the weights of the different terms in the parame
 Data is available on globus, mainly in:/ISMIP7/AIS/parameterisations/ocean except for datasets used in other components (climatology, topography) which can be found in /ISMIP7/AIS/obs/ocean/.
 
 ### 1. Ensemble using present-day observed ocean climatology
-The toolbox requires ensemble of modelled melt rates for a range of parameter values. These are given in xarray dataset called pd_ensemble, with parameter values indexing the melt rate field. Parameters are called "p1" and "p2" (if only one parameter set is used, just set p2=1). For example, for PICO p1=C and p2=gammaT; while for the quadratic p1=K, p2=1 (constant). Melt rates are saved in variable called "melt_rate" given in kg/m2/a. This should contains polar stereographic x and y coordinates.
+The toolbox requires ensemble of modelled melt rates for a range of parameter values. These are given in xarray dataset called pd_ensemble, with parameter values indexing the melt rate field. Parameters are called "p1" and "p2" (if only one parameter set is used, just set p2=1). For example, for PICO p1=C and p2=gammaT; while for the quadratic p1=K, p2=1 (constant). Melt rates are saved in variable called "melt_rate" given in kg/m2/a. Positive values correspond to melting, negative to refreezing. This should contains polar stereographic x and y coordinates.
 
 ### 2. "Cold" and "warm" ensembles
 Equally, you will need to create a cold and warm ensemble (cold_ensemble, warm_ensemble) for each tuning dataset which are also indexed by p1 and p2 and the model ('mathiot', 'naughten_ais_1',..). They contain corresponding melt rates modelled with your melt module (variable called "melt_rates").
