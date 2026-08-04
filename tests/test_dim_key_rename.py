@@ -97,9 +97,12 @@ def test_remap_horiz_uses_cmip_x_dim(monkeypatch):
     config.set('cmip_dataset', 'x_dim', 'x')
 
     called = {}
+    # The CMIP (POP) grid has 2D longitude, which must take the
+    # add_periodic_lon (regional) branch rather than the 1D global branch.
+    lon2d = np.array([[0.0, 1.0, 2.0], [0.0, 1.0, 2.0]])
     ds = xr.Dataset(
         {'ct': (('time', 'y', 'x'), np.zeros((1, 2, 3), dtype=np.float32))},
-        coords={'lon': ('x', np.array([0.0, 1.0, 2.0]))},
+        coords={'lon': (('y', 'x'), lon2d)},
     )
 
     def fake_read_dataset(*args, **kwargs):

@@ -19,7 +19,7 @@ requests
 progressbar2
 dask
 pyproj
-pyremap >=2.0.0,<3.0.0
+pyremap >=2.2.0,<3.0.0
 pyshp
 scikit-fmm
 scipy

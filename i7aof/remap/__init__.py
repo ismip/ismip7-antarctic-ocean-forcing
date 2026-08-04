@@ -107,6 +107,7 @@ def remap_lat_lon_to_ismip(
     lon_var='lon',
     lat_var='lat',
     renormalize=None,
+    regional=None,
 ):
     """
     Remap a dataset on a lat-lon grid to the ISMIP grid, creating a mapping
@@ -137,6 +138,10 @@ def remap_lat_lon_to_ismip(
         'lat').
     renormalize : float, optional
         If provided, a threshold to use to renormalize the data
+    regional : bool, optional
+        Whether the source grid is regional. If ``None`` (the default),
+        pyremap determines this automatically from the lat/lon extent.
+        Pass ``False`` to force a global (periodic) source grid.
     """
     if os.path.exists(out_filename):
         return
@@ -171,6 +176,7 @@ def remap_lat_lon_to_ismip(
         mesh_name=in_grid_name,
         lon_var=lon_var,
         lat_var=lat_var,
+        regional=regional,
     )
     remapper.dst_from_proj(
         filename=ismip_grid_filename,
@@ -250,6 +256,57 @@ def add_periodic_lon(ds, threshold=1e-10, lon_var='lon', periodic_dim=None):
             lon[-1] = lon[0] + (2 * np.pi if rad else 360.0)
             ds[lon_var] = (periodic_dim, lon)
             ds[lon_var].attrs = attrs
+
+    return ds
+
+
+def drop_duplicate_lon(ds, threshold=1e-10, lon_var='lon'):
+    """
+    Drop a redundant duplicate longitude column from a 1D global lat/lon
+    grid.
+
+    Some global datasets (e.g. a climatology with longitude running from
+    -180 to +180 inclusive) include both the first and last longitude as the
+    same physical location. When such a grid is treated as global (periodic)
+    by ESMF, the duplicated seam produces a zero-width ("degenerate") cell and
+    weight generation fails. Dropping the final duplicate column yields a
+    well-formed periodic grid that pyremap (>=2.2.0) can detect as global.
+
+    Parameters
+    ----------
+    ds : xarray.Dataset
+        The dataset containing a 1D longitude variable.
+
+    threshold : float, optional
+        Tolerance (in degrees) for deciding that the longitude span between
+        the first and last cell centers is a full 360 degrees. Default is
+        1e-10.
+
+    lon_var : str, optional
+        The name of the longitude variable in the dataset. Default is 'lon'.
+
+    Returns
+    -------
+    xarray.Dataset
+        The dataset with a duplicate seam column removed if one was present;
+        otherwise the dataset is returned unchanged.
+    """
+    if len(ds[lon_var].dims) != 1:
+        raise ValueError(
+            f'Expected longitude variable "{lon_var}" to have 1 dimension, '
+            f'but got {len(ds[lon_var].dims)}.'
+        )
+
+    periodic_dim = ds[lon_var].dims[0]
+    lon = ds[lon_var].values
+    span = np.abs(lon[-1] - lon[0])
+    rad = 'rad' in ds[lon_var].attrs.get('units', '')
+    if rad:
+        span = np.rad2deg(span)
+
+    if np.abs(span - 360.0) <= threshold:
+        nperiodic_dim = ds.sizes[periodic_dim]
+        ds = ds.isel({periodic_dim: np.arange(nperiodic_dim - 1)})
 
     return ds
 
